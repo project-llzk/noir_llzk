@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load shared env
+        run: cat .github/workflows/llzk.env >> "$GITHUB_ENV"
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          large-packages: false
+      - uses: Homebrew/actions/setup-homebrew@master
+      - name: Cache homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Homebrew/
+          key: ${{ runner.os }}-homebrew-llvm20
+      - name: Install LLVM & MLIR
+        run: brew install llvm@20
+      - name: Install PCL MLIR
+        uses: ./.github/actions/install-pcl-mlir
+        with:
+          ref: a82620c4dabf6e51ceda66bba2abb19f7f74ac7d
+          type: Debug
+          mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Build
+        run: cargo build --all-features
+      - name: Test
+        run: cargo test --all-features
