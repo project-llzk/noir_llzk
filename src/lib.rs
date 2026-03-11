@@ -2,9 +2,9 @@
 
 #[cfg(test)]
 mod tests {
+    use acir::FieldElement;
     use acir::circuit::{Circuit, Program, PublicInputs};
     use acir::native_types::Witness;
-    use acir::FieldElement;
     use llzk::prelude::*;
     use std::collections::BTreeSet;
 
@@ -59,7 +59,11 @@ mod tests {
         };
 
         // Assert on the structure
-        assert_eq!(program.functions.len(), 1, "Should have exactly one circuit");
+        assert_eq!(
+            program.functions.len(),
+            1,
+            "Should have exactly one circuit"
+        );
 
         let c = &program.functions[0];
         assert_eq!(c.function_name, "main");
@@ -70,13 +74,11 @@ mod tests {
             c.private_parameters.contains(&Witness(0)),
             "Private parameter should be witness 0"
         );
-        assert!(
-            c.public_parameters.0.is_empty(),
-            "No public parameters"
-        );
+        assert!(c.public_parameters.0.is_empty(), "No public parameters");
         assert!(c.return_values.0.is_empty(), "No return values");
 
-        println!("ACIR Program: {} circuit(s), first circuit has {} opcode(s) and witness index up to {}",
+        println!(
+            "ACIR Program: {} circuit(s), first circuit has {} opcode(s) and witness index up to {}",
             program.functions.len(),
             c.opcodes.len(),
             c.current_witness_index,
