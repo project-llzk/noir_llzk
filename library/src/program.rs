@@ -2,12 +2,12 @@
 
 use acir::{FieldElement, circuit::Program};
 use llzk::prelude::{
-    BlockLike, FlatSymbolRefAttribute, LlzkContext, LlzkError, Location, Module, OperationMutLike,
+    BlockLike, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationMutLike,
     StringAttribute, StructType, TypeAttribute, llzk_module,
 };
 use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 
-use crate::circuit::translate_circuit;
+use crate::{Error, circuit::translate_circuit};
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";
 
@@ -18,7 +18,7 @@ const MAIN_STRUCT_NAME: &str = "Circuit0";
 pub fn translate_program<'c>(
     context: &'c LlzkContext,
     program: &Program<FieldElement>,
-) -> Result<Module<'c>, LlzkError> {
+) -> Result<Module<'c>, Error> {
     let location = Location::unknown(context);
     let mut module = llzk_module(location);
     module.as_operation_mut().set_attribute(

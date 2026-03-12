@@ -9,6 +9,8 @@ use llzk::{
     },
 };
 
+use crate::Error;
+
 /// Translates a single ACIR `Circuit` into an LLZK `StructDefOp`.
 ///
 /// Creates `struct.def @Circuit{N}` with:
@@ -22,7 +24,7 @@ pub(crate) fn translate_circuit<'c>(
     context: &'c LlzkContext,
     circuit: &Circuit<FieldElement>,
     circuit_index: usize,
-) -> Result<StructDefOp<'c>, LlzkError> {
+) -> Result<StructDefOp<'c>, Error> {
     let location = Location::unknown(context);
     let struct_name = format!("Circuit{circuit_index}");
     let felt_type = FeltType::new(context);
