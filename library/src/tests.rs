@@ -40,7 +40,7 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
 fn single_private_witness_no_public() {
     let context = LlzkContext::new();
     // 1 witness (w0), private only
-    let circuit = make_circuit(1, &[0], &[], &[]);
+    let circuit = make_circuit(0, &[0], &[], &[]);
     let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
 
     // Should have 1 member
@@ -66,7 +66,7 @@ fn single_private_witness_no_public() {
 fn mixed_private_public_annotations() {
     let context = LlzkContext::new();
     // 4 witnesses: w0 private, w1 public input, w2 private, w3 public return
-    let circuit = make_circuit(4, &[0, 2], &[1], &[3]);
+    let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
     let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
 
     let members = struct_def.get_member_defs();
@@ -91,7 +91,7 @@ fn mixed_private_public_annotations() {
 #[test]
 fn zero_opcodes_verifies() {
     let context = LlzkContext::new();
-    let circuit = make_circuit(2, &[0, 1], &[], &[]);
+    let circuit = make_circuit(1, &[0, 1], &[], &[]);
     let program = make_program(vec![circuit]);
     let module = translate_program(&context, &program).unwrap();
 
@@ -105,9 +105,9 @@ fn zero_opcodes_verifies() {
 fn three_circuits_three_structs() {
     let context = LlzkContext::new();
     let circuits = vec![
-        make_circuit(2, &[0, 1], &[], &[]),
-        make_circuit(3, &[0], &[1], &[2]),
-        make_circuit(1, &[0], &[], &[]),
+        make_circuit(1, &[0, 1], &[], &[]),
+        make_circuit(2, &[0], &[1], &[2]),
+        make_circuit(0, &[0], &[], &[]),
     ];
     let program = make_program(circuits);
     let module = translate_program(&context, &program).unwrap();
@@ -127,7 +127,7 @@ fn three_circuits_three_structs() {
 fn compute_constrain_parameter_counts() {
     let context = LlzkContext::new();
     // 2 private + 1 public = 3 input params
-    let circuit = make_circuit(4, &[0, 2], &[1], &[3]);
+    let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
     let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
 
     let compute = struct_def.get_compute_func().expect("Should have @compute");

@@ -44,8 +44,9 @@ pub fn translate_circuit<'c>(
         [] as [Result<Operation, LlzkError>; 0],
     )?;
 
-    // Add struct members for each witness
-    for i in 0..circuit.current_witness_index {
+    // `current_witness_index` is the highest index, not the next one (see Noir's
+    // `acvm-repo/acir/src/circuit/mod.rs`), so the range is inclusive.
+    for i in 0..circuit.current_witness_index + 1 {
         let member_name = format!("w{i}");
         let is_public = public_witnesses.contains(&i);
         let member =
