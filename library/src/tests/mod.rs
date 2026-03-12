@@ -6,6 +6,7 @@ use llzk::prelude::{
 };
 
 mod circuit_tests;
+mod constrain_tests;
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
 fn make_circuit(

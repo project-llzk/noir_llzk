@@ -9,7 +9,7 @@ use llzk::{
     },
 };
 
-use crate::Error;
+use crate::{Error, FIELD_NAME, constrain::emit_constrain_body};
 
 /// Translates a single ACIR `Circuit` into an LLZK `StructDefOp`.
 ///
@@ -41,7 +41,14 @@ pub(crate) fn translate_circuit<'c>(
     let arg_attrs = build_input_attrs(context, circuit);
 
     emit_compute_fn(context, &struct_def, &struct_name, &inputs, &arg_attrs)?;
-    emit_constrain_fn(context, &struct_def, &struct_name, &inputs, &arg_attrs)?;
+    emit_constrain_fn(
+        context,
+        &struct_def,
+        &struct_name,
+        circuit,
+        &inputs,
+        &arg_attrs,
+    )?;
 
     Ok(struct_def)
 }
@@ -54,7 +61,7 @@ fn emit_members<'c>(
     circuit: &Circuit<FieldElement>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt_type = FeltType::new(context);
+    let felt_type = FeltType::with_field(context, FIELD_NAME);
 
     let public_witnesses: HashSet<u32> = circuit
         .public_parameters
@@ -83,7 +90,7 @@ fn build_input_list<'c>(
     circuit: &Circuit<FieldElement>,
 ) -> Vec<(Type<'c>, Location<'c>)> {
     let location = Location::unknown(context);
-    let felt_type = FeltType::new(context);
+    let felt_type = FeltType::with_field(context, FIELD_NAME);
 
     let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
     private_sorted.sort();
@@ -140,6 +147,7 @@ fn emit_constrain_fn<'c>(
     context: &'c LlzkContext,
     struct_def: &StructDefOp<'c>,
     struct_name: &str,
+    circuit: &Circuit<FieldElement>,
     inputs: &[(Type<'c>, Location<'c>)],
     arg_attrs: &[Vec<NamedAttribute<'c>>],
 ) -> Result<(), Error> {
@@ -149,6 +157,8 @@ fn emit_constrain_fn<'c>(
     let constrain =
         dialect::r#struct::helpers::constrain_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(constrain.into());
+
+    emit_constrain_body(context, struct_def, circuit)?;
 
     Ok(())
 }
