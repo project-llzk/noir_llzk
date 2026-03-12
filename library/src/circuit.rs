@@ -18,7 +18,7 @@ use llzk::{
 ///
 /// Parameter order: private parameters first (in index order), then public
 /// parameters (in index order).
-pub fn translate_circuit<'c>(
+pub(crate) fn translate_circuit<'c>(
     context: &'c LlzkContext,
     circuit: &Circuit<FieldElement>,
     circuit_index: usize,
@@ -46,7 +46,7 @@ pub fn translate_circuit<'c>(
 
     // `current_witness_index` is the highest index, not the next one (see Noir's
     // `acvm-repo/acir/src/circuit/mod.rs`), so the range is inclusive.
-    for i in 0..circuit.current_witness_index + 1 {
+    for i in 0..=circuit.current_witness_index {
         let member_name = format!("w{i}");
         let is_public = public_witnesses.contains(&i);
         let member =

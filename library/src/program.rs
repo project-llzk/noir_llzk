@@ -10,9 +10,10 @@ use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 use crate::circuit::translate_circuit;
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";
+
 /// Translates an ACIR `Program` into an LLZK `Module`.
 ///
-/// Creates the root `module attributes {llzk.lang = "noir"}` and calls
+/// Creates the root `module attributes {llzk.lang = "ACIR"}` and calls
 /// `translate_circuit` for each circuit in `program.functions`.
 pub fn translate_program<'c>(
     context: &'c LlzkContext,
