@@ -1,4 +1,4 @@
-// acir2llzk library crate
+//! A library to compile ACIR programs to LLZK modules
 mod circuit;
 pub mod program;
 

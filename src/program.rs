@@ -1,3 +1,5 @@
+//! Compile the outer level `Program` to LLZK `Module`
+
 use acir::{FieldElement, circuit::Program};
 use llzk::prelude::{BlockLike, LlzkContext, LlzkError, Location, Module, llzk_module};
 
