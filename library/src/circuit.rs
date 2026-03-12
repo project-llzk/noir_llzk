@@ -27,9 +27,35 @@ pub(crate) fn translate_circuit<'c>(
 ) -> Result<StructDefOp<'c>, Error> {
     let location = Location::unknown(context);
     let struct_name = format!("Circuit{circuit_index}");
+
+    let struct_def = dialect::r#struct::def(
+        location,
+        &struct_name,
+        &[],
+        [] as [Result<Operation, LlzkError>; 0],
+    )?;
+
+    emit_members(context, &struct_def, circuit)?;
+
+    let inputs = build_input_list(context, circuit);
+    let arg_attrs = build_input_attrs(context, circuit);
+
+    emit_compute_fn(context, &struct_def, &struct_name, &inputs, &arg_attrs)?;
+    emit_constrain_fn(context, &struct_def, &struct_name, &inputs, &arg_attrs)?;
+
+    Ok(struct_def)
+}
+
+/// Emits `struct.member @w{i} : !felt.type` for each witness, marking public
+/// witnesses with `{llzk.pub}`.
+fn emit_members<'c>(
+    context: &'c LlzkContext,
+    struct_def: &StructDefOp<'c>,
+    circuit: &Circuit<FieldElement>,
+) -> Result<(), Error> {
+    let location = Location::unknown(context);
     let felt_type = FeltType::new(context);
 
-    // Determine which witnesses are public
     let public_witnesses: HashSet<u32> = circuit
         .public_parameters
         .0
@@ -37,14 +63,6 @@ pub(crate) fn translate_circuit<'c>(
         .map(|w| w.0)
         .chain(circuit.return_values.0.iter().map(|w| w.0))
         .collect();
-
-    // Create struct def with empty body
-    let struct_def = dialect::r#struct::def(
-        location,
-        &struct_name,
-        &[],
-        [] as [Result<Operation, LlzkError>; 0],
-    )?;
 
     // `current_witness_index` is the highest index, not the next one (see Noir's
     // `acvm-repo/acir/src/circuit/mod.rs`), so the range is inclusive.
@@ -56,38 +74,81 @@ pub(crate) fn translate_circuit<'c>(
         struct_def.body().append_operation(member.into());
     }
 
-    // Build input parameter list: private params (sorted) then public params (sorted)
-    let struct_type = StructType::from_str(context, &struct_name);
+    Ok(())
+}
+
+/// Builds the input parameter list: private params (sorted) then public params (sorted).
+fn build_input_list<'c>(
+    context: &'c LlzkContext,
+    circuit: &Circuit<FieldElement>,
+) -> Vec<(Type<'c>, Location<'c>)> {
+    let location = Location::unknown(context);
+    let felt_type = FeltType::new(context);
 
     let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
     private_sorted.sort();
     let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
     public_sorted.sort();
 
-    let inputs: Vec<(Type<'c>, Location<'c>)> = private_sorted
+    private_sorted
         .iter()
         .chain(public_sorted.iter())
         .map(|_| (felt_type.into(), location))
-        .collect();
+        .collect()
+}
 
-    // Build arg_attrs: no pub attr for private params, pub attr for public params
+/// Builds the `arg_attrs` list: no attribute for private params, `{llzk.pub}` for public params.
+fn build_input_attrs<'c>(
+    context: &'c LlzkContext,
+    circuit: &Circuit<FieldElement>,
+) -> Vec<Vec<NamedAttribute<'c>>> {
     let pub_attr_vec = vec![PublicAttribute::new_named_attr(context)];
     let no_attr_vec: Vec<NamedAttribute> = vec![];
-    let arg_attrs: Vec<Vec<_>> = private_sorted
+
+    let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
+    private_sorted.sort();
+    let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
+    public_sorted.sort();
+
+    private_sorted
         .iter()
         .map(|_| no_attr_vec.clone())
         .chain(public_sorted.iter().map(|_| pub_attr_vec.clone()))
-        .collect();
+        .collect()
+}
 
-    // Create @compute stub
+/// Creates the `@compute` function stub and appends it to the struct body.
+fn emit_compute_fn<'c>(
+    context: &'c LlzkContext,
+    struct_def: &StructDefOp<'c>,
+    struct_name: &str,
+    inputs: &[(Type<'c>, Location<'c>)],
+    arg_attrs: &[Vec<NamedAttribute<'c>>],
+) -> Result<(), Error> {
+    let location = Location::unknown(context);
+    let struct_type = StructType::from_str(context, struct_name);
+
     let compute =
-        dialect::r#struct::helpers::compute_fn(location, struct_type, &inputs, Some(&arg_attrs))?;
+        dialect::r#struct::helpers::compute_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(compute.into());
 
-    // Create @constrain stub
+    Ok(())
+}
+
+/// Creates the `@constrain` function and emits constraint logic from the circuit opcodes.
+fn emit_constrain_fn<'c>(
+    context: &'c LlzkContext,
+    struct_def: &StructDefOp<'c>,
+    struct_name: &str,
+    inputs: &[(Type<'c>, Location<'c>)],
+    arg_attrs: &[Vec<NamedAttribute<'c>>],
+) -> Result<(), Error> {
+    let location = Location::unknown(context);
+    let struct_type = StructType::from_str(context, struct_name);
+
     let constrain =
-        dialect::r#struct::helpers::constrain_fn(location, struct_type, &inputs, Some(&arg_attrs))?;
+        dialect::r#struct::helpers::constrain_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(constrain.into());
 
-    Ok(struct_def)
+    Ok(())
 }
