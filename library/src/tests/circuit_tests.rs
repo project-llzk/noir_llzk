@@ -1,39 +1,10 @@
-use acir::FieldElement;
-use acir::circuit::{Circuit, Program, PublicInputs};
-use acir::native_types::Witness;
 use llzk::prelude::{
-    BlockLike, LlzkContext, Location, MemberDefOpLike, OperationLike, RegionLike, StructDefOpLike,
-    llzk_module,
+    BlockLike, LlzkContext, MemberDefOpLike, OperationLike, RegionLike, StructDefOpLike,
 };
 
+use super::{make_circuit, make_program, print_and_verify_module, verify_struct_in_module};
 use crate::circuit::translate_circuit;
 use crate::program::translate_program;
-
-/// Helper to build a Circuit with specified witness count, private params,
-/// public params, and return values.
-fn make_circuit(
-    current_witness_index: u32,
-    private: &[u32],
-    public: &[u32],
-    returns: &[u32],
-) -> Circuit<FieldElement> {
-    Circuit {
-        function_name: "test".to_string(),
-        current_witness_index,
-        opcodes: vec![],
-        private_parameters: private.iter().map(|&i| Witness(i)).collect(),
-        public_parameters: PublicInputs(public.iter().map(|&i| Witness(i)).collect()),
-        return_values: PublicInputs(returns.iter().map(|&i| Witness(i)).collect()),
-        assert_messages: vec![],
-    }
-}
-
-fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
-    Program {
-        functions: circuits,
-        unconstrained_functions: vec![],
-    }
-}
 
 /// Circuit with 1 private witness, 0 public → struct with 1 member, no {llzk.pub}
 #[test]
@@ -52,13 +23,7 @@ fn single_private_witness_no_public() {
         "Private witness should not have llzk.pub"
     );
 
-    // Wrap in module and verify
-    let location = Location::unknown(&context);
-    let module = llzk_module(location);
-    module.body().append_operation(struct_def.into());
-    let ir = format!("{}", module.as_operation());
-    println!("single_private_witness_no_public:\n{ir}");
-    assert!(module.as_operation().verify(), "Module should verify");
+    verify_struct_in_module(&context, struct_def, "single_private_witness_no_public");
 }
 
 /// Circuit with 2 private, 1 public input, 1 public return → correct pub annotations
@@ -78,13 +43,7 @@ fn mixed_private_public_annotations() {
     assert!(!members[2].has_public_attr(), "w2 is private");
     assert!(members[3].has_public_attr(), "w3 is public (return)");
 
-    // Wrap in module and verify
-    let location = Location::unknown(&context);
-    let module = llzk_module(location);
-    module.body().append_operation(struct_def.into());
-    let ir = format!("{}", module.as_operation());
-    println!("mixed_private_public_annotations:\n{ir}");
-    assert!(module.as_operation().verify(), "Module should verify");
+    verify_struct_in_module(&context, struct_def, "mixed_private_public_annotations");
 }
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
@@ -95,9 +54,7 @@ fn zero_opcodes_verifies() {
     let program = make_program(vec![circuit]);
     let module = translate_program(&context, &program).unwrap();
 
-    let ir = format!("{}", module.as_operation());
-    println!("zero_opcodes_verifies:\n{ir}");
-    assert!(module.as_operation().verify(), "Module should verify");
+    print_and_verify_module(&module, "zero_opcodes_verifies");
 }
 
 /// translate_program with 3 circuits → module with 3 struct defs
@@ -137,28 +94,19 @@ fn compute_constrain_parameter_counts() {
 
     // Compute: 3 params (2 private + 1 public), returns struct type
     let compute_block = compute.region(0).unwrap().first_block().unwrap();
-    // Block arguments = function parameters
-    // compute_fn helper creates a block with the input params
-    let mut compute_arg_count = 0;
-    while compute_block.argument(compute_arg_count).is_ok() {
-        compute_arg_count += 1;
-    }
-    assert_eq!(compute_arg_count, 3, "Compute should have 3 parameters");
+    assert_eq!(
+        compute_block.argument_count(),
+        3,
+        "Compute should have 3 parameters"
+    );
 
     // Constrain: 4 params (self + 3 inputs)
     let constrain_block = constrain.region(0).unwrap().first_block().unwrap();
-    let mut constrain_arg_count = 0;
-    while constrain_block.argument(constrain_arg_count).is_ok() {
-        constrain_arg_count += 1;
-    }
     assert_eq!(
-        constrain_arg_count, 4,
+        constrain_block.argument_count(),
+        4,
         "Constrain should have 4 parameters (self + 3 inputs)"
     );
 
-    // Verify the whole thing
-    let location = Location::unknown(&context);
-    let module = llzk_module(location);
-    module.body().append_operation(struct_def.into());
-    assert!(module.as_operation().verify(), "Module should verify");
+    verify_struct_in_module(&context, struct_def, "compute_constrain_parameter_counts");
 }
