@@ -1,14 +1,6 @@
-[package]
-name = "noir_llzk"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", features = ["bn254"] }
-
-# LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
-llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"] }
-llzk-sys = { git = "https://github.com/Veridise/llzk-rs" }
-
-[lints.rust]
-missing_docs = "warn"
+[workspace]
+members = [
+    "library",
+    "binary",
+]
+resolver = "2"

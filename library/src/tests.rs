@@ -1,4 +1,3 @@
-
 use acir::FieldElement;
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::Witness;
