@@ -1,17 +1,14 @@
-use std::collections::HashMap;
-
 use acir::circuit::{Circuit, Opcode};
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
-use llzk::builder::OpBuilder;
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, LlzkContext, LlzkError, Location, OperationLike, OperationRef,
-    RegionLike, StructDefOp, StructDefOpLike, Type, Value, dialect,
+    BlockLike, LlzkContext, LlzkError, Location, OperationLike, RegionLike, StructDefOp,
+    StructDefOpLike, Value, dialect,
 };
-use num_bigint::BigUint;
 
 use crate::FIELD_NAME;
+use crate::common::{BlockWriter, field_to_felt_const, opcode_name};
 use crate::error::Error;
 
 /// Emits constraint logic for all opcodes in the `@constrain` function body.
@@ -37,30 +34,13 @@ pub(crate) fn emit_constrain_body<'c>(
     Ok(())
 }
 
-/// Returns a human-readable name for an opcode variant.
-fn opcode_name(opcode: &Opcode<FieldElement>) -> String {
-    match opcode {
-        Opcode::AssertZero(_) => "AssertZero".to_string(),
-        Opcode::BlackBoxFuncCall(_) => "BlackBoxFuncCall".to_string(),
-        Opcode::MemoryOp { .. } => "MemoryOp".to_string(),
-        Opcode::MemoryInit { .. } => "MemoryInit".to_string(),
-        Opcode::BrilligCall { .. } => "BrilligCall".to_string(),
-        Opcode::Call { .. } => "Call".to_string(),
-    }
-}
-
 /// LLZK-side constraint writer that manages witness reads and emits
 /// constraint operations into the `@constrain` function body.
 ///
 /// Witnesses are read lazily from `%self` via `struct.readm` on first use
 /// and cached for reuse across opcodes.
 struct ConstraintWriter<'c, 'a> {
-    context: &'c LlzkContext,
-    block: BlockRef<'c, 'a>,
-    ret_op: OperationRef<'c, 'a>,
-    location: Location<'c>,
-    self_value: Value<'c, 'a>,
-    witness_cache: HashMap<u32, Value<'c, 'a>>,
+    inner: BlockWriter<'c, 'a>,
 }
 
 impl<'c, 'a> ConstraintWriter<'c, 'a> {
@@ -69,7 +49,6 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
     ) -> Result<ConstraintWriter<'c, 'a>, LlzkError> {
-        let _builder = OpBuilder::new(context);
         let location = Location::unknown(context);
 
         let constrain = struct_def
@@ -80,36 +59,15 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
         let self_value: Value = block.argument(0)?.into();
 
         Ok(ConstraintWriter {
-            context,
-            block,
-            ret_op,
-            location,
-            self_value,
-            witness_cache: HashMap::new(),
+            inner: BlockWriter {
+                context,
+                block,
+                ret_op,
+                location,
+                self_value,
+                witness_cache: Default::default(),
+            },
         })
-    }
-
-    /// Returns the LLZK value for witness `w_idx`, reading it from `%self`
-    /// on first access and caching the result.
-    fn read_witness(&mut self, w_idx: u32) -> Result<Value<'c, 'a>, LlzkError> {
-        if let Some(&val) = self.witness_cache.get(&w_idx) {
-            return Ok(val);
-        }
-
-        let felt_type: Type = FeltType::with_field(self.context, FIELD_NAME).into();
-        let read_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::r#struct::readm(
-                &OpBuilder::new(self.context),
-                self.location,
-                felt_type,
-                self.self_value,
-                &format!("w{w_idx}"),
-            )?,
-        );
-        let val: Value = read_op.result(0)?.into();
-        self.witness_cache.insert(w_idx, val);
-        Ok(val)
     }
 
     /// Emits constraint logic for a single `AssertZero(expr)` opcode.
@@ -124,31 +82,32 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
             if coeff.is_zero() {
                 continue;
             }
-            let vi = self.read_witness(w_i.0)?;
-            let vj = self.read_witness(w_j.0)?;
-            let mul_op = self
-                .block
-                .insert_operation_before(self.ret_op, dialect::felt::mul(self.location, vi, vj)?);
+            let vi = self.inner.read_witness(w_i.0)?;
+            let vj = self.inner.read_witness(w_j.0)?;
+            let mul_op = self.inner.block.insert_operation_before(
+                self.inner.ret_op,
+                dialect::felt::mul(self.inner.location, vi, vj)?,
+            );
             let product: Value = mul_op.result(0)?.into();
-            if let Some(val) = self.apply_coefficient(product, coeff)? {
+            if let Some(val) = self.inner.apply_coefficient(product, coeff)? {
                 terms.push(val);
             }
         }
 
         // Linear terms: coeff * w_k
         for (coeff, w_k) in &expr.linear_combinations {
-            let vk = self.read_witness(w_k.0)?;
-            if let Some(val) = self.apply_coefficient(vk, coeff)? {
+            let vk = self.inner.read_witness(w_k.0)?;
+            if let Some(val) = self.inner.apply_coefficient(vk, coeff)? {
                 terms.push(val);
             }
         }
 
         // Constant term q_c
         if !expr.q_c.is_zero() {
-            let const_attr = field_to_felt_const(self.context, &expr.q_c);
-            let const_op = self.block.insert_operation_before(
-                self.ret_op,
-                dialect::felt::constant(self.location, const_attr)?,
+            let const_attr = field_to_felt_const(self.inner.context, &expr.q_c);
+            let const_op = self.inner.block.insert_operation_before(
+                self.inner.ret_op,
+                dialect::felt::constant(self.inner.location, const_attr)?,
             );
             terms.push(const_op.result(0)?.into());
         }
@@ -159,83 +118,21 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
         }
 
         // Accumulate all terms with felt.add
-        let acc = self.accumulate_terms(&terms)?.unwrap();
+        let acc = self.inner.accumulate_terms(&terms)?.unwrap();
 
         // constrain.eq acc == 0
-        let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
-        let zero_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::constant(self.location, zero_attr)?,
+        let zero_attr = FeltConstAttribute::new(self.inner.context, 0, Some(FIELD_NAME));
+        let zero_op = self.inner.block.insert_operation_before(
+            self.inner.ret_op,
+            dialect::felt::constant(self.inner.location, zero_attr)?,
         );
         let zero_val: Value = zero_op.result(0)?.into();
 
-        self.block.insert_operation_before(
-            self.ret_op,
-            dialect::constrain::eq(self.location, acc, zero_val),
+        self.inner.block.insert_operation_before(
+            self.inner.ret_op,
+            dialect::constrain::eq(self.inner.location, acc, zero_val),
         );
 
         Ok(())
     }
-
-    /// Accumulates a list of values by chaining `felt.add` operations.
-    ///
-    /// Returns `None` if the list is empty.
-    fn accumulate_terms(
-        &self,
-        terms: &[Value<'c, 'a>],
-    ) -> Result<Option<Value<'c, 'a>>, LlzkError> {
-        if terms.is_empty() {
-            return Ok(None);
-        }
-        let mut acc = terms[0];
-        for &term in &terms[1..] {
-            let add_op = self.block.insert_operation_before(
-                self.ret_op,
-                dialect::felt::add(self.location, acc, term)?,
-            );
-            acc = add_op.result(0)?.into();
-        }
-        Ok(Some(acc))
-    }
-
-    /// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
-    ///
-    /// Returns `None` if the coefficient is zero (term should be skipped).
-    fn apply_coefficient(
-        &self,
-        value: Value<'c, 'a>,
-        coeff: &FieldElement,
-    ) -> Result<Option<Value<'c, 'a>>, LlzkError> {
-        if coeff.is_zero() {
-            return Ok(None);
-        }
-        if coeff.is_one() {
-            return Ok(Some(value));
-        }
-        if *coeff == -FieldElement::one() {
-            let neg_op = self
-                .block
-                .insert_operation_before(self.ret_op, dialect::felt::neg(self.location, value)?);
-            return Ok(Some(neg_op.result(0)?.into()));
-        }
-        // General case: multiply by coefficient constant
-        let coeff_attr = field_to_felt_const(self.context, coeff);
-        let coeff_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::constant(self.location, coeff_attr)?,
-        );
-        let coeff_val: Value = coeff_op.result(0)?.into();
-        let mul_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::mul(self.location, value, coeff_val)?,
-        );
-        Ok(Some(mul_op.result(0)?.into()))
-    }
-}
-
-/// Converts an ACIR `FieldElement` to an LLZK `FeltConstAttribute`.
-fn field_to_felt_const<'c>(context: &'c LlzkContext, fe: &FieldElement) -> FeltConstAttribute<'c> {
-    let bytes = fe.to_le_bytes();
-    let biguint = BigUint::from_bytes_le(&bytes);
-    FeltConstAttribute::from_biguint(context, &biguint, Some(FIELD_NAME))
 }

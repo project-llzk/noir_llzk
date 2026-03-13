@@ -1,5 +1,7 @@
 //! A library to compile ACIR programs to LLZK modules
 mod circuit;
+mod common;
+mod compute;
 mod constrain;
 mod error;
 pub mod program;

@@ -9,7 +9,7 @@ use llzk::{
     },
 };
 
-use crate::{Error, FIELD_NAME, constrain::emit_constrain_body};
+use crate::{Error, FIELD_NAME, compute::emit_compute_body, constrain::emit_constrain_body};
 
 /// Translates a single ACIR `Circuit` into an LLZK `StructDefOp`.
 ///
@@ -40,7 +40,14 @@ pub(crate) fn translate_circuit<'c>(
     let inputs = build_input_list(context, circuit);
     let arg_attrs = build_input_attrs(context, circuit);
 
-    emit_compute_fn(context, &struct_def, &struct_name, &inputs, &arg_attrs)?;
+    emit_compute_fn(
+        context,
+        &struct_def,
+        &struct_name,
+        circuit,
+        &inputs,
+        &arg_attrs,
+    )?;
     emit_constrain_fn(
         context,
         &struct_def,
@@ -124,11 +131,12 @@ fn build_input_attrs<'c>(
         .collect()
 }
 
-/// Creates the `@compute` function stub and appends it to the struct body.
+/// Creates the `@compute` function and emits witness-solving logic from the circuit opcodes.
 fn emit_compute_fn<'c>(
     context: &'c LlzkContext,
     struct_def: &StructDefOp<'c>,
     struct_name: &str,
+    circuit: &Circuit<FieldElement>,
     inputs: &[(Type<'c>, Location<'c>)],
     arg_attrs: &[Vec<NamedAttribute<'c>>],
 ) -> Result<(), Error> {
@@ -138,6 +146,8 @@ fn emit_compute_fn<'c>(
     let compute =
         dialect::r#struct::helpers::compute_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(compute.into());
+
+    emit_compute_body(context, struct_def, circuit)?;
 
     Ok(())
 }
