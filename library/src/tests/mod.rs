@@ -1,7 +1,7 @@
 use acir::FieldElement;
+use acir::circuit::Opcode;
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::Witness;
-use acir::circuit::Opcode;
 use llzk::prelude::{
     BlockLike, LlzkContext, Location, Module, OperationLike, StructDefOp, llzk_module,
 };

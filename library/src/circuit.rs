@@ -86,8 +86,7 @@ fn emit_members<'c>(
 
     let input_set: HashSet<u32> = input_witnesses.iter().copied().collect();
 
-    let public_witnesses: HashSet<u32> =
-        circuit.return_values.0.iter().map(|w| w.0).collect();
+    let public_witnesses: HashSet<u32> = circuit.return_values.0.iter().map(|w| w.0).collect();
 
     // `current_witness_index` is the highest index, not the next one (see Noir's
     // `acvm-repo/acir/src/circuit/mod.rs`), so the range is inclusive.
