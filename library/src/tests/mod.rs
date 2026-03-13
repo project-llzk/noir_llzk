@@ -1,12 +1,15 @@
 use acir::FieldElement;
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::Witness;
+use acir::circuit::Opcode;
 use llzk::prelude::{
     BlockLike, LlzkContext, Location, Module, OperationLike, StructDefOp, llzk_module,
 };
 
 mod circuit_tests;
+mod compute_tests;
 mod constrain_tests;
+
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
 fn make_circuit(
@@ -30,6 +33,25 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
     Program {
         functions: circuits,
         unconstrained_functions: vec![],
+    }
+}
+
+/// Helper to build a circuit with the given opcodes.
+fn make_circuit_with_opcodes(
+    current_witness_index: u32,
+    private: &[u32],
+    public: &[u32],
+    returns: &[u32],
+    opcodes: Vec<Opcode<FieldElement>>,
+) -> Circuit<FieldElement> {
+    Circuit {
+        function_name: "test".to_string(),
+        current_witness_index,
+        opcodes,
+        private_parameters: private.iter().map(|&i| Witness(i)).collect(),
+        public_parameters: PublicInputs(public.iter().map(|&i| Witness(i)).collect()),
+        return_values: PublicInputs(returns.iter().map(|&i| Witness(i)).collect()),
+        assert_messages: vec![],
     }
 }
 

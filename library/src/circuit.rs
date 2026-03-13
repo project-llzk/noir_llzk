@@ -15,7 +15,7 @@ use crate::{Error, FIELD_NAME, compute::emit_compute_body, constrain::emit_const
 ///
 /// Creates `struct.def @Circuit{N}` with:
 /// - `struct.member @w{i} : !felt.type` for each witness `0..current_witness_index`
-/// - `{llzk.pub}` annotation on witnesses in `public_parameters` or `return_values`
+/// - `{llzk.pub}` annotation on witnesses in `return_values`
 /// - Empty `@compute` and `@constrain` function stubs with correct signatures
 ///
 /// Parameter order: private parameters first (in index order), then public
@@ -35,10 +35,12 @@ pub(crate) fn translate_circuit<'c>(
         [] as [Result<Operation, LlzkError>; 0],
     )?;
 
-    emit_members(context, &struct_def, circuit)?;
+    let input_witnesses = sorted_input_witnesses(circuit);
 
-    let inputs = build_input_list(context, circuit);
-    let arg_attrs = build_input_attrs(context, circuit);
+    emit_members(context, &struct_def, circuit, &input_witnesses)?;
+
+    let inputs = build_input_list(context, &input_witnesses);
+    let arg_attrs = build_input_attrs(context, circuit, &input_witnesses);
 
     emit_compute_fn(
         context,
@@ -47,6 +49,7 @@ pub(crate) fn translate_circuit<'c>(
         circuit,
         &inputs,
         &arg_attrs,
+        &input_witnesses,
     )?;
     emit_constrain_fn(
         context,
@@ -55,9 +58,19 @@ pub(crate) fn translate_circuit<'c>(
         circuit,
         &inputs,
         &arg_attrs,
+        &input_witnesses,
     )?;
 
     Ok(struct_def)
+}
+
+/// Returns the sorted input witness indices: private params first, then public params.
+fn sorted_input_witnesses(circuit: &Circuit<FieldElement>) -> Vec<u32> {
+    let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
+    private_sorted.sort();
+    let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
+    public_sorted.sort();
+    private_sorted.into_iter().chain(public_sorted).collect()
 }
 
 /// Emits `struct.member @w{i} : !felt.type` for each witness, marking public
@@ -66,21 +79,24 @@ fn emit_members<'c>(
     context: &'c LlzkContext,
     struct_def: &StructDefOp<'c>,
     circuit: &Circuit<FieldElement>,
+    input_witnesses: &[u32],
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
     let felt_type = FeltType::with_field(context, FIELD_NAME);
 
-    let public_witnesses: HashSet<u32> = circuit
-        .public_parameters
-        .0
-        .iter()
-        .map(|w| w.0)
-        .chain(circuit.return_values.0.iter().map(|w| w.0))
-        .collect();
+    let input_set: HashSet<u32> = input_witnesses.iter().copied().collect();
+
+    let public_witnesses: HashSet<u32> =
+        circuit.return_values.0.iter().map(|w| w.0).collect();
 
     // `current_witness_index` is the highest index, not the next one (see Noir's
     // `acvm-repo/acir/src/circuit/mod.rs`), so the range is inclusive.
+    // Skip input witnesses — they are available as function parameters and don't
+    // need struct storage.
     for i in 0..=circuit.current_witness_index {
+        if input_set.contains(&i) {
+            continue;
+        }
         let member_name = format!("w{i}");
         let is_public = public_witnesses.contains(&i);
         let member =
@@ -91,22 +107,16 @@ fn emit_members<'c>(
     Ok(())
 }
 
-/// Builds the input parameter list: private params (sorted) then public params (sorted).
+/// Builds the input parameter list: one `!felt.type` per input witness.
 fn build_input_list<'c>(
     context: &'c LlzkContext,
-    circuit: &Circuit<FieldElement>,
+    input_witnesses: &[u32],
 ) -> Vec<(Type<'c>, Location<'c>)> {
     let location = Location::unknown(context);
     let felt_type = FeltType::with_field(context, FIELD_NAME);
 
-    let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
-    private_sorted.sort();
-    let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
-    public_sorted.sort();
-
-    private_sorted
+    input_witnesses
         .iter()
-        .chain(public_sorted.iter())
         .map(|_| (felt_type.into(), location))
         .collect()
 }
@@ -115,19 +125,22 @@ fn build_input_list<'c>(
 fn build_input_attrs<'c>(
     context: &'c LlzkContext,
     circuit: &Circuit<FieldElement>,
+    input_witnesses: &[u32],
 ) -> Vec<Vec<NamedAttribute<'c>>> {
     let pub_attr_vec = vec![PublicAttribute::new_named_attr(context)];
     let no_attr_vec: Vec<NamedAttribute> = vec![];
 
-    let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
-    private_sorted.sort();
-    let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
-    public_sorted.sort();
+    let public_set: HashSet<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
 
-    private_sorted
+    input_witnesses
         .iter()
-        .map(|_| no_attr_vec.clone())
-        .chain(public_sorted.iter().map(|_| pub_attr_vec.clone()))
+        .map(|w| {
+            if public_set.contains(w) {
+                pub_attr_vec.clone()
+            } else {
+                no_attr_vec.clone()
+            }
+        })
         .collect()
 }
 
@@ -139,6 +152,7 @@ fn emit_compute_fn<'c>(
     circuit: &Circuit<FieldElement>,
     inputs: &[(Type<'c>, Location<'c>)],
     arg_attrs: &[Vec<NamedAttribute<'c>>],
+    input_witnesses: &[u32],
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
     let struct_type = StructType::from_str(context, struct_name);
@@ -147,7 +161,7 @@ fn emit_compute_fn<'c>(
         dialect::r#struct::helpers::compute_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(compute.into());
 
-    emit_compute_body(context, struct_def, circuit)?;
+    emit_compute_body(context, struct_def, circuit, input_witnesses)?;
 
     Ok(())
 }
@@ -160,6 +174,7 @@ fn emit_constrain_fn<'c>(
     circuit: &Circuit<FieldElement>,
     inputs: &[(Type<'c>, Location<'c>)],
     arg_attrs: &[Vec<NamedAttribute<'c>>],
+    input_witnesses: &[u32],
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
     let struct_type = StructType::from_str(context, struct_name);
@@ -168,7 +183,7 @@ fn emit_constrain_fn<'c>(
         dialect::r#struct::helpers::constrain_fn(location, struct_type, inputs, Some(arg_attrs))?;
     struct_def.body().append_operation(constrain.into());
 
-    emit_constrain_body(context, struct_def, circuit)?;
+    emit_constrain_body(context, struct_def, circuit, input_witnesses)?;
 
     Ok(())
 }

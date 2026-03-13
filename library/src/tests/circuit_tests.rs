@@ -1,50 +1,8 @@
-use llzk::prelude::{
-    BlockLike, LlzkContext, MemberDefOpLike, OperationLike, RegionLike, StructDefOpLike,
-};
+use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
 use super::{make_circuit, make_program, print_and_verify_module, verify_struct_in_module};
 use crate::circuit::translate_circuit;
 use crate::program::translate_program;
-
-/// Circuit with 1 private witness, 0 public → struct with 1 member, no {llzk.pub}
-#[test]
-fn single_private_witness_no_public() {
-    let context = LlzkContext::new();
-    // 1 witness (w0), private only
-    let circuit = make_circuit(0, &[0], &[], &[]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
-
-    // Should have 1 member
-    let members = struct_def.get_member_defs();
-    assert_eq!(members.len(), 1, "Should have exactly 1 member");
-    assert_eq!(members[0].member_name(), "w0");
-    assert!(
-        !members[0].has_public_attr(),
-        "Private witness should not have llzk.pub"
-    );
-
-    verify_struct_in_module(&context, struct_def, "single_private_witness_no_public");
-}
-
-/// Circuit with 2 private, 1 public input, 1 public return → correct pub annotations
-#[test]
-fn mixed_private_public_annotations() {
-    let context = LlzkContext::new();
-    // 4 witnesses: w0 private, w1 public input, w2 private, w3 public return
-    let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
-
-    let members = struct_def.get_member_defs();
-    assert_eq!(members.len(), 4, "Should have 4 members");
-
-    // Check public annotations
-    assert!(!members[0].has_public_attr(), "w0 is private");
-    assert!(members[1].has_public_attr(), "w1 is public (input)");
-    assert!(!members[2].has_public_attr(), "w2 is private");
-    assert!(members[3].has_public_attr(), "w3 is public (return)");
-
-    verify_struct_in_module(&context, struct_def, "mixed_private_public_annotations");
-}
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
 #[test]

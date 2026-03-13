@@ -21,8 +21,9 @@ pub(crate) fn emit_constrain_body<'c>(
     context: &'c LlzkContext,
     struct_def: &StructDefOp<'c>,
     circuit: &Circuit<FieldElement>,
+    input_witnesses: &[u32],
 ) -> Result<(), Error> {
-    let mut writer = ConstraintWriter::new(context, struct_def)?;
+    let mut writer = ConstraintWriter::new(context, struct_def, input_witnesses)?;
 
     for opcode in &circuit.opcodes {
         match opcode {
@@ -45,9 +46,13 @@ struct ConstraintWriter<'c, 'a> {
 
 impl<'c, 'a> ConstraintWriter<'c, 'a> {
     /// Creates a new writer targeting the `@constrain` function of the given struct.
+    ///
+    /// Seeds `witness_cache` from block arguments so that input witnesses are
+    /// resolved from parameters rather than emitting `struct.readm`.
     fn new(
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
+        input_witnesses: &[u32],
     ) -> Result<ConstraintWriter<'c, 'a>, LlzkError> {
         let location = Location::unknown(context);
 
@@ -58,6 +63,15 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
         let ret_op = block.terminator().unwrap();
         let self_value: Value = block.argument(0)?.into();
 
+        let mut witness_cache = std::collections::HashMap::new();
+
+        // Seed cache from input parameters (argument 0 is %self, inputs start at 1).
+        for (arg_idx, &w_idx) in input_witnesses.iter().enumerate() {
+            // Block argument 0 is %self, so inputs start at index 1.
+            let arg_val: Value = block.argument(arg_idx + 1)?.into();
+            witness_cache.insert(w_idx, arg_val);
+        }
+
         Ok(ConstraintWriter {
             inner: BlockWriter {
                 context,
@@ -65,7 +79,7 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
                 ret_op,
                 location,
                 self_value,
-                witness_cache: Default::default(),
+                witness_cache,
             },
         })
     }

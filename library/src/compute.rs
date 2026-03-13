@@ -24,8 +24,9 @@ pub(crate) fn emit_compute_body<'c>(
     context: &'c LlzkContext,
     struct_def: &StructDefOp<'c>,
     circuit: &Circuit<FieldElement>,
+    input_witnesses: &[u32],
 ) -> Result<(), Error> {
-    let mut writer = ComputeWriter::new(context, struct_def, circuit)?;
+    let mut writer = ComputeWriter::new(context, struct_def, input_witnesses)?;
     for (opcode_index, opcode) in circuit.opcodes.iter().enumerate() {
         match opcode {
             Opcode::AssertZero(expr) => writer.emit_assert_zero(expr, opcode_index)?,
@@ -55,7 +56,7 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
     fn new(
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
-        circuit: &Circuit<FieldElement>,
+        input_witnesses: &[u32],
     ) -> Result<ComputeWriter<'c, 'a>, LlzkError> {
         let location = Location::unknown(context);
 
@@ -81,22 +82,11 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
             known: HashSet::new(),
         };
 
-        // Write input parameters to struct members and mark as known.
-        // Order: private params (sorted) then public params (sorted).
-        let mut private_sorted: Vec<u32> = circuit.private_parameters.iter().map(|w| w.0).collect();
-        private_sorted.sort();
-        let mut public_sorted: Vec<u32> = circuit.public_parameters.0.iter().map(|w| w.0).collect();
-        public_sorted.sort();
-
-        let input_witnesses: Vec<u32> = private_sorted.into_iter().chain(public_sorted).collect();
-
+        // Populate known set and witness cache from input parameters.
+        // Inputs are available as function arguments — no struct.writem needed.
         for (arg_idx, &w_idx) in input_witnesses.iter().enumerate() {
             // Block argument 0 is the first input param (compute has no %self arg).
             let arg_val: Value = block.argument(arg_idx)?.into();
-            writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::r#struct::writem(location, self_value, &format!("w{w_idx}"), arg_val)?,
-            );
             writer.known.insert(w_idx);
             writer.inner.witness_cache.insert(w_idx, arg_val);
         }
