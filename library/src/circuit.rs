@@ -113,7 +113,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             .opcodes
             .iter()
             .enumerate()
-            .map(|(index, opcode)| TranslatedOpcode::from_acir(opcode, index))
+            .map(TranslatedOpcode::try_from)
             .collect()
     }
 
