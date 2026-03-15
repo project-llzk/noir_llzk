@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use acir::circuit::{Circuit, Opcode};
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::dialect::felt::FeltConstAttribute;
@@ -10,31 +9,8 @@ use llzk::prelude::{
 };
 
 use crate::FIELD_NAME;
-use crate::common::{BlockWriter, collect_witnesses, field_to_felt_const, opcode_name};
+use crate::common::{BlockWriter, collect_witnesses, field_to_felt_const};
 use crate::error::Error;
-
-/// Emits witness-solving logic for all opcodes in the `@compute` function body.
-///
-/// Initially known witnesses are the circuit's input parameters (private + public).
-/// For each `AssertZero(expr)` in opcode order:
-/// - All witnesses known → skip (pure assertion, handled by constrain)
-/// - Exactly one unknown → solve algebraically and write to struct
-/// - Two or more unknowns → return error
-pub(crate) fn emit_compute_body<'c>(
-    context: &'c LlzkContext,
-    struct_def: &StructDefOp<'c>,
-    circuit: &Circuit<FieldElement>,
-    input_witnesses: &[u32],
-) -> Result<(), Error> {
-    let mut writer = ComputeWriter::new(context, struct_def, input_witnesses)?;
-    for (opcode_index, opcode) in circuit.opcodes.iter().enumerate() {
-        match opcode {
-            Opcode::AssertZero(expr) => writer.emit_assert_zero(expr, opcode_index)?,
-            other => return Err(Error::UnsupportedOpcode(opcode_name(other))),
-        }
-    }
-    Ok(())
-}
 
 /// LLZK-side compute writer that manages witness solving and emits
 /// operations into the `@compute` function body.
@@ -42,7 +18,7 @@ pub(crate) fn emit_compute_body<'c>(
 /// Input witnesses are written to the struct from function parameters.
 /// Intermediate witnesses are solved from `AssertZero` expressions and
 /// written to the struct as they are computed.
-struct ComputeWriter<'c, 'a> {
+pub(crate) struct ComputeWriter<'c, 'a> {
     inner: BlockWriter<'c, 'a>,
     /// Set of witness indices that are currently known (solved or input).
     known: HashSet<u32>,
@@ -53,7 +29,7 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
     ///
     /// Writes all input parameters (private then public) to the struct as initial
     /// known witnesses.
-    fn new(
+    pub(crate) fn new(
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
@@ -100,7 +76,7 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
     /// - If all witnesses are known, nothing is emitted (pure assertion).
     /// - If exactly one witness is unknown, it is solved algebraically.
     /// - If two or more are unknown, an error is returned.
-    fn emit_assert_zero(
+    pub(crate) fn emit_assert_zero(
         &mut self,
         expr: &Expression<FieldElement>,
         opcode_index: usize,

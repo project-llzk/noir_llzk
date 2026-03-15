@@ -3,8 +3,7 @@ use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
-use super::{make_circuit_with_opcodes, verify_struct_in_module};
-use crate::circuit::translate_circuit;
+use super::{make_circuit_with_opcodes, translate_single_circuit, verify_struct_in_module};
 
 /// Count the number of `constrain.eq` operations in the constrain function.
 fn count_constrain_eq_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
@@ -37,7 +36,7 @@ fn assert_zero_linear_only() {
         q_c: -FieldElement::from(10u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
@@ -54,7 +53,7 @@ fn assert_zero_squaring() {
         q_c: -FieldElement::from(9u128),
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
@@ -71,7 +70,7 @@ fn assert_zero_mixed_coefficients() {
         q_c: -FieldElement::from(7u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
@@ -102,7 +101,7 @@ fn multiple_assert_zero_opcodes() {
         &[],
         vec![Opcode::AssertZero(expr1), Opcode::AssertZero(expr2)],
     );
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 2);
 
@@ -122,7 +121,7 @@ fn assert_zero_neg_one_coefficient() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     let module = super::wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());

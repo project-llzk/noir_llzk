@@ -3,8 +3,10 @@ use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
-use super::{make_circuit_with_opcodes, print_and_verify_module, verify_struct_in_module};
-use crate::circuit::translate_circuit;
+use super::{
+    make_circuit_with_opcodes, print_and_verify_module, translate_single_circuit,
+    verify_struct_in_module,
+};
 use crate::program::translate_program;
 
 /// Count `struct.writem` operations in the compute function.
@@ -35,7 +37,7 @@ fn solve_mul_term() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
     assert_eq!(count_writem_ops(&struct_def), 1);
@@ -59,7 +61,7 @@ fn solve_linear() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
     assert_eq!(count_writem_ops(&struct_def), 1);
@@ -95,7 +97,7 @@ fn chain_of_solves() {
         &[],
         vec![Opcode::AssertZero(expr1), Opcode::AssertZero(expr2)],
     );
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 2 solved witness writes (inputs no longer written to struct)
     assert_eq!(count_writem_ops(&struct_def), 2);
@@ -119,7 +121,7 @@ fn two_unknowns_error() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(2, &[0], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let result = translate_circuit(&context, &circuit, 0);
+    let result = translate_single_circuit(&context, circuit);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -168,7 +170,7 @@ fn solve_with_coefficients() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
     assert_eq!(count_writem_ops(&struct_def), 1);

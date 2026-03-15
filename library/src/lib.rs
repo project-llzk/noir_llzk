@@ -4,6 +4,7 @@ mod common;
 mod compute;
 mod constrain;
 mod error;
+mod opcode;
 pub mod program;
 
 pub use error::Error;

@@ -1,4 +1,3 @@
-use acir::circuit::{Circuit, Opcode};
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::dialect::felt::FeltConstAttribute;
@@ -8,39 +7,14 @@ use llzk::prelude::{
 };
 
 use crate::FIELD_NAME;
-use crate::common::{BlockWriter, field_to_felt_const, opcode_name};
-use crate::error::Error;
-
-/// Emits constraint logic for all opcodes in the `@constrain` function body.
-///
-/// Iterates opcode by opcode on the ACIR side, dispatching to the
-/// [`ConstraintWriter`] to emit LLZK operations.
-///
-/// Returns an error if any unsupported (non-`AssertZero`) opcode is encountered.
-pub(crate) fn emit_constrain_body<'c>(
-    context: &'c LlzkContext,
-    struct_def: &StructDefOp<'c>,
-    circuit: &Circuit<FieldElement>,
-    input_witnesses: &[u32],
-) -> Result<(), Error> {
-    let mut writer = ConstraintWriter::new(context, struct_def, input_witnesses)?;
-
-    for opcode in &circuit.opcodes {
-        match opcode {
-            Opcode::AssertZero(expr) => writer.emit_assert_zero(expr)?,
-            other => return Err(Error::UnsupportedOpcode(opcode_name(other))),
-        }
-    }
-
-    Ok(())
-}
+use crate::common::{BlockWriter, field_to_felt_const};
 
 /// LLZK-side constraint writer that manages witness reads and emits
 /// constraint operations into the `@constrain` function body.
 ///
 /// Witnesses are read lazily from `%self` via `struct.readm` on first use
 /// and cached for reuse across opcodes.
-struct ConstraintWriter<'c, 'a> {
+pub(crate) struct ConstraintWriter<'c, 'a> {
     inner: BlockWriter<'c, 'a>,
 }
 
@@ -49,7 +23,7 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
     ///
     /// Seeds `witness_cache` from block arguments so that input witnesses are
     /// resolved from parameters rather than emitting `struct.readm`.
-    fn new(
+    pub(crate) fn new(
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
@@ -88,7 +62,10 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
     ///
     /// The expression `sum(mul_terms) + sum(linear_combinations) + q_c = 0`
     /// is translated into felt operations and a `constrain.eq` against zero.
-    fn emit_assert_zero(&mut self, expr: &Expression<FieldElement>) -> Result<(), LlzkError> {
+    pub(crate) fn emit_assert_zero(
+        &mut self,
+        expr: &Expression<FieldElement>,
+    ) -> Result<(), LlzkError> {
         let mut terms: Vec<Value<'c, 'a>> = Vec::new();
 
         // Multiplication terms: coeff * w_i * w_j

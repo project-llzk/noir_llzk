@@ -1,7 +1,9 @@
 use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
-use super::{make_circuit, make_program, print_and_verify_module, verify_struct_in_module};
-use crate::circuit::translate_circuit;
+use super::{
+    make_circuit, make_program, print_and_verify_module, translate_single_circuit,
+    verify_struct_in_module,
+};
 use crate::program::translate_program;
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
@@ -43,7 +45,7 @@ fn compute_constrain_parameter_counts() {
     let context = LlzkContext::new();
     // 2 private + 1 public = 3 input params
     let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
-    let struct_def = translate_circuit(&context, &circuit, 0).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     let compute = struct_def.get_compute_func().expect("Should have @compute");
     let constrain = struct_def
