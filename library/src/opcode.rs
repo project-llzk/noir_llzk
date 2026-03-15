@@ -1,9 +1,7 @@
 use acir::{FieldElement, circuit::Opcode};
 use llzk::prelude::{LlzkContext, StructDefOp};
 
-use crate::{
-    common::opcode_name, compute::ComputeWriter, constrain::ConstraintWriter, error::Error,
-};
+use crate::{compute::ComputeWriter, constrain::ConstraintWriter, error::Error};
 
 use crate::opcodes::assert_zero::AssertZero;
 
@@ -57,7 +55,7 @@ impl<'a> TryFrom<(usize, &'a Opcode<FieldElement>)> for TranslatedOpcode<'a> {
     fn try_from((index, opcode): (usize, &'a Opcode<FieldElement>)) -> Result<Self, Error> {
         match opcode {
             Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
-            other => Err(Error::UnsupportedOpcode(opcode_name(other))),
+            other => Err(Error::UnsupportedOpcode(other.to_string())),
         }
     }
 }
