@@ -109,6 +109,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Ok(Some(acc))
     }
 
+    /// Emits a `felt.constant 0` operation and returns its value.
+    pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, LlzkError> {
+        let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
+        let zero_op = self.block.insert_operation_before(
+            self.ret_op,
+            dialect::felt::constant(self.location, zero_attr)?,
+        );
+        Ok(zero_op.result(0)?.into())
+    }
+
     /// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
     ///
     /// Returns `None` if the coefficient is zero (term should be skipped).

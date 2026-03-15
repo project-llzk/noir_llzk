@@ -1,10 +1,8 @@
 use acir::{AcirField, FieldElement, native_types::Expression};
-use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{BlockLike, LlzkError, Value, dialect};
 
 use crate::{
-    FIELD_NAME,
-    common::{collect_witnesses, field_to_felt_const},
+    common::{BlockWriter, collect_witnesses, field_to_felt_const},
     compute::ComputeWriter,
     constrain::ConstraintWriter,
     error::Error,
@@ -39,59 +37,15 @@ impl OpcodeEmitter for AssertZero<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut ConstraintWriter<'c, 'b>) -> Result<(), Error> {
-        let mut terms: Vec<Value<'c, 'b>> = Vec::new();
+        let (terms, _) = collect_expr_terms(&mut writer.inner, self.expr, None)?;
 
-        // Multiplication terms: coeff * w_i * w_j
-        for (coeff, w_i, w_j) in &self.expr.mul_terms {
-            if coeff.is_zero() {
-                continue;
-            }
-            let vi = writer.inner.read_witness(w_i.0)?;
-            let vj = writer.inner.read_witness(w_j.0)?;
-            let mul_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::mul(writer.inner.location, vi, vj)?,
-            );
-            let product: Value = mul_op.result(0).map_err(LlzkError::from)?.into();
-            if let Some(val) = writer.inner.apply_coefficient(product, coeff)? {
-                terms.push(val);
-            }
-        }
-
-        // Linear terms: coeff * w_k
-        for (coeff, w_k) in &self.expr.linear_combinations {
-            let vk = writer.inner.read_witness(w_k.0)?;
-            if let Some(val) = writer.inner.apply_coefficient(vk, coeff)? {
-                terms.push(val);
-            }
-        }
-
-        // Constant term q_c
-        if !self.expr.q_c.is_zero() {
-            let const_attr = field_to_felt_const(writer.inner.context, &self.expr.q_c);
-            let const_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::constant(writer.inner.location, const_attr)?,
-            );
-            terms.push(const_op.result(0).map_err(LlzkError::from)?.into());
-        }
-
-        // If no terms at all, expression is trivially 0 = 0, skip
         if terms.is_empty() {
             return Ok(());
         }
 
-        // Accumulate all terms with felt.add
+        // Accumulate all terms, then assert their sum == 0.
         let acc = writer.inner.accumulate_terms(&terms)?.unwrap();
-
-        // constrain.eq acc == 0
-        let zero_attr = FeltConstAttribute::new(writer.inner.context, 0, Some(FIELD_NAME));
-        let zero_op = writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::felt::constant(writer.inner.location, zero_attr)?,
-        );
-        let zero_val: Value = zero_op.result(0).map_err(LlzkError::from)?.into();
-
+        let zero_val = writer.inner.emit_zero()?;
         writer.inner.block.insert_operation_before(
             writer.inner.ret_op,
             dialect::constrain::eq(writer.inner.location, acc, zero_val),
@@ -116,59 +70,9 @@ fn solve_witness<'c, 'b>(
     expr: &Expression<FieldElement>,
     w_u: u32,
 ) -> Result<(), LlzkError> {
-    let mut b_terms: Vec<Value<'c, 'b>> = Vec::new();
-    let mut coeff_of_unknown: Option<FieldElement> = None;
-
-    // Process multiplication terms — all witnesses are known.
-    for (coeff, w_i, w_j) in &expr.mul_terms {
-        if coeff.is_zero() {
-            continue;
-        }
-        debug_assert!(
-            w_i.0 != w_u && w_j.0 != w_u,
-            "unknown witness w{w_u} in mul_term"
-        );
-
-        let vi = writer.inner.read_witness(w_i.0)?;
-        let vj = writer.inner.read_witness(w_j.0)?;
-        let mul_op = writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::felt::mul(writer.inner.location, vi, vj)?,
-        );
-        let product: Value = mul_op.result(0)?.into();
-        if let Some(val) = writer.inner.apply_coefficient(product, coeff)? {
-            b_terms.push(val);
-        }
-    }
-
-    // Process linear terms.
-    for (coeff, w_k) in &expr.linear_combinations {
-        if coeff.is_zero() {
-            continue;
-        }
-        if w_k.0 == w_u {
-            coeff_of_unknown = Some(*coeff);
-        } else {
-            let vk = writer.inner.read_witness(w_k.0)?;
-            if let Some(val) = writer.inner.apply_coefficient(vk, coeff)? {
-                b_terms.push(val);
-            }
-        }
-    }
-
-    // Constant term q_c contributes to B.
-    if !expr.q_c.is_zero() {
-        let const_attr = field_to_felt_const(writer.inner.context, &expr.q_c);
-        let const_op = writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::felt::constant(writer.inner.location, const_attr)?,
-        );
-        b_terms.push(const_op.result(0)?.into());
-    }
-
+    let (b_terms, coeff_of_unknown) = collect_expr_terms(&mut writer.inner, expr, Some(w_u))?;
     let coeff = coeff_of_unknown.expect("unknown witness should have a linear term");
 
-    // Compute B = sum of b_terms (may be empty → B = 0).
     let b_val = writer.inner.accumulate_terms(&b_terms)?;
 
     // Solve w_u = -B / coeff, with optimizations:
@@ -176,46 +80,36 @@ fn solve_witness<'c, 'b>(
     //   coeff =  1    → w_u = -B
     //   coeff = -1    → w_u =  B
     //   otherwise     → w_u = -B / coeff
-    let result = if let Some(b) = b_val {
-        if coeff.is_one() {
-            // coeff = 1 → w_u = -B
-            let neg_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::neg(writer.inner.location, b)?,
-            );
-            neg_op.result(0)?.into()
-        } else if coeff == -FieldElement::one() {
-            // coeff = -1 → w_u = B
-            b
-        } else {
-            // General case: w_u = -B / coeff
+    let result = match b_val {
+        // B = 0 → w_u = 0
+        None => writer.inner.emit_zero()?,
+        // coeff = -1 → w_u = B
+        Some(b) if coeff == -FieldElement::one() => b,
+        // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
+        Some(b) => {
             let neg_op = writer.inner.block.insert_operation_before(
                 writer.inner.ret_op,
                 dialect::felt::neg(writer.inner.location, b)?,
             );
             let neg_b: Value = neg_op.result(0)?.into();
 
-            let coeff_attr = field_to_felt_const(writer.inner.context, &coeff);
-            let coeff_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::constant(writer.inner.location, coeff_attr)?,
-            );
-            let coeff_val: Value = coeff_op.result(0)?.into();
+            if coeff.is_one() {
+                neg_b
+            } else {
+                let coeff_attr = field_to_felt_const(writer.inner.context, &coeff);
+                let coeff_op = writer.inner.block.insert_operation_before(
+                    writer.inner.ret_op,
+                    dialect::felt::constant(writer.inner.location, coeff_attr)?,
+                );
+                let coeff_val: Value = coeff_op.result(0)?.into();
 
-            let div_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::div(writer.inner.location, neg_b, coeff_val)?,
-            );
-            div_op.result(0)?.into()
+                let div_op = writer.inner.block.insert_operation_before(
+                    writer.inner.ret_op,
+                    dialect::felt::div(writer.inner.location, neg_b, coeff_val)?,
+                );
+                div_op.result(0)?.into()
+            }
         }
-    } else {
-        // B = 0, so w_u = 0.
-        let zero_attr = FeltConstAttribute::new(writer.inner.context, 0, Some(FIELD_NAME));
-        let zero_op = writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::felt::constant(writer.inner.location, zero_attr)?,
-        );
-        zero_op.result(0)?.into()
     };
 
     // Write the solved witness to the struct.
@@ -234,4 +128,65 @@ fn solve_witness<'c, 'b>(
     writer.inner.witness_cache.insert(w_u, result);
 
     Ok(())
+}
+
+/// Collects LLZK values for all terms in `expr`, optionally skipping one linear witness.
+///
+/// Iterates mul_terms, linear_combinations, and q_c, emitting the corresponding
+/// LLZK operations via `inner`. If `skip_witness` is `Some(w_u)`, that witness's
+/// linear term is excluded from the returned values and its coefficient is returned
+/// as the second element of the tuple instead.
+///
+/// This is the shared core of both `emit_constrain` (skip_witness = None) and
+/// `solve_witness` (skip_witness = Some(w_u) to isolate B from the unknown term).
+fn collect_expr_terms<'c, 'b>(
+    inner: &mut BlockWriter<'c, 'b>,
+    expr: &Expression<FieldElement>,
+    skip_witness: Option<u32>,
+) -> Result<(Vec<Value<'c, 'b>>, Option<FieldElement>), LlzkError> {
+    let mut terms = Vec::new();
+    let mut skipped_coeff = None;
+
+    // Multiplication terms: coeff * w_i * w_j
+    for (coeff, w_i, w_j) in &expr.mul_terms {
+        if coeff.is_zero() {
+            continue;
+        }
+        let vi = inner.read_witness(w_i.0)?;
+        let vj = inner.read_witness(w_j.0)?;
+        let mul_op = inner
+            .block
+            .insert_operation_before(inner.ret_op, dialect::felt::mul(inner.location, vi, vj)?);
+        let product: Value = mul_op.result(0)?.into();
+        if let Some(val) = inner.apply_coefficient(product, coeff)? {
+            terms.push(val);
+        }
+    }
+
+    // Linear terms: coeff * w_k
+    for (coeff, w_k) in &expr.linear_combinations {
+        if coeff.is_zero() {
+            continue;
+        }
+        if skip_witness == Some(w_k.0) {
+            skipped_coeff = Some(*coeff);
+            continue;
+        }
+        let vk = inner.read_witness(w_k.0)?;
+        if let Some(val) = inner.apply_coefficient(vk, coeff)? {
+            terms.push(val);
+        }
+    }
+
+    // Constant term q_c
+    if !expr.q_c.is_zero() {
+        let const_attr = field_to_felt_const(inner.context, &expr.q_c);
+        let const_op = inner.block.insert_operation_before(
+            inner.ret_op,
+            dialect::felt::constant(inner.location, const_attr)?,
+        );
+        terms.push(const_op.result(0)?.into());
+    }
+
+    Ok((terms, skipped_coeff))
 }
