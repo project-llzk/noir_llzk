@@ -29,7 +29,11 @@ pub(crate) trait OpcodeEmitter {
     }
 
     /// Emits witness-solving operations into the `@compute` function body.
-    fn emit_compute<'c, 'b>(&self, writer: &mut ComputeWriter<'c, 'b>) -> Result<(), Error>;
+    ///
+    /// Default: no-op.
+    fn emit_compute<'c, 'b>(&self, _writer: &mut ComputeWriter<'c, 'b>) -> Result<(), Error> {
+        Ok(())
+    }
 
     /// Emits constraint assertions into the `@constrain` function body.
     ///
