@@ -20,15 +20,7 @@ fn make_circuit(
     public: &[u32],
     returns: &[u32],
 ) -> Circuit<FieldElement> {
-    Circuit {
-        function_name: "test".to_string(),
-        current_witness_index,
-        opcodes: vec![],
-        private_parameters: private.iter().map(|&i| Witness(i)).collect(),
-        public_parameters: PublicInputs(public.iter().map(|&i| Witness(i)).collect()),
-        return_values: PublicInputs(returns.iter().map(|&i| Witness(i)).collect()),
-        assert_messages: vec![],
-    }
+    make_circuit_with_opcodes(current_witness_index, private, public, returns, vec![])
 }
 
 fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
