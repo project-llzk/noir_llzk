@@ -45,7 +45,10 @@ impl OpcodeEmitter for AssertZero<'_> {
         }
 
         // Accumulate all terms, then assert their sum == 0.
-        let acc = writer.inner.accumulate_terms(&terms)?.unwrap();
+        let acc = writer
+            .inner
+            .accumulate_terms(&terms)?
+            .expect("terms is non-empty; guarded above");
         let zero_val = writer.inner.emit_zero()?;
         writer.inner.block.insert_operation_before(
             writer.inner.ret_op,
