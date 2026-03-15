@@ -9,10 +9,6 @@ use crate::block_writer::BlockWriter;
 
 /// LLZK-side compute writer that manages witness solving and emits
 /// operations into the `@compute` function body.
-///
-/// Input witnesses are written to the struct from function parameters.
-/// Intermediate witnesses are solved from `AssertZero` expressions and
-/// written to the struct as they are computed.
 pub(crate) struct ComputeWriter<'c, 'a> {
     pub(crate) inner: BlockWriter<'c, 'a>,
     /// Set of witness indices that are currently known (solved or input).
@@ -21,9 +17,6 @@ pub(crate) struct ComputeWriter<'c, 'a> {
 
 impl<'c, 'a> ComputeWriter<'c, 'a> {
     /// Creates a new writer targeting the `@compute` function of the given struct.
-    ///
-    /// Writes all input parameters (private then public) to the struct as initial
-    /// known witnesses.
     pub(crate) fn new(
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,

@@ -7,9 +7,6 @@ use crate::block_writer::BlockWriter;
 
 /// LLZK-side constraint writer that manages witness reads and emits
 /// constraint operations into the `@constrain` function body.
-///
-/// Witnesses are read lazily from `%self` via `struct.readm` on first use
-/// and cached for reuse across opcodes.
 pub(crate) struct ConstraintWriter<'c, 'a> {
     pub(crate) inner: BlockWriter<'c, 'a>,
 }
