@@ -2,7 +2,8 @@ use acir::{AcirField, FieldElement, native_types::Expression};
 use llzk::prelude::{BlockLike, LlzkError, Value, dialect};
 
 use crate::{
-    common::{BlockWriter, collect_witnesses, field_to_felt_const},
+    block_writer::BlockWriter,
+    common::{collect_witnesses, field_to_felt_const},
     compute::ComputeWriter,
     constrain::ConstraintWriter,
     error::Error,

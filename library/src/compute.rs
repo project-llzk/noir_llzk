@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
 use llzk::prelude::{
-    BlockLike, LlzkContext, LlzkError, Location, OperationLike, RegionLike, StructDefOp,
-    StructDefOpLike, Value,
+    BlockLike, LlzkContext, LlzkError, OperationLike, RegionLike, StructDefOp, StructDefOpLike,
+    Value,
 };
 
-use crate::common::BlockWriter;
+use crate::block_writer::BlockWriter;
 
 /// LLZK-side compute writer that manages witness solving and emits
 /// operations into the `@compute` function body.
@@ -29,38 +29,19 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
     ) -> Result<ComputeWriter<'c, 'a>, LlzkError> {
-        let location = Location::unknown(context);
-
         let compute = struct_def
             .get_compute_func()
             .expect("Struct should have @compute");
         let block = compute.region(0)?.first_block().unwrap();
-        let ret_op = block.terminator().unwrap();
 
         // The first operation in compute is `struct.new`, its result is %self.
-        let first_op = block.first_operation().unwrap();
-        let self_value: Value = first_op.result(0)?.into();
+        // @compute has no %self arg — inputs start at argument 0.
+        let self_value: Value = block.first_operation().unwrap().result(0)?.into();
+        let known = input_witnesses.iter().copied().collect();
 
-        let mut writer = ComputeWriter {
-            inner: BlockWriter {
-                context,
-                block,
-                ret_op,
-                location,
-                self_value,
-                witness_cache: Default::default(),
-            },
-            known: HashSet::new(),
-        };
-
-        // Populate known set and witness cache from input parameters.
-        // Inputs are available as function arguments — no struct.writem needed.
-        for (arg_idx, &w_idx) in input_witnesses.iter().enumerate() {
-            // Block argument 0 is the first input param (compute has no %self arg).
-            let arg_val: Value = block.argument(arg_idx)?.into();
-            writer.known.insert(w_idx);
-            writer.inner.witness_cache.insert(w_idx, arg_val);
-        }
-        Ok(writer)
+        Ok(ComputeWriter {
+            inner: BlockWriter::from_block(context, block, self_value, input_witnesses, 0)?,
+            known,
+        })
     }
 }

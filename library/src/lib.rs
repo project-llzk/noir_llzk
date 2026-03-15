@@ -1,4 +1,5 @@
 //! A library to compile ACIR programs to LLZK modules
+mod block_writer;
 mod circuit;
 mod common;
 mod compute;
