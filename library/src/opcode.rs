@@ -1,7 +1,8 @@
-use acir::{FieldElement, native_types::Expression};
+use acir::{FieldElement, circuit::Opcode, native_types::Expression};
 use llzk::prelude::{LlzkContext, StructDefOp};
 
 use crate::{
+    common::opcode_name,
     compute::ComputeWriter,
     constrain::ConstraintWriter,
     error::Error,
@@ -21,6 +22,17 @@ pub(crate) enum TranslatedOpcode<'a> {
 }
 
 impl<'a> TranslatedOpcode<'a> {
+    /// Converts an ACIR opcode into its translated form, pre-computing any
+    /// circuit-level metadata (e.g. target struct name for `Call`).
+    ///
+    /// Returns [`Error::UnsupportedOpcode`] for opcodes not yet implemented.
+    pub(crate) fn from_acir(opcode: &'a Opcode<FieldElement>, index: usize) -> Result<Self, Error> {
+        match opcode {
+            Opcode::AssertZero(expr) => Ok(Self::AssertZero { expr, index }),
+            other => Err(Error::UnsupportedOpcode(opcode_name(other))),
+        }
+    }
+
     /// Emits any `struct.member` declarations required by this opcode.
     ///
     /// `AssertZero` is a no-op here. `Call` (future) will add a subcomponent

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use acir::{
     FieldElement,
-    circuit::{Circuit, Opcode, Program},
+    circuit::{Circuit, Program},
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -13,7 +13,7 @@ use llzk::{
 };
 
 use crate::{
-    Error, FIELD_NAME, common::opcode_name, compute::ComputeWriter, constrain::ConstraintWriter,
+    Error, FIELD_NAME, compute::ComputeWriter, constrain::ConstraintWriter,
     opcode::TranslatedOpcode,
 };
 
@@ -108,18 +108,12 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
     /// Converts each ACIR opcode into a [`TranslatedOpcode`], pre-computing
     /// all metadata needed by the emission phases.
-    ///
-    /// For `Call` (future): assigns sub-component member names and resolves
-    /// the target circuit name via `self.program`.
     fn build_handlers(&self) -> Result<Vec<TranslatedOpcode<'p>>, Error> {
         self.circuit
             .opcodes
             .iter()
             .enumerate()
-            .map(|(index, opcode)| match opcode {
-                Opcode::AssertZero(expr) => Ok(TranslatedOpcode::AssertZero { expr, index }),
-                other => Err(Error::UnsupportedOpcode(opcode_name(other))),
-            })
+            .map(|(index, opcode)| TranslatedOpcode::from_acir(opcode, index))
             .collect()
     }
 
