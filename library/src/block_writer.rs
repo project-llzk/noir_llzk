@@ -24,6 +24,9 @@ pub(crate) struct BlockWriter<'c, 'a> {
     pub(crate) self_value: Value<'c, 'a>,
     /// Cache of SSA values for witnesses that have been read from the struct.
     pub(crate) witness_cache: HashMap<u32, Value<'c, 'a>>,
+    /// Cached `felt.constant 0` — emitted at most once per block.
+    /// Prevents adding a new constant zero value for every assert_zero opcode.
+    zero_cache: Option<Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -41,6 +44,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             location: Location::unknown(context),
             self_value,
             witness_cache,
+            zero_cache: None,
         }
     }
 
@@ -109,14 +113,19 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Ok(Some(acc))
     }
 
-    /// Emits a `felt.constant 0` operation and returns its value.
+    /// Returns a `felt.constant 0` value, emitting the operation at most once per block.
     pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, LlzkError> {
+        if let Some(zero) = self.zero_cache {
+            return Ok(zero);
+        }
         let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
         let zero_op = self.block.insert_operation_before(
             self.ret_op,
             dialect::felt::constant(self.location, zero_attr)?,
         );
-        Ok(zero_op.result(0)?.into())
+        let zero: Value = zero_op.result(0)?.into();
+        self.zero_cache = Some(zero);
+        Ok(zero)
     }
 
     /// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
