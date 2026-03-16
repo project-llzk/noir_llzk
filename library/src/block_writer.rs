@@ -4,7 +4,8 @@ use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, LlzkContext, Location, OperationRef, Type, Value, dialect,
+    BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationRef,
+    SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -69,6 +70,56 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Ok(Self::new(context, block, ret_op, self_value, witness_cache))
     }
 
+    /// Inserts `op` into the block immediately before the return terminator.
+    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+        self.block.insert_operation_before(self.ret_op, op)
+    }
+
+    /// Writes `val` into the `name` member of `%self` before the return terminator.
+    pub(crate) fn write_member(&self, name: &str, val: Value<'c, 'a>) -> Result<(), Error> {
+        self.insert_op(dialect::r#struct::writem(self.location, self.self_value, name, val)?);
+        Ok(())
+    }
+
+    /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.
+    pub(crate) fn call_function(
+        &self,
+        parent: &str,
+        func: &str,
+        args: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        Ok(self.insert_op(
+            dialect::function::call(
+                &OpBuilder::new(self.context),
+                self.location,
+                SymbolRefAttribute::new(self.context, parent, &[func]),
+                args,
+                result_types,
+            )?
+            .into(),
+        ))
+    }
+
+    /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
+    pub(crate) fn read_member(
+        &self,
+        ty: Type<'c>,
+        from: Value<'c, 'a>,
+        name: &str,
+    ) -> Result<Value<'c, 'a>, Error> {
+        Ok(self
+            .insert_op(dialect::r#struct::readm(
+                &OpBuilder::new(self.context),
+                self.location,
+                ty,
+                from,
+                name,
+            )?)
+            .result(0)?
+            .into())
+    }
+
     /// Returns the LLZK value for witness `w_idx`, reading it from `%self`
     /// on first access and caching the result.
     pub(crate) fn read_witness(&mut self, w_idx: u32) -> Result<Value<'c, 'a>, Error> {
@@ -77,17 +128,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         }
 
         let felt_type: Type = FeltType::with_field(self.context, FIELD_NAME).into();
-        let read_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::r#struct::readm(
-                &OpBuilder::new(self.context),
-                self.location,
-                felt_type,
-                self.self_value,
-                &format!("w{w_idx}"),
-            )?,
-        );
-        let val: Value = read_op.result(0)?.into();
+        let val = self.read_member(felt_type, self.self_value, &format!("w{w_idx}"))?;
         self.witness_cache.insert(w_idx, val);
         Ok(val)
     }

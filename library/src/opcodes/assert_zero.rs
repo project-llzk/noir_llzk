@@ -7,7 +7,7 @@ use crate::{
     error::Error,
 };
 use acir::{AcirField, FieldElement, native_types::Expression};
-use llzk::prelude::{BlockLike, Value, dialect};
+use llzk::prelude::{Value, dialect};
 
 pub(crate) struct AssertZero<'a> {
     pub(crate) expr: &'a Expression<FieldElement>,
@@ -49,10 +49,7 @@ impl OpcodeEmitter for AssertZero<'_> {
             .accumulate_terms(&terms)?
             .expect("terms is non-empty; guarded above");
         let zero_val = writer.inner.emit_zero()?;
-        writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::constrain::eq(writer.inner.location, acc, zero_val),
-        );
+        writer.inner.insert_op(dialect::constrain::eq(writer.inner.location, acc, zero_val));
 
         Ok(())
     }
@@ -90,41 +87,27 @@ fn solve_witness<'c, 'b>(
         Some(b) if coeff == -FieldElement::one() => b,
         // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
         Some(b) => {
-            let neg_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
+            let neg_b: Value = writer.inner.insert_op(
                 dialect::felt::neg(writer.inner.location, b)?,
-            );
-            let neg_b: Value = neg_op.result(0)?.into();
+            ).result(0)?.into();
 
             if coeff.is_one() {
                 neg_b
             } else {
                 let coeff_attr = field_to_felt_const(writer.inner.context, &coeff);
-                let coeff_op = writer.inner.block.insert_operation_before(
-                    writer.inner.ret_op,
+                let coeff_val: Value = writer.inner.insert_op(
                     dialect::felt::constant(writer.inner.location, coeff_attr)?,
-                );
-                let coeff_val: Value = coeff_op.result(0)?.into();
+                ).result(0)?.into();
 
-                let div_op = writer.inner.block.insert_operation_before(
-                    writer.inner.ret_op,
+                writer.inner.insert_op(
                     dialect::felt::div(writer.inner.location, neg_b, coeff_val)?,
-                );
-                div_op.result(0)?.into()
+                ).result(0)?.into()
             }
         }
     };
 
     // Write the solved witness to the struct.
-    writer.inner.block.insert_operation_before(
-        writer.inner.ret_op,
-        dialect::r#struct::writem(
-            writer.inner.location,
-            writer.inner.self_value,
-            &format!("w{w_u}"),
-            result,
-        )?,
-    );
+    writer.inner.write_member(&format!("w{w_u}"), result)?;
 
     // Mark as known and cache the value.
     writer.known.insert(w_u);
@@ -157,10 +140,9 @@ fn collect_expr_terms<'c, 'b>(
         }
         let vi = inner.read_witness(w_i.0)?;
         let vj = inner.read_witness(w_j.0)?;
-        let mul_op = inner
-            .block
-            .insert_operation_before(inner.ret_op, dialect::felt::mul(inner.location, vi, vj)?);
-        let product: Value = mul_op.result(0)?.into();
+        let product: Value = inner.insert_op(
+            dialect::felt::mul(inner.location, vi, vj)?,
+        ).result(0)?.into();
         if let Some(val) = inner.apply_coefficient(product, coeff)? {
             terms.push(val);
         }
@@ -184,11 +166,9 @@ fn collect_expr_terms<'c, 'b>(
     // Constant term q_c
     if !expr.q_c.is_zero() {
         let const_attr = field_to_felt_const(inner.context, &expr.q_c);
-        let const_op = inner.block.insert_operation_before(
-            inner.ret_op,
+        terms.push(inner.insert_op(
             dialect::felt::constant(inner.location, const_attr)?,
-        );
-        terms.push(const_op.result(0)?.into());
+        ).result(0)?.into());
     }
 
     Ok((terms, skipped_coeff))

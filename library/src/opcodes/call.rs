@@ -1,8 +1,7 @@
 use acir::{FieldElement, circuit::Circuit, native_types::Witness};
-use llzk::builder::OpBuilder;
 use llzk::prelude::{
     BlockLike, FeltType, LlzkContext, Location, StructDefOp, StructDefOpLike,
-    StructType, SymbolRefAttribute, Type, Value, dialect,
+    StructType, Type, Value, dialect,
 };
 
 use crate::{
@@ -70,27 +69,12 @@ impl<'p> OpcodeEmitter for Call<'p> {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct
-        let call_op = dialect::function::call(
-            &OpBuilder::new(writer.inner.context),
-            writer.inner.location,
-            SymbolRefAttribute::new(writer.inner.context, &callee_name, &["compute"]),
-            &arg_vals,
-            &[callee_struct_type],
-        )?;
-        let callee_val: Value<'c, 'b> = writer.inner.block
-            .insert_operation_before(writer.inner.ret_op, call_op.into())
+        let callee_val: Value<'c, 'b> = writer.inner
+            .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
             .result(0)?.into();
 
         // Store callee struct as subcircuit member.
-        writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::r#struct::writem(
-                writer.inner.location,
-                writer.inner.self_value,
-                &format!("subcircuit_{}", self.index),
-                callee_val,
-            )?,
-        );
+        writer.inner.write_member(&format!("subcircuit_{}", self.index), callee_val)?;
 
         // Extract callee return values (BTreeSet — ascending index order) and write them to
         // the caller's output witnesses, making each known for subsequent opcodes.
@@ -98,28 +82,10 @@ impl<'p> OpcodeEmitter for Call<'p> {
         for (callee_ret_idx, caller_out_witness) in
             self.callee.return_values.0.iter().map(|w| w.0).zip(self.outputs)
         {
-            let ret_val: Value<'c, 'b> = writer.inner.block
-                .insert_operation_before(
-                    writer.inner.ret_op,
-                    dialect::r#struct::readm(
-                        &OpBuilder::new(writer.inner.context),
-                        writer.inner.location,
-                        felt_type,
-                        callee_val,
-                        &format!("w{callee_ret_idx}"),
-                    )?,
-                )
-                .result(0)?.into();
+            let ret_val: Value<'c, 'b> =
+                writer.inner.read_member(felt_type, callee_val, &format!("w{callee_ret_idx}"))?;
 
-            writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::r#struct::writem(
-                    writer.inner.location,
-                    writer.inner.self_value,
-                    &format!("w{}", caller_out_witness.0),
-                    ret_val,
-                )?,
-            );
+            writer.inner.write_member(&format!("w{}", caller_out_witness.0), ret_val)?;
 
             // Mark the output witness as known so subsequent opcodes can use it.
             writer.known.insert(caller_out_witness.0);
@@ -139,18 +105,11 @@ impl<'p> OpcodeEmitter for Call<'p> {
             StructType::from_str(writer.inner.context, &callee_name).into();
 
         // Read the stored subcomponent from %self.
-        let callee_val: Value<'c, 'b> = writer.inner.block
-            .insert_operation_before(
-                writer.inner.ret_op,
-                dialect::r#struct::readm(
-                    &OpBuilder::new(writer.inner.context),
-                    writer.inner.location,
-                    callee_struct_type,
-                    writer.inner.self_value,
-                    &format!("subcircuit_{}", self.index),
-                )?,
-            )
-            .result(0)?.into();
+        let callee_val: Value<'c, 'b> = writer.inner.read_member(
+            callee_struct_type,
+            writer.inner.self_value,
+            &format!("subcircuit_{}", self.index),
+        )?;
 
         // Build args: callee struct first, then caller input witnesses.
         let mut arg_vals = vec![callee_val];
@@ -159,14 +118,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
         }
 
         // Call @Circuit{callee_id}::@constrain(%callee, %arg0, ...) — returns ()
-        let call_op = dialect::function::call(
-            &OpBuilder::new(writer.inner.context),
-            writer.inner.location,
-            SymbolRefAttribute::new(writer.inner.context, &callee_name, &["constrain"]),
-            &arg_vals,
-            &[] as &[StructType<'c>],
-        )?;
-        writer.inner.block.insert_operation_before(writer.inner.ret_op, call_op.into());
+        writer.inner.call_function(&callee_name, "constrain", &arg_vals, &[])?;
 
         Ok(())
     }
