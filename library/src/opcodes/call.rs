@@ -115,11 +115,8 @@ impl<'p> OpcodeEmitter for Call<'p> {
             StructType::from_str(writer.context, &callee_name).into();
 
         // Read the stored subcomponent from %self.
-        let callee_val: Value<'c, 'b> = writer.read_member(
-            callee_struct_type,
-            writer.self_value,
-            &format!("subcircuit_{}", self.index),
-        )?;
+        let callee_val: Value<'c, 'b> =
+            writer.read_self_member(callee_struct_type, &format!("subcircuit_{}", self.index))?;
 
         // Build args: callee struct first, then caller input witnesses.
         let mut arg_vals = vec![callee_val];

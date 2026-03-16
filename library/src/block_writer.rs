@@ -20,7 +20,7 @@ pub(crate) struct BlockWriter<'c, 'a> {
     block: BlockRef<'c, 'a>,
     ret_op: OperationRef<'c, 'a>,
     pub(crate) location: Location<'c>,
-    pub(crate) self_value: Value<'c, 'a>,
+    self_value: Value<'c, 'a>,
     /// Cache of SSA values for witnesses that have been read from the struct.
     witness_cache: HashMap<u32, Value<'c, 'a>>,
     /// Witnesses that have been solved (compute phase only).
@@ -112,6 +112,15 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         let self_value: Value = block.argument(0)?.into();
 
         Self::from_block(context, block, self_value, input_witnesses, 1, None)
+    }
+
+    /// Reads the `name` member of `%self` (typed `ty`) before the return terminator.
+    pub(crate) fn read_self_member(
+        &self,
+        ty: Type<'c>,
+        name: &str,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.read_member(ty, self.self_value, name)
     }
 
     // ── Core IR operations ──────────────────────────────────────────────
