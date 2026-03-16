@@ -18,6 +18,13 @@ pub enum Error {
         /// The opcode index where the error occurred.
         opcode_index: usize,
     },
+    /// A `Call` opcode references a circuit index that does not exist in the program.
+    OutOfRangeCallTarget {
+        /// The out-of-range circuit index that was requested.
+        id: u32,
+        /// Total number of circuits in the program.
+        num_circuits: usize,
+    },
     /// An error from the underlying LLZK library.
     Llzk(LlzkError),
 }
@@ -34,6 +41,10 @@ impl fmt::Display for Error {
                 f,
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
+            ),
+            Error::OutOfRangeCallTarget { id, num_circuits } => write!(
+                f,
+                "call targets circuit {id}, but the program only has {num_circuits} circuit(s)"
             ),
             Error::Llzk(e) => write!(f, "{e}"),
         }

@@ -1,13 +1,16 @@
-use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::{Circuit, Program, PublicInputs};
-use acir::native_types::Witness;
+use acir::native_types::{Expression, Witness};
+use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    BlockLike, LlzkContext, Location, Module, OperationLike, StructDefOp, llzk_module,
+    BlockLike, BlockRef, FuncDefOpRef, LlzkContext, Location, MemberDefOpLike, Module,
+    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructDefOpRef, Value,
+    llzk_module,
 };
 
 use crate::circuit::CircuitTranslator;
 
+mod call_tests;
 mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
@@ -31,6 +34,11 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
 }
 
 /// Helper to build a circuit with the given opcodes.
+///
+/// `current_witness_index` is the **inclusive** upper bound of the witness index range for
+/// this circuit. Translation iterates `0..=current_witness_index` to emit `struct.member`
+/// declarations, so it must be at least as large as the highest index referenced in
+/// `private`, `public`, `returns`, or any opcode operand.
 fn make_circuit_with_opcodes(
     current_witness_index: u32,
     private: &[u32],
@@ -73,6 +81,51 @@ fn wrap_struct_in_module<'c>(context: &'c LlzkContext, struct_def: StructDefOp<'
     let module = llzk_module(location);
     module.body().append_operation(struct_def.into());
     module
+}
+
+/// Builds an `AssertZero` opcode for `a * b - out = 0`.
+pub(super) fn mul_constraint(a: u32, b: u32, out: u32) -> Opcode<FieldElement> {
+    Opcode::AssertZero(Expression {
+        mul_terms: vec![(FieldElement::one(), Witness(a), Witness(b))],
+        linear_combinations: vec![(-FieldElement::one(), Witness(out))],
+        q_c: FieldElement::zero(),
+    })
+}
+
+/// Returns the first `StructDefOp` in the module body.
+pub(super) fn first_struct_def<'c, 'a>(module: &'a Module<'c>) -> StructDefOpRef<'c, 'a> {
+    let op = module
+        .body()
+        .first_operation()
+        .expect("module should have a first op");
+    StructDefOpRef::try_from(op).expect("first op should be a struct def")
+}
+
+/// Returns the names of all `struct.member` fields in the given struct.
+fn member_names(struct_def: &llzk::prelude::StructDefOp) -> Vec<String> {
+    struct_def
+        .get_member_defs()
+        .into_iter()
+        .map(|m| m.member_name().to_string())
+        .collect()
+}
+
+/// Collects the operands of every `func.call` in `func`, one inner `Vec` per call.
+fn func_call_operands<'c, 'a>(func: FuncDefOpRef<'c, 'a>) -> Vec<Vec<Value<'c, 'a>>> {
+    let block = func.region(0).unwrap().first_block().unwrap();
+    iter_block_ops(block)
+        .filter(llzk::prelude::dialect::function::is_func_call)
+        .map(|op| op.operands().collect())
+        .collect()
+}
+
+/// Iterates over all operations in a block in order.
+///
+/// This is a polyfill for `Block::operations()`, which the LLZK API does not yet expose.
+pub(super) fn iter_block_ops<'c, 'a>(
+    block: BlockRef<'c, 'a>,
+) -> impl Iterator<Item = OperationRef<'c, 'a>> {
+    std::iter::successors(block.first_operation(), |op| op.next_in_block())
 }
 
 /// Prints the module IR and asserts it verifies successfully.

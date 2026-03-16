@@ -1,7 +1,7 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
-use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
+use llzk::prelude::{LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit, verify_struct_in_module};
 
@@ -11,16 +11,9 @@ fn count_constrain_eq_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
         .get_constrain_func()
         .expect("Should have @constrain");
     let block = constrain.region(0).unwrap().first_block().unwrap();
-
-    let mut count = 0;
-    let mut op = block.first_operation();
-    while let Some(current) = op {
-        if llzk::prelude::dialect::constrain::is_constrain_eq(&current) {
-            count += 1;
-        }
-        op = current.next_in_block();
-    }
-    count
+    super::iter_block_ops(block)
+        .filter(llzk::prelude::dialect::constrain::is_constrain_eq)
+        .count()
 }
 
 /// `x + y - 10 = 0` → no mul terms, two linear terms with coeff 1, constant -10
