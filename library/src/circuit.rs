@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use acir::{
     FieldElement,
-    circuit::{Circuit, Program},
+    circuit::{Circuit, Opcode, Program},
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -13,8 +13,10 @@ use llzk::{
 };
 
 use crate::{
-    Error, FIELD_NAME, compute::ComputeWriter, constrain::ConstraintWriter,
-    opcode::TranslatedOpcode,
+    Error, FIELD_NAME,
+    compute::ComputeWriter,
+    constrain::ConstraintWriter,
+    opcodes::{TranslatedOpcode, assert_zero::AssertZero, call::Call},
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -26,7 +28,6 @@ pub(crate) struct CircuitTranslator<'c, 'p> {
     context: &'c LlzkContext,
     circuit: &'p Circuit<FieldElement>,
     /// Full program, needed to resolve called circuits by index for `Call`.
-    #[allow(dead_code)]
     program: &'p Program<FieldElement>,
 }
 
@@ -113,12 +114,32 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             .opcodes
             .iter()
             .enumerate()
-            .map(TranslatedOpcode::try_from)
+            .map(|(index, opcode)| self.build_handler(index, opcode))
             .collect()
     }
 
-    /// Returns input witness indices: private parameters first, then public,
-    /// each group sorted by index.
+    /// Dispatches a single opcode to its handler, supplying program context for `Call`.
+    fn build_handler(
+        &self,
+        index: usize,
+        opcode: &'p Opcode<FieldElement>,
+    ) -> Result<TranslatedOpcode<'p>, Error> {
+        match opcode {
+            Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
+            Opcode::Call {
+                id,
+                inputs,
+                outputs,
+                ..
+            } => {
+                let callee = &self.program.functions[id.as_usize()];
+                Ok(Box::new(Call::new(index, id.0, inputs, outputs, callee)))
+            }
+            other => Err(Error::UnsupportedOpcode(other.to_string())),
+        }
+    }
+
+    /// Returns input witness indices sorted by witness index.
     fn sorted_input_witnesses(&self) -> Vec<u32> {
         let mut witnesses: Vec<u32> = self
             .circuit

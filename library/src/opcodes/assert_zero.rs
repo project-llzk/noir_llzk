@@ -1,14 +1,13 @@
-use acir::{AcirField, FieldElement, native_types::Expression};
-use llzk::prelude::{BlockLike, Value, dialect};
-
+use super::OpcodeEmitter;
 use crate::{
     block_writer::BlockWriter,
     common::{collect_witnesses, field_to_felt_const},
     compute::ComputeWriter,
     constrain::ConstraintWriter,
     error::Error,
-    opcode::OpcodeEmitter,
 };
+use acir::{AcirField, FieldElement, native_types::Expression};
+use llzk::prelude::{BlockLike, Value, dialect};
 
 pub(crate) struct AssertZero<'a> {
     pub(crate) expr: &'a Expression<FieldElement>,

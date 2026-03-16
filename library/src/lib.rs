@@ -5,7 +5,6 @@ mod common;
 mod compute;
 mod constrain;
 mod error;
-mod opcode;
 mod opcodes;
 pub mod program;
 
