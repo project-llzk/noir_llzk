@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use llzk::prelude::LlzkError;
+use llzk::prelude::{LlzkError, MeliorError};
 
 /// Error type for ACIR-to-LLZK translation.
 #[derive(Debug)]
@@ -52,5 +52,11 @@ impl std::error::Error for Error {
 impl From<LlzkError> for Error {
     fn from(e: LlzkError) -> Self {
         Error::Llzk(e)
+    }
+}
+
+impl From<MeliorError> for Error {
+    fn from(e: MeliorError) -> Self {
+        Error::Llzk(LlzkError::from(e))
     }
 }
