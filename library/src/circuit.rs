@@ -120,22 +120,15 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// Returns input witness indices: private parameters first, then public,
     /// each group sorted by index.
     fn sorted_input_witnesses(&self) -> Vec<u32> {
-        let mut private: Vec<u32> = self
+        let mut witnesses: Vec<u32> = self
             .circuit
             .private_parameters
             .iter()
             .map(|w| w.0)
+            .chain(self.circuit.public_parameters.0.iter().map(|w| w.0))
             .collect();
-        private.sort();
-        let mut public: Vec<u32> = self
-            .circuit
-            .public_parameters
-            .0
-            .iter()
-            .map(|w| w.0)
-            .collect();
-        public.sort();
-        private.into_iter().chain(public).collect()
+        witnesses.sort();
+        witnesses
     }
 
     /// Emits `struct.member @w{i} : !felt.type` for every internal witness
