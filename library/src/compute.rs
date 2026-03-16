@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
 use llzk::prelude::{
-    BlockLike, LlzkContext, LlzkError, OperationLike, RegionLike, StructDefOp, StructDefOpLike,
-    Value,
+    BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOp, StructDefOpLike, Value,
 };
 
 use crate::block_writer::BlockWriter;
+use crate::error::Error;
 
 /// LLZK-side compute writer that manages witness solving and emits
 /// operations into the `@compute` function body.
@@ -21,7 +21,7 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
-    ) -> Result<ComputeWriter<'c, 'a>, LlzkError> {
+    ) -> Result<ComputeWriter<'c, 'a>, Error> {
         let compute = struct_def
             .get_compute_func()
             .expect("Struct should have @compute");

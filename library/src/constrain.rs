@@ -1,9 +1,9 @@
 use llzk::prelude::{
-    BlockLike, LlzkContext, LlzkError, OperationLike, RegionLike, StructDefOp, StructDefOpLike,
-    Value,
+    BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOp, StructDefOpLike, Value,
 };
 
 use crate::block_writer::BlockWriter;
+use crate::error::Error;
 
 /// LLZK-side constraint writer that manages witness reads and emits
 /// constraint operations into the `@constrain` function body.
@@ -20,7 +20,7 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
-    ) -> Result<ConstraintWriter<'c, 'a>, LlzkError> {
+    ) -> Result<ConstraintWriter<'c, 'a>, Error> {
         let constrain = struct_def
             .get_constrain_func()
             .expect("Struct should have @constrain");

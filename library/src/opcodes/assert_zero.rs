@@ -1,5 +1,5 @@
 use acir::{AcirField, FieldElement, native_types::Expression};
-use llzk::prelude::{BlockLike, LlzkError, Value, dialect};
+use llzk::prelude::{BlockLike, Value, dialect};
 
 use crate::{
     block_writer::BlockWriter,
@@ -73,7 +73,7 @@ fn solve_witness<'c, 'b>(
     writer: &mut ComputeWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     w_u: u32,
-) -> Result<(), LlzkError> {
+) -> Result<(), Error> {
     let (b_terms, coeff_of_unknown) = collect_expr_terms(&mut writer.inner, expr, Some(w_u))?;
     let coeff = coeff_of_unknown.expect("unknown witness should have a linear term");
 
@@ -147,7 +147,7 @@ fn collect_expr_terms<'c, 'b>(
     inner: &mut BlockWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     skip_witness: Option<u32>,
-) -> Result<(Vec<Value<'c, 'b>>, Option<FieldElement>), LlzkError> {
+) -> Result<(Vec<Value<'c, 'b>>, Option<FieldElement>), Error> {
     let mut terms = Vec::new();
     let mut skipped_coeff = None;
 

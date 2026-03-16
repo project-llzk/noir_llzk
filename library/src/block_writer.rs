@@ -4,12 +4,12 @@ use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, LlzkContext, LlzkError, Location, OperationRef, Type, Value,
-    dialect,
+    BlockLike, BlockRef, FeltType, LlzkContext, Location, OperationRef, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
 use crate::common::field_to_felt_const;
+use crate::error::Error;
 
 /// Shared LLZK block writer that manages witness reads and emits felt operations.
 ///
@@ -59,7 +59,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self_value: Value<'c, 'a>,
         input_witnesses: &[u32],
         arg_offset: usize,
-    ) -> Result<Self, LlzkError> {
+    ) -> Result<Self, Error> {
         let ret_op = block.terminator().unwrap();
         let mut witness_cache = HashMap::new();
         for (i, &w_idx) in input_witnesses.iter().enumerate() {
@@ -71,7 +71,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     /// Returns the LLZK value for witness `w_idx`, reading it from `%self`
     /// on first access and caching the result.
-    pub(crate) fn read_witness(&mut self, w_idx: u32) -> Result<Value<'c, 'a>, LlzkError> {
+    pub(crate) fn read_witness(&mut self, w_idx: u32) -> Result<Value<'c, 'a>, Error> {
         if let Some(&val) = self.witness_cache.get(&w_idx) {
             return Ok(val);
         }
@@ -98,7 +98,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     pub(crate) fn accumulate_terms(
         &self,
         terms: &[Value<'c, 'a>],
-    ) -> Result<Option<Value<'c, 'a>>, LlzkError> {
+    ) -> Result<Option<Value<'c, 'a>>, Error> {
         if terms.is_empty() {
             return Ok(None);
         }
@@ -114,7 +114,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     }
 
     /// Returns a `felt.constant 0` value, emitting the operation at most once per block.
-    pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, LlzkError> {
+    pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, Error> {
         if let Some(zero) = self.zero_cache {
             return Ok(zero);
         }
@@ -135,7 +135,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         &self,
         value: Value<'c, 'a>,
         coeff: &FieldElement,
-    ) -> Result<Option<Value<'c, 'a>>, LlzkError> {
+    ) -> Result<Option<Value<'c, 'a>>, Error> {
         if coeff.is_zero() {
             return Ok(None);
         }
