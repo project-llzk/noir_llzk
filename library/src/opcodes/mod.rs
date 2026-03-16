@@ -3,7 +3,7 @@ pub(crate) mod call;
 
 use llzk::prelude::{LlzkContext, StructDefOp};
 
-use crate::{compute::ComputeWriter, constrain::ConstraintWriter, error::Error};
+use crate::{block_writer::BlockWriter, error::Error};
 
 /// Trait implemented by each ACIR opcode's translator.
 ///
@@ -29,14 +29,14 @@ pub(crate) trait OpcodeEmitter {
     /// Emits witness-solving operations into the `@compute` function body.
     ///
     /// Default: no-op.
-    fn emit_compute<'c, 'b>(&self, _writer: &mut ComputeWriter<'c, 'b>) -> Result<(), Error> {
+    fn emit_compute<'c, 'b>(&self, _writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         Ok(())
     }
 
     /// Emits constraint assertions into the `@constrain` function body.
     ///
     /// Default: no-op. Brillig opcodes do not emit constraints.
-    fn emit_constrain<'c, 'b>(&self, _writer: &mut ConstraintWriter<'c, 'b>) -> Result<(), Error> {
+    fn emit_constrain<'c, 'b>(&self, _writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         Ok(())
     }
 }

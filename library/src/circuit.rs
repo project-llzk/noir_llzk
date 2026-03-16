@@ -14,8 +14,7 @@ use llzk::{
 
 use crate::{
     Error, FIELD_NAME,
-    compute::ComputeWriter,
-    constrain::ConstraintWriter,
+    block_writer::BlockWriter,
     opcodes::{TranslatedOpcode, assert_zero::AssertZero, call::Call},
 };
 
@@ -85,7 +84,8 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             Some(&arg_attrs),
         )?;
         struct_def.body().append_operation(compute.into());
-        let mut compute_writer = ComputeWriter::new(self.context, &struct_def, &input_witnesses)?;
+        let mut compute_writer =
+            BlockWriter::for_compute(self.context, &struct_def, &input_witnesses)?;
         for op in &ops {
             op.emit_compute(&mut compute_writer)?;
         }
@@ -99,7 +99,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         )?;
         struct_def.body().append_operation(constrain.into());
         let mut constrain_writer =
-            ConstraintWriter::new(self.context, &struct_def, &input_witnesses)?;
+            BlockWriter::for_constrain(self.context, &struct_def, &input_witnesses)?;
         for op in &ops {
             op.emit_constrain(&mut constrain_writer)?;
         }

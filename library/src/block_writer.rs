@@ -1,42 +1,42 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationRef,
-    SymbolRefAttribute, Type, Value, dialect,
+    BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationLike, OperationRef,
+    RegionLike, StructDefOp, StructDefOpLike, SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
-use crate::common::field_to_felt_const;
 use crate::error::Error;
 
-/// Shared LLZK block writer that manages witness reads and emits felt operations.
+/// Shared LLZK block writer that manages witness reads and emits operations
+/// into a single block (either `@compute` or `@constrain`).
 ///
-/// Both `ComputeWriter` and `ConstraintWriter` embed this struct to reuse
-/// common operations like reading witnesses, accumulating terms, and applying
-/// coefficients.
+/// Use [`BlockWriter::for_compute`] or [`BlockWriter::for_constrain`] to
+/// construct a writer for the appropriate phase.
 pub(crate) struct BlockWriter<'c, 'a> {
     pub(crate) context: &'c LlzkContext,
-    pub(crate) block: BlockRef<'c, 'a>,
-    pub(crate) ret_op: OperationRef<'c, 'a>,
+    block: BlockRef<'c, 'a>,
+    ret_op: OperationRef<'c, 'a>,
     pub(crate) location: Location<'c>,
     pub(crate) self_value: Value<'c, 'a>,
     /// Cache of SSA values for witnesses that have been read from the struct.
-    pub(crate) witness_cache: HashMap<u32, Value<'c, 'a>>,
+    witness_cache: HashMap<u32, Value<'c, 'a>>,
+    /// Witnesses that have been solved (compute phase only).
+    known: Option<HashSet<u32>>,
     /// Cached `felt.constant 0` — emitted at most once per block.
-    /// Prevents adding a new constant zero value for every assert_zero opcode.
     zero_cache: Option<Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
-    pub(crate) fn new(
+    fn new(
         context: &'c LlzkContext,
         block: BlockRef<'c, 'a>,
         ret_op: OperationRef<'c, 'a>,
         self_value: Value<'c, 'a>,
         witness_cache: HashMap<u32, Value<'c, 'a>>,
+        known: Option<HashSet<u32>>,
     ) -> Self {
         Self {
             context,
@@ -45,21 +45,22 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             location: Location::unknown(context),
             self_value,
             witness_cache,
+            known,
             zero_cache: None,
         }
     }
 
     /// Builds a `BlockWriter` from an already-resolved `block` and `self_value`.
     ///
-    /// Extracts the block terminator, seeds the witness cache from block arguments
-    /// starting at `arg_offset` (`0` for `@compute`, `1` for `@constrain`), and
-    /// delegates to [`BlockWriter::new`].
-    pub(crate) fn from_block(
+    /// Seeds the witness cache from block arguments starting at `arg_offset`
+    /// (`0` for `@compute`, `1` for `@constrain`).
+    fn from_block(
         context: &'c LlzkContext,
         block: BlockRef<'c, 'a>,
         self_value: Value<'c, 'a>,
         input_witnesses: &[u32],
         arg_offset: usize,
+        known: Option<HashSet<u32>>,
     ) -> Result<Self, Error> {
         let ret_op = block.terminator().unwrap();
         let mut witness_cache = HashMap::new();
@@ -67,8 +68,53 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             let val: Value = block.argument(i + arg_offset)?.into();
             witness_cache.insert(w_idx, val);
         }
-        Ok(Self::new(context, block, ret_op, self_value, witness_cache))
+        Ok(Self::new(
+            context,
+            block,
+            ret_op,
+            self_value,
+            witness_cache,
+            known,
+        ))
     }
+
+    /// Creates a writer targeting the `@compute` function of the given struct.
+    pub(crate) fn for_compute(
+        context: &'c LlzkContext,
+        struct_def: &StructDefOp<'c>,
+        input_witnesses: &[u32],
+    ) -> Result<Self, Error> {
+        let compute = struct_def
+            .get_compute_func()
+            .expect("Struct should have @compute");
+        let block = compute.region(0)?.first_block().unwrap();
+
+        // The first operation in compute is `struct.new`, its result is %self.
+        // @compute has no %self arg — inputs start at argument 0.
+        let self_value: Value = block.first_operation().unwrap().result(0)?.into();
+        let known = Some(input_witnesses.iter().copied().collect());
+
+        Self::from_block(context, block, self_value, input_witnesses, 0, known)
+    }
+
+    /// Creates a writer targeting the `@constrain` function of the given struct.
+    pub(crate) fn for_constrain(
+        context: &'c LlzkContext,
+        struct_def: &StructDefOp<'c>,
+        input_witnesses: &[u32],
+    ) -> Result<Self, Error> {
+        let constrain = struct_def
+            .get_constrain_func()
+            .expect("Struct should have @constrain");
+        let block = constrain.region(0)?.first_block().unwrap();
+
+        // @constrain argument 0 is %self — inputs start at argument 1.
+        let self_value: Value = block.argument(0)?.into();
+
+        Self::from_block(context, block, self_value, input_witnesses, 1, None)
+    }
+
+    // ── Core IR operations ──────────────────────────────────────────────
 
     /// Inserts `op` into the block immediately before the return terminator.
     pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
@@ -125,6 +171,8 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             .into())
     }
 
+    // ── Witness management ──────────────────────────────────────────────
+
     /// Returns the LLZK value for witness `w_idx`, reading it from `%self`
     /// on first access and caching the result.
     pub(crate) fn read_witness(&mut self, w_idx: u32) -> Result<Value<'c, 'a>, Error> {
@@ -138,26 +186,32 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Ok(val)
     }
 
-    /// Accumulates a list of values by chaining `felt.add` operations.
+    /// Returns whether the given witness index has been solved.
     ///
-    /// Returns `None` if the list is empty.
-    pub(crate) fn accumulate_terms(
-        &self,
-        terms: &[Value<'c, 'a>],
-    ) -> Result<Option<Value<'c, 'a>>, Error> {
-        if terms.is_empty() {
-            return Ok(None);
-        }
-        let mut acc = terms[0];
-        for &term in &terms[1..] {
-            let add_op = self.block.insert_operation_before(
-                self.ret_op,
-                dialect::felt::add(self.location, acc, term)?,
-            );
-            acc = add_op.result(0)?.into();
-        }
-        Ok(Some(acc))
+    /// Only valid during the compute phase.
+    pub(crate) fn is_known(&self, w_idx: u32) -> bool {
+        debug_assert!(
+            self.known.is_some(),
+            "is_known called outside compute phase"
+        );
+        self.known.as_ref().is_some_and(|s| s.contains(&w_idx))
     }
+
+    /// Records a solved witness value, updating both the known set and the cache.
+    ///
+    /// Only valid during the compute phase.
+    pub(crate) fn mark_known(&mut self, w_idx: u32, val: Value<'c, 'a>) {
+        debug_assert!(
+            self.known.is_some(),
+            "mark_known called outside compute phase"
+        );
+        if let Some(ref mut known) = self.known {
+            known.insert(w_idx);
+        }
+        self.witness_cache.insert(w_idx, val);
+    }
+
+    // ── Caching helpers ─────────────────────────────────────────────────
 
     /// Returns a `felt.constant 0` value, emitting the operation at most once per block.
     pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, Error> {
@@ -172,38 +226,5 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         let zero: Value = zero_op.result(0)?.into();
         self.zero_cache = Some(zero);
         Ok(zero)
-    }
-
-    /// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
-    ///
-    /// Returns `None` if the coefficient is zero (term should be skipped).
-    pub(crate) fn apply_coefficient(
-        &self,
-        value: Value<'c, 'a>,
-        coeff: &FieldElement,
-    ) -> Result<Option<Value<'c, 'a>>, Error> {
-        if coeff.is_zero() {
-            return Ok(None);
-        }
-        if coeff.is_one() {
-            return Ok(Some(value));
-        }
-        if *coeff == -FieldElement::one() {
-            let neg_op = self
-                .block
-                .insert_operation_before(self.ret_op, dialect::felt::neg(self.location, value)?);
-            return Ok(Some(neg_op.result(0)?.into()));
-        }
-        let coeff_attr = field_to_felt_const(self.context, coeff);
-        let coeff_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::constant(self.location, coeff_attr)?,
-        );
-        let coeff_val: Value = coeff_op.result(0)?.into();
-        let mul_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::mul(self.location, value, coeff_val)?,
-        );
-        Ok(Some(mul_op.result(0)?.into()))
     }
 }
