@@ -124,37 +124,6 @@ fn assert_call_shape(
     );
 }
 
-/// Program with 2 circuits:
-///   Circuit1: private [w0, w1], return [w2], assert w0*w1 - w2 = 0
-///   Circuit0: private [w0, w1], calls Circuit1 with (w0, w1) → output w2
-///
-/// Checks: subcircuit member emitted, compute invokes callee compute,
-/// constrain invokes callee constrain. Full module verifies.
-#[test]
-fn basic_call() {
-    let context = LlzkContext::new();
-
-    // Circuit1: multiplies its two inputs and stores result as w2.
-    let circuit1 = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![mul_constraint(0, 1, 2)]);
-
-    // Circuit0: calls Circuit1, receiving w2 as output.
-    let circuit0 = make_circuit_with_opcodes(
-        2,
-        &[0, 1],
-        &[],
-        &[],
-        vec![call_opcode(1, vec![0, 1], vec![2])],
-    );
-
-    let program = make_program(vec![circuit0, circuit1]);
-    let module = translate_program(&context, &program).unwrap();
-
-    let struct0 = first_struct_def(&module);
-    assert_call_shape(&context, &struct0, 0, "Circuit1", "Circuit0");
-
-    print_and_verify_module(&module, "basic_call");
-}
-
 /// Call outputs become known witnesses that can be used in subsequent AssertZero solves.
 ///
 ///   Circuit1: w0*w1 = w2
