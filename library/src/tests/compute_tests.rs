@@ -74,13 +74,8 @@ fn chain_of_solves() {
         ],
         q_c: FieldElement::zero(),
     };
-    let circuit = make_circuit_with_opcodes(
-        3,
-        &[0, 1],
-        &[],
-        &[],
-        vec![expr1, Opcode::AssertZero(expr2)],
-    );
+    let circuit =
+        make_circuit_with_opcodes(3, &[0, 1], &[], &[], vec![expr1, Opcode::AssertZero(expr2)]);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 2 solved witness writes (inputs no longer written to struct)

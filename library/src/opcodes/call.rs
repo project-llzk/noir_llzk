@@ -1,7 +1,7 @@
 use acir::{FieldElement, circuit::Circuit, native_types::Witness};
 use llzk::prelude::{
-    BlockLike, FeltType, LlzkContext, Location, StructDefOp, StructDefOpLike,
-    StructType, Type, Value, dialect,
+    BlockLike, FeltType, LlzkContext, Location, StructDefOp, StructDefOpLike, StructType, Type,
+    Value, dialect,
 };
 
 use crate::{
@@ -31,7 +31,13 @@ impl<'p> Call<'p> {
         outputs: &'p [Witness],
         callee: &'p Circuit<FieldElement>,
     ) -> Self {
-        Self { index, callee_id, inputs, outputs, callee }
+        Self {
+            index,
+            callee_id,
+            inputs,
+            outputs,
+            callee,
+        }
     }
 }
 
@@ -64,17 +70,23 @@ impl<'p> OpcodeEmitter for Call<'p> {
             StructType::from_str(writer.context(), &callee_name).into();
 
         // Gather callee input values from the caller's witness cache.
-        let arg_vals = self.inputs.iter()
+        let arg_vals = self
+            .inputs
+            .iter()
             .map(|w| writer.inner.read_witness(w.0))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct
-        let callee_val: Value<'c, 'b> = writer.inner
+        let callee_val: Value<'c, 'b> = writer
+            .inner
             .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
-            .result(0)?.into();
+            .result(0)?
+            .into();
 
         // Store callee struct as subcircuit member.
-        writer.inner.write_member(&format!("subcircuit_{}", self.index), callee_val)?;
+        writer
+            .inner
+            .write_member(&format!("subcircuit_{}", self.index), callee_val)?;
 
         // Extract callee return values (BTreeSet — ascending index order) and write them to
         // the caller's output witnesses, making each known for subsequent opcodes.
@@ -84,13 +96,22 @@ impl<'p> OpcodeEmitter for Call<'p> {
             "callee return_values count must match caller outputs count"
         );
         let felt_type: Type<'c> = FeltType::with_field(writer.context(), FIELD_NAME).into();
-        for (callee_ret_idx, caller_out_witness) in
-            self.callee.return_values.0.iter().map(|w| w.0).zip(self.outputs)
+        for (callee_ret_idx, caller_out_witness) in self
+            .callee
+            .return_values
+            .0
+            .iter()
+            .map(|w| w.0)
+            .zip(self.outputs)
         {
             let ret_val: Value<'c, 'b> =
-                writer.inner.read_member(felt_type, callee_val, &format!("w{callee_ret_idx}"))?;
+                writer
+                    .inner
+                    .read_member(felt_type, callee_val, &format!("w{callee_ret_idx}"))?;
 
-            writer.inner.write_member(&format!("w{}", caller_out_witness.0), ret_val)?;
+            writer
+                .inner
+                .write_member(&format!("w{}", caller_out_witness.0), ret_val)?;
 
             writer.mark_known(caller_out_witness.0, ret_val);
         }
@@ -121,7 +142,9 @@ impl<'p> OpcodeEmitter for Call<'p> {
         }
 
         // Call @Circuit{callee_id}::@constrain(%callee, %arg0, ...) — returns ()
-        writer.inner.call_function(&callee_name, "constrain", &arg_vals, &[])?;
+        writer
+            .inner
+            .call_function(&callee_name, "constrain", &arg_vals, &[])?;
 
         Ok(())
     }

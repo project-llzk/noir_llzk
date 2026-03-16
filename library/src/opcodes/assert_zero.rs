@@ -49,7 +49,9 @@ impl OpcodeEmitter for AssertZero<'_> {
             .accumulate_terms(&terms)?
             .expect("terms is non-empty; guarded above");
         let zero_val = writer.inner.emit_zero()?;
-        writer.inner.insert_op(dialect::constrain::eq(writer.inner.location, acc, zero_val));
+        writer
+            .inner
+            .insert_op(dialect::constrain::eq(writer.inner.location, acc, zero_val));
 
         Ok(())
     }
@@ -87,21 +89,27 @@ fn solve_witness<'c, 'b>(
         Some(b) if coeff == -FieldElement::one() => b,
         // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
         Some(b) => {
-            let neg_b: Value = writer.inner.insert_op(
-                dialect::felt::neg(writer.inner.location, b)?,
-            ).result(0)?.into();
+            let neg_b: Value = writer
+                .inner
+                .insert_op(dialect::felt::neg(writer.inner.location, b)?)
+                .result(0)?
+                .into();
 
             if coeff.is_one() {
                 neg_b
             } else {
                 let coeff_attr = field_to_felt_const(writer.inner.context, &coeff);
-                let coeff_val: Value = writer.inner.insert_op(
-                    dialect::felt::constant(writer.inner.location, coeff_attr)?,
-                ).result(0)?.into();
+                let coeff_val: Value = writer
+                    .inner
+                    .insert_op(dialect::felt::constant(writer.inner.location, coeff_attr)?)
+                    .result(0)?
+                    .into();
 
-                writer.inner.insert_op(
-                    dialect::felt::div(writer.inner.location, neg_b, coeff_val)?,
-                ).result(0)?.into()
+                writer
+                    .inner
+                    .insert_op(dialect::felt::div(writer.inner.location, neg_b, coeff_val)?)
+                    .result(0)?
+                    .into()
             }
         }
     };
@@ -139,9 +147,10 @@ fn collect_expr_terms<'c, 'b>(
         }
         let vi = inner.read_witness(w_i.0)?;
         let vj = inner.read_witness(w_j.0)?;
-        let product: Value = inner.insert_op(
-            dialect::felt::mul(inner.location, vi, vj)?,
-        ).result(0)?.into();
+        let product: Value = inner
+            .insert_op(dialect::felt::mul(inner.location, vi, vj)?)
+            .result(0)?
+            .into();
         if let Some(val) = inner.apply_coefficient(product, coeff)? {
             terms.push(val);
         }
@@ -165,9 +174,12 @@ fn collect_expr_terms<'c, 'b>(
     // Constant term q_c
     if !expr.q_c.is_zero() {
         let const_attr = field_to_felt_const(inner.context, &expr.q_c);
-        terms.push(inner.insert_op(
-            dialect::felt::constant(inner.location, const_attr)?,
-        ).result(0)?.into());
+        terms.push(
+            inner
+                .insert_op(dialect::felt::constant(inner.location, const_attr)?)
+                .result(0)?
+                .into(),
+        );
     }
 
     Ok((terms, skipped_coeff))

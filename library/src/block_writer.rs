@@ -77,7 +77,12 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
     pub(crate) fn write_member(&self, name: &str, val: Value<'c, 'a>) -> Result<(), Error> {
-        self.insert_op(dialect::r#struct::writem(self.location, self.self_value, name, val)?);
+        self.insert_op(dialect::r#struct::writem(
+            self.location,
+            self.self_value,
+            name,
+            val,
+        )?);
         Ok(())
     }
 
