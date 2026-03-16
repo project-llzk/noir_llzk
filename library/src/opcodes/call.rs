@@ -61,7 +61,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_compute<'c, 'b>(&self, writer: &mut ComputeWriter<'c, 'b>) -> Result<(), Error> {
         let callee_name = format!("Circuit{}", self.callee_id);
         let callee_struct_type: Type<'c> =
-            StructType::from_str(writer.inner.context, &callee_name).into();
+            StructType::from_str(writer.context(), &callee_name).into();
 
         // Gather callee input values from the caller's witness cache.
         let arg_vals = self.inputs.iter()
@@ -83,7 +83,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
             self.outputs.len(),
             "callee return_values count must match caller outputs count"
         );
-        let felt_type: Type<'c> = FeltType::with_field(writer.inner.context, FIELD_NAME).into();
+        let felt_type: Type<'c> = FeltType::with_field(writer.context(), FIELD_NAME).into();
         for (callee_ret_idx, caller_out_witness) in
             self.callee.return_values.0.iter().map(|w| w.0).zip(self.outputs)
         {
@@ -92,9 +92,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
             writer.inner.write_member(&format!("w{}", caller_out_witness.0), ret_val)?;
 
-            // Mark the output witness as known so subsequent opcodes can use it.
-            writer.known.insert(caller_out_witness.0);
-            writer.inner.witness_cache.insert(caller_out_witness.0, ret_val);
+            writer.mark_known(caller_out_witness.0, ret_val);
         }
 
         Ok(())
@@ -107,7 +105,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_constrain<'c, 'b>(&self, writer: &mut ConstraintWriter<'c, 'b>) -> Result<(), Error> {
         let callee_name = format!("Circuit{}", self.callee_id);
         let callee_struct_type: Type<'c> =
-            StructType::from_str(writer.inner.context, &callee_name).into();
+            StructType::from_str(writer.context(), &callee_name).into();
 
         // Read the stored subcomponent from %self.
         let callee_val: Value<'c, 'b> = writer.inner.read_member(

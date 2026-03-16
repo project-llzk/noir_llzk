@@ -12,7 +12,7 @@ use crate::error::Error;
 pub(crate) struct ComputeWriter<'c, 'a> {
     pub(crate) inner: BlockWriter<'c, 'a>,
     /// Set of witness indices that are currently known (solved or input).
-    pub(crate) known: HashSet<u32>,
+    known: HashSet<u32>,
 }
 
 impl<'c, 'a> ComputeWriter<'c, 'a> {
@@ -36,5 +36,21 @@ impl<'c, 'a> ComputeWriter<'c, 'a> {
             inner: BlockWriter::from_block(context, block, self_value, input_witnesses, 0)?,
             known,
         })
+    }
+
+    /// Returns a reference to the LLZK context.
+    pub(crate) fn context(&self) -> &'c LlzkContext {
+        self.inner.context
+    }
+
+    /// Returns whether the given witness index has been solved.
+    pub(crate) fn is_known(&self, w_idx: u32) -> bool {
+        self.known.contains(&w_idx)
+    }
+
+    /// Records a solved witness value, updating both the known set and the cache.
+    pub(crate) fn mark_known(&mut self, w_idx: u32, val: Value<'c, 'a>) {
+        self.known.insert(w_idx);
+        self.inner.witness_cache.insert(w_idx, val);
     }
 }

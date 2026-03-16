@@ -33,4 +33,9 @@ impl<'c, 'a> ConstraintWriter<'c, 'a> {
             inner: BlockWriter::from_block(context, block, self_value, input_witnesses, 1)?,
         })
     }
+
+    /// Returns a reference to the LLZK context.
+    pub(crate) fn context(&self) -> &'c LlzkContext {
+        self.inner.context
+    }
 }

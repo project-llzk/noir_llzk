@@ -19,7 +19,7 @@ impl OpcodeEmitter for AssertZero<'_> {
         let all_witnesses = collect_witnesses(self.expr);
         let unknowns: Vec<u32> = all_witnesses
             .iter()
-            .filter(|w| !writer.known.contains(w))
+            .filter(|w| !writer.is_known(**w))
             .copied()
             .collect();
         match unknowns.len() {
@@ -110,8 +110,7 @@ fn solve_witness<'c, 'b>(
     writer.inner.write_member(&format!("w{w_u}"), result)?;
 
     // Mark as known and cache the value.
-    writer.known.insert(w_u);
-    writer.inner.witness_cache.insert(w_u, result);
+    writer.mark_known(w_u, result);
 
     Ok(())
 }
