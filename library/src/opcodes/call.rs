@@ -78,6 +78,11 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Extract callee return values (BTreeSet — ascending index order) and write them to
         // the caller's output witnesses, making each known for subsequent opcodes.
+        debug_assert_eq!(
+            self.callee.return_values.0.len(),
+            self.outputs.len(),
+            "callee return_values count must match caller outputs count"
+        );
         let felt_type: Type<'c> = FeltType::with_field(writer.inner.context, FIELD_NAME).into();
         for (callee_ret_idx, caller_out_witness) in
             self.callee.return_values.0.iter().map(|w| w.0).zip(self.outputs)
