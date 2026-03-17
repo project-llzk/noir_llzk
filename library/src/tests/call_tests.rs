@@ -355,7 +355,7 @@ fn call_output_used_in_subsequent_solve() {
     // constrain readm: subcircuit + w2 + w3 (non-input witnesses read from %self) = 3
     let program = make_program(vec![circuit0, circuit1]);
     println!("ACIR: {:?}", program);
-    translate_and_assert(&context, &program, "Circuit0", 3, 3, 3, &["Circuit1"]);
+    translate_and_assert(&context, &program, "Circuit0", 3, 3, 4, &["Circuit1"]);
 }
 
 /// Two Call opcodes to the same callee → two distinct subcircuit members.
@@ -379,7 +379,7 @@ fn two_calls_same_callee() {
 
     // 3 internal witnesses (w2, w3, w4) + 2 subcircuits = 5 members
     // writem: 2 subcircuits + 3 outputs (w2, w3, w4) = 5
-    // constrain readm: 2 subcircuits + 3 witnesses (w2, w3, w4) = 5
+    // constrain readm: 2 subcircuits + 3 witnesses (w2, w3, w4) + 2 return values = 7
     let program = make_program(vec![circuit0, circuit1]);
     translate_and_assert(
         &context,
@@ -387,7 +387,7 @@ fn two_calls_same_callee() {
         "Circuit0",
         5,
         5,
-        5,
+        7,
         &["Circuit1", "Circuit1"],
     );
 }
@@ -432,9 +432,9 @@ fn transitive_calls() {
     let c1_info = collect_call_info(&struct1);
 
     // Circuit0: 2 internal witnesses (w2, w3) + 2 subcircuits = 4 members; 2 calls
-    c0_info.assert_counts(4, 2, 4, 3, "Circuit0");
+    c0_info.assert_counts(4, 2, 4, 6, "Circuit0");
     // Circuit1: 1 internal witness (w2) + 1 subcircuit = 2 members; 1 call
-    c1_info.assert_counts(2, 1, 2, 1, "Circuit1");
+    c1_info.assert_counts(2, 1, 2, 3, "Circuit1");
 
     c0_info.calls[0].assert_shape(&context, 0, "Circuit1", "Circuit0");
     c0_info.calls[1].assert_shape(&context, 1, "Circuit2", "Circuit0");
@@ -494,7 +494,7 @@ fn call_with_nontrivial_predicate_is_ignored() {
     // 1 internal witness (w2) + 1 subcircuit = 2 members
     // writem: subcircuit + w2 = 2; readm: subcircuit only (w0,w1 are block args)
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 2, 2, 1, &["Circuit1"]);
+    translate_and_assert(&context, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
 }
 
 /// A Call opcode referencing a circuit index that does not exist in the program
@@ -562,7 +562,7 @@ fn call_with_multiple_outputs() {
     // 2 internal witnesses (w2, w3) + 1 subcircuit = 3 members
     // writem: subcircuit + w2 + w3 = 3; readm: subcircuit only
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 3, 3, 1, &["Circuit1"]);
+    translate_and_assert(&context, &program, "Circuit0", 3, 3, 5, &["Circuit1"]);
 }
 
 /// Calls two different callees at the same level (no transitivity).
@@ -599,7 +599,7 @@ fn two_calls_different_callees() {
         "Circuit0",
         5,
         5,
-        5,
+        7,
         &["Circuit1", "Circuit2"],
     );
 }
@@ -625,7 +625,7 @@ fn call_with_public_params() {
     // 1 internal witness (w2) + 1 subcircuit = 2 members
     // writem: subcircuit + w2 = 2; readm: subcircuit only
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 2, 2, 1, &["Circuit1"]);
+    translate_and_assert(&context, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
 }
 
 /// A caller that returns a value produced by a subcircuit call exercises
@@ -650,5 +650,5 @@ fn call_return_propagated_to_caller() {
     // 1 internal witness (w2) + 1 subcircuit = 2 members
     // writem: subcircuit + w2 = 2; readm: subcircuit only
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 2, 2, 1, &["Circuit1"]);
+    translate_and_assert(&context, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
 }

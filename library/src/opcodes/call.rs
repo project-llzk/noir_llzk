@@ -135,6 +135,22 @@ impl<'p> OpcodeEmitter for Call<'p> {
         // Call @Circuit{callee_id}::@constrain(%callee, %arg0, ...) — returns ()
         writer.call_function(&callee_name, "constrain", &arg_vals, &[])?;
 
+        // Constrain that each output witness stored by @compute matches the
+        // corresponding return value from the callee struct.
+        let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
+        for (callee_ret_witness, caller_out_witness) in
+            self.callee.return_values.0.iter().zip(self.outputs)
+        {
+            let stored_val = writer.read_witness(caller_out_witness.0)?;
+            let callee_ret_val: Value<'c, 'b> =
+                writer.read_member(felt_type, callee_val, &format!("w{}", callee_ret_witness.0))?;
+            writer.insert_op(dialect::constrain::eq(
+                writer.location,
+                stored_val,
+                callee_ret_val,
+            ));
+        }
+
         Ok(())
     }
 }
