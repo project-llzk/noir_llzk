@@ -30,8 +30,6 @@ fn main() {
         process::exit(1);
     });
 
-    println!("ACIR program:\n{:?}", acir_program);
-
     print!("{}", module.as_operation());
 }
 
