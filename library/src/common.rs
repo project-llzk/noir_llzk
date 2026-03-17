@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
@@ -19,8 +19,8 @@ pub(crate) fn field_to_felt_const<'c>(
 }
 
 /// Collects all unique witness indices referenced in an expression.
-pub(crate) fn collect_witnesses(expr: &Expression<FieldElement>) -> HashSet<u32> {
-    let mut witnesses = HashSet::new();
+pub(crate) fn collect_witnesses(expr: &Expression<FieldElement>) -> BTreeSet<u32> {
+    let mut witnesses = BTreeSet::new();
     for (_, w_i, w_j) in &expr.mul_terms {
         witnesses.insert(w_i.0);
         witnesses.insert(w_j.0);

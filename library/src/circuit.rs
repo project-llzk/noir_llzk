@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use acir::{
     FieldElement,
@@ -66,8 +66,11 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let ops = self.build_handlers()?;
         let input_witnesses = self.sorted_input_witnesses();
 
+        // Collect the set of witnesses actually referenced by opcodes.
+        let opcode_witnesses: BTreeSet<u32> = ops.iter().flat_map(|op| op.get_witnesses()).collect();
+
         // Phase 1: struct members
-        self.emit_witness_members(&struct_def, &input_witnesses)?;
+        self.emit_witness_members(&struct_def, &input_witnesses, &opcode_witnesses)?;
         for op in &ops {
             op.emit_member(self.context, &struct_def)?;
         }
@@ -158,13 +161,15 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     }
 
     /// Emits `struct.member @w{i} : !felt.type` for every internal witness
-    /// (i.e., all witnesses except inputs, which live as function parameters).
+    /// actually referenced by opcodes (excluding inputs, which live as function
+    /// parameters).
     ///
     /// Public return witnesses are marked `{llzk.pub}`.
     fn emit_witness_members(
         &self,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
+        opcode_witnesses: &BTreeSet<u32>,
     ) -> Result<(), Error> {
         let location = Location::unknown(self.context);
         let felt_type = FeltType::with_field(self.context, FIELD_NAME);
@@ -173,9 +178,9 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let public_witnesses: HashSet<u32> =
             self.circuit.return_values.0.iter().map(|w| w.0).collect();
 
-        // `current_witness_index` is the highest index (inclusive range).
+        // Only emit members for witnesses that opcodes actually reference.
         // Skip inputs — they are available as function parameters.
-        for i in 0..=self.circuit.current_witness_index {
+        for &i in opcode_witnesses {
             if input_set.contains(&i) {
                 continue;
             }

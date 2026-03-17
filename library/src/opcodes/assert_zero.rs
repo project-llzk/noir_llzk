@@ -16,7 +16,7 @@ pub(crate) struct AssertZero<'a> {
 
 impl OpcodeEmitter for AssertZero<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
-        collect_witnesses(self.expr).into_iter().collect()
+        collect_witnesses(self.expr)
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
