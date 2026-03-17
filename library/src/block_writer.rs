@@ -130,6 +130,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.block.insert_operation_before(self.ret_op, op)
     }
 
+    /// Inserts a single-result `op` and returns its first result as a `Value`.
+    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
+        Ok(self.insert_op(op).result(0)?.into())
+    }
+
     /// Writes `val` into the `name` member of `%self` before the return terminator.
     pub(crate) fn write_member(&self, name: &str, val: Value<'c, 'a>) -> Result<(), Error> {
         self.insert_op(dialect::r#struct::writem(
@@ -168,16 +173,13 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         from: Value<'c, 'a>,
         name: &str,
     ) -> Result<Value<'c, 'a>, Error> {
-        Ok(self
-            .insert_op(dialect::r#struct::readm(
-                &OpBuilder::new(self.context),
-                self.location,
-                ty,
-                from,
-                name,
-            )?)
-            .result(0)?
-            .into())
+        self.insert_op_with_result(dialect::r#struct::readm(
+            &OpBuilder::new(self.context),
+            self.location,
+            ty,
+            from,
+            name,
+        )?)
     }
 
     // ── Witness management ──────────────────────────────────────────────
@@ -228,11 +230,8 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             return Ok(zero);
         }
         let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
-        let zero_op = self.block.insert_operation_before(
-            self.ret_op,
-            dialect::felt::constant(self.location, zero_attr)?,
-        );
-        let zero: Value = zero_op.result(0)?.into();
+        let zero =
+            self.insert_op_with_result(dialect::felt::constant(self.location, zero_attr)?)?;
         self.zero_cache = Some(zero);
         Ok(zero)
     }

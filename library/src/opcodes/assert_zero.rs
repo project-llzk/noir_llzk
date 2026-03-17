@@ -88,24 +88,20 @@ fn solve_witness<'c, 'b>(
         Some(b) if coeff == -FieldElement::one() => b,
         // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
         Some(b) => {
-            let neg_b: Value = writer
-                .insert_op(dialect::felt::neg(writer.location, b)?)
-                .result(0)?
-                .into();
+            let neg_b = writer.insert_op_with_result(dialect::felt::neg(writer.location, b)?)?;
 
             if coeff.is_one() {
                 neg_b
             } else {
                 let coeff_attr = field_to_felt_const(writer.context, &coeff);
-                let coeff_val: Value = writer
-                    .insert_op(dialect::felt::constant(writer.location, coeff_attr)?)
-                    .result(0)?
-                    .into();
+                let coeff_val = writer
+                    .insert_op_with_result(dialect::felt::constant(writer.location, coeff_attr)?)?;
 
-                writer
-                    .insert_op(dialect::felt::div(writer.location, neg_b, coeff_val)?)
-                    .result(0)?
-                    .into()
+                writer.insert_op_with_result(dialect::felt::div(
+                    writer.location,
+                    neg_b,
+                    coeff_val,
+                )?)?
             }
         }
     };
@@ -143,10 +139,7 @@ fn collect_expr_terms<'c, 'b>(
         }
         let vi = writer.read_witness(w_i.0)?;
         let vj = writer.read_witness(w_j.0)?;
-        let product: Value = writer
-            .insert_op(dialect::felt::mul(writer.location, vi, vj)?)
-            .result(0)?
-            .into();
+        let product = writer.insert_op_with_result(dialect::felt::mul(writer.location, vi, vj)?)?;
         if let Some(val) = apply_coefficient(writer, product, coeff)? {
             terms.push(val);
         }
@@ -171,10 +164,7 @@ fn collect_expr_terms<'c, 'b>(
     if !expr.q_c.is_zero() {
         let const_attr = field_to_felt_const(writer.context, &expr.q_c);
         terms.push(
-            writer
-                .insert_op(dialect::felt::constant(writer.location, const_attr)?)
-                .result(0)?
-                .into(),
+            writer.insert_op_with_result(dialect::felt::constant(writer.location, const_attr)?)?,
         );
     }
 
@@ -193,10 +183,7 @@ fn accumulate_terms<'c, 'b>(
     }
     let mut acc = terms[0];
     for &term in &terms[1..] {
-        acc = writer
-            .insert_op(dialect::felt::add(writer.location, acc, term)?)
-            .result(0)?
-            .into();
+        acc = writer.insert_op_with_result(dialect::felt::add(writer.location, acc, term)?)?;
     }
     Ok(Some(acc))
 }
@@ -216,14 +203,17 @@ fn apply_coefficient<'c, 'b>(
         return Ok(Some(value));
     }
     if *coeff == -FieldElement::one() {
-        let neg_op = writer.insert_op(dialect::felt::neg(writer.location, value)?);
-        return Ok(Some(neg_op.result(0)?.into()));
+        return Ok(Some(writer.insert_op_with_result(dialect::felt::neg(
+            writer.location,
+            value,
+        )?)?));
     }
     let coeff_attr = field_to_felt_const(writer.context, coeff);
-    let coeff_val: Value = writer
-        .insert_op(dialect::felt::constant(writer.location, coeff_attr)?)
-        .result(0)?
-        .into();
-    let mul_op = writer.insert_op(dialect::felt::mul(writer.location, value, coeff_val)?);
-    Ok(Some(mul_op.result(0)?.into()))
+    let coeff_val =
+        writer.insert_op_with_result(dialect::felt::constant(writer.location, coeff_attr)?)?;
+    Ok(Some(writer.insert_op_with_result(dialect::felt::mul(
+        writer.location,
+        value,
+        coeff_val,
+    )?)?))
 }
