@@ -10,6 +10,11 @@ num-bigint = "0.4"
 # LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
 llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"] }
 llzk-sys = { git = "https://github.com/Veridise/llzk-rs" }
+base64 = "0.22"
+serde_json = "1"
+
+[dev-dependencies]
+toml = "0.8"
 
 [lints.rust]
 missing_docs = "warn"
