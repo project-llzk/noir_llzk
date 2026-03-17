@@ -3,9 +3,8 @@ use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    BlockLike, BlockRef, FuncDefOpRef, LlzkContext, Location, MemberDefOpLike, Module,
-    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructDefOpRef, Value,
-    llzk_module,
+    BlockLike, BlockRef, LlzkContext, Location, Module, OperationLike, OperationRef, StructDefOp,
+    StructDefOpRef, llzk_module,
 };
 
 use crate::circuit::CircuitTranslator;
@@ -36,9 +35,9 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
 /// Helper to build a circuit with the given opcodes.
 ///
 /// `current_witness_index` is the **inclusive** upper bound of the witness index range for
-/// this circuit. Translation iterates `0..=current_witness_index` to emit `struct.member`
-/// declarations, so it must be at least as large as the highest index referenced in
-/// `private`, `public`, `returns`, or any opcode operand.
+/// this circuit, as required by the ACIR `Circuit` struct. It must be at least as large as
+/// the highest witness index referenced in `private`, `public`, `returns`, or any opcode
+/// operand. Struct members are only emitted for witnesses actually referenced by opcodes.
 fn make_circuit_with_opcodes(
     current_witness_index: u32,
     private: &[u32],
@@ -99,24 +98,6 @@ pub(super) fn first_struct_def<'c, 'a>(module: &'a Module<'c>) -> StructDefOpRef
         .first_operation()
         .expect("module should have a first op");
     StructDefOpRef::try_from(op).expect("first op should be a struct def")
-}
-
-/// Returns the names of all `struct.member` fields in the given struct.
-fn member_names(struct_def: &llzk::prelude::StructDefOp) -> Vec<String> {
-    struct_def
-        .get_member_defs()
-        .into_iter()
-        .map(|m| m.member_name().to_string())
-        .collect()
-}
-
-/// Collects the operands of every `func.call` in `func`, one inner `Vec` per call.
-fn func_call_operands<'c, 'a>(func: FuncDefOpRef<'c, 'a>) -> Vec<Vec<Value<'c, 'a>>> {
-    let block = func.region(0).unwrap().first_block().unwrap();
-    iter_block_ops(block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
-        .map(|op| op.operands().collect())
-        .collect()
 }
 
 /// Iterates over all operations in a block in order.
