@@ -67,7 +67,8 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let input_witnesses = self.sorted_input_witnesses();
 
         // Collect the set of witnesses actually referenced by opcodes.
-        let opcode_witnesses: BTreeSet<u32> = ops.iter().flat_map(|op| op.get_witnesses()).collect();
+        let opcode_witnesses: BTreeSet<u32> =
+            ops.iter().flat_map(|op| op.get_witnesses()).collect();
 
         // Phase 1: struct members
         self.emit_witness_members(&struct_def, &input_witnesses, &opcode_witnesses)?;
