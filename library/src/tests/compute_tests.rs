@@ -1,10 +1,10 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
-use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
+use llzk::prelude::{LlzkContext, OperationLike, RegionLike, StructDefOpLike};
 
 use super::{
-    make_circuit_with_opcodes, print_and_verify_module, translate_single_circuit,
+    make_circuit_with_opcodes, mul_constraint, print_and_verify_module, translate_single_circuit,
     verify_struct_in_module,
 };
 use crate::program::translate_program;
@@ -13,16 +13,9 @@ use crate::program::translate_program;
 fn count_writem_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
     let compute = struct_def.get_compute_func().expect("Should have @compute");
     let block = compute.region(0).unwrap().first_block().unwrap();
-
-    let mut count = 0;
-    let mut op = block.first_operation();
-    while let Some(current) = op {
-        if llzk::prelude::dialect::r#struct::is_struct_writem(&current) {
-            count += 1;
-        }
-        op = current.next_in_block();
-    }
-    count
+    super::iter_block_ops(block)
+        .filter(llzk::prelude::dialect::r#struct::is_struct_writem)
+        .count()
 }
 
 /// `x * y - z = 0` where x, y are inputs and z is intermediate → compute solves z = x * y
@@ -31,12 +24,7 @@ fn solve_mul_term() {
     let context = LlzkContext::new();
     // w0=x (private), w1=y (private), w2=z (intermediate)
     // expr: 1*w0*w1 + (-1)*w2 + 0 = 0  →  z = x * y
-    let expr = Expression {
-        mul_terms: vec![(FieldElement::one(), Witness(0), Witness(1))],
-        linear_combinations: vec![(-FieldElement::one(), Witness(2))],
-        q_c: FieldElement::zero(),
-    };
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 2)]);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
@@ -75,11 +63,7 @@ fn chain_of_solves() {
     let context = LlzkContext::new();
     // w0=x, w1=y (inputs), w2=z (intermediate), w3=w (intermediate)
     // opcode 1: x * y - z = 0  →  z = x * y
-    let expr1 = Expression {
-        mul_terms: vec![(FieldElement::one(), Witness(0), Witness(1))],
-        linear_combinations: vec![(-FieldElement::one(), Witness(2))],
-        q_c: FieldElement::zero(),
-    };
+    let expr1 = mul_constraint(0, 1, 2);
     // opcode 2: z + x - w = 0  →  w = z + x
     let expr2 = Expression {
         mul_terms: vec![],
@@ -90,13 +74,8 @@ fn chain_of_solves() {
         ],
         q_c: FieldElement::zero(),
     };
-    let circuit = make_circuit_with_opcodes(
-        3,
-        &[0, 1],
-        &[],
-        &[],
-        vec![Opcode::AssertZero(expr1), Opcode::AssertZero(expr2)],
-    );
+    let circuit =
+        make_circuit_with_opcodes(3, &[0, 1], &[], &[], vec![expr1, Opcode::AssertZero(expr2)]);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
     // 2 solved witness writes (inputs no longer written to struct)
@@ -144,12 +123,7 @@ fn full_module_compute_and_constrain_verifies() {
     let context = LlzkContext::new();
     // w0=x (private), w1=y (public), w2=z (intermediate, returned)
     // expr: x * y - z = 0
-    let expr = Expression {
-        mul_terms: vec![(FieldElement::one(), Witness(0), Witness(1))],
-        linear_combinations: vec![(-FieldElement::one(), Witness(2))],
-        q_c: FieldElement::zero(),
-    };
-    let circuit = make_circuit_with_opcodes(2, &[0], &[1], &[2], vec![Opcode::AssertZero(expr)]);
+    let circuit = make_circuit_with_opcodes(2, &[0], &[1], &[2], vec![mul_constraint(0, 1, 2)]);
     let program = acir::circuit::Program {
         functions: vec![circuit],
         unconstrained_functions: vec![],

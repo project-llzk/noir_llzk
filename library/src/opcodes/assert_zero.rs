@@ -1,14 +1,13 @@
-use acir::{AcirField, FieldElement, native_types::Expression};
-use llzk::prelude::{BlockLike, LlzkError, Value, dialect};
+use std::collections::BTreeSet;
 
+use super::OpcodeEmitter;
 use crate::{
     block_writer::BlockWriter,
     common::{collect_witnesses, field_to_felt_const},
-    compute::ComputeWriter,
-    constrain::ConstraintWriter,
     error::Error,
-    opcode::OpcodeEmitter,
 };
+use acir::{AcirField, FieldElement, native_types::Expression};
+use llzk::prelude::{Value, dialect};
 
 pub(crate) struct AssertZero<'a> {
     pub(crate) expr: &'a Expression<FieldElement>,
@@ -16,11 +15,15 @@ pub(crate) struct AssertZero<'a> {
 }
 
 impl OpcodeEmitter for AssertZero<'_> {
-    fn emit_compute<'c, 'b>(&self, writer: &mut ComputeWriter<'c, 'b>) -> Result<(), Error> {
+    fn get_witnesses(&self) -> BTreeSet<u32> {
+        collect_witnesses(self.expr)
+    }
+
+    fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let all_witnesses = collect_witnesses(self.expr);
         let unknowns: Vec<u32> = all_witnesses
             .iter()
-            .filter(|w| !writer.known.contains(w))
+            .filter(|w| !writer.is_known(**w))
             .copied()
             .collect();
         match unknowns.len() {
@@ -37,23 +40,17 @@ impl OpcodeEmitter for AssertZero<'_> {
         }
     }
 
-    fn emit_constrain<'c, 'b>(&self, writer: &mut ConstraintWriter<'c, 'b>) -> Result<(), Error> {
-        let (terms, _) = collect_expr_terms(&mut writer.inner, self.expr, None)?;
+    fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let (terms, _) = collect_expr_terms(writer, self.expr, None)?;
 
         if terms.is_empty() {
             return Ok(());
         }
 
         // Accumulate all terms, then assert their sum == 0.
-        let acc = writer
-            .inner
-            .accumulate_terms(&terms)?
-            .expect("terms is non-empty; guarded above");
-        let zero_val = writer.inner.emit_zero()?;
-        writer.inner.block.insert_operation_before(
-            writer.inner.ret_op,
-            dialect::constrain::eq(writer.inner.location, acc, zero_val),
-        );
+        let acc = accumulate_terms(writer, &terms)?.expect("terms is non-empty; guarded above");
+        let zero_val = writer.emit_zero()?;
+        writer.insert_op(dialect::constrain::eq(writer.location, acc, zero_val));
 
         Ok(())
     }
@@ -70,14 +67,14 @@ impl OpcodeEmitter for AssertZero<'_> {
 /// all other terms (mul_terms with known witnesses, other linear terms, q_c).
 /// So `w_u = -B / coeff`.
 fn solve_witness<'c, 'b>(
-    writer: &mut ComputeWriter<'c, 'b>,
+    writer: &mut BlockWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     w_u: u32,
-) -> Result<(), LlzkError> {
-    let (b_terms, coeff_of_unknown) = collect_expr_terms(&mut writer.inner, expr, Some(w_u))?;
+) -> Result<(), Error> {
+    let (b_terms, coeff_of_unknown) = collect_expr_terms(writer, expr, Some(w_u))?;
     let coeff = coeff_of_unknown.expect("unknown witness should have a linear term");
 
-    let b_val = writer.inner.accumulate_terms(&b_terms)?;
+    let b_val = accumulate_terms(writer, &b_terms)?;
 
     // Solve w_u = -B / coeff, with optimizations:
     //   B = 0         → w_u = 0
@@ -86,50 +83,34 @@ fn solve_witness<'c, 'b>(
     //   otherwise     → w_u = -B / coeff
     let result = match b_val {
         // B = 0 → w_u = 0
-        None => writer.inner.emit_zero()?,
+        None => writer.emit_zero()?,
         // coeff = -1 → w_u = B
         Some(b) if coeff == -FieldElement::one() => b,
         // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
         Some(b) => {
-            let neg_op = writer.inner.block.insert_operation_before(
-                writer.inner.ret_op,
-                dialect::felt::neg(writer.inner.location, b)?,
-            );
-            let neg_b: Value = neg_op.result(0)?.into();
+            let neg_b = writer.insert_op_with_result(dialect::felt::neg(writer.location, b)?)?;
 
             if coeff.is_one() {
                 neg_b
             } else {
-                let coeff_attr = field_to_felt_const(writer.inner.context, &coeff);
-                let coeff_op = writer.inner.block.insert_operation_before(
-                    writer.inner.ret_op,
-                    dialect::felt::constant(writer.inner.location, coeff_attr)?,
-                );
-                let coeff_val: Value = coeff_op.result(0)?.into();
+                let coeff_attr = field_to_felt_const(writer.context, &coeff);
+                let coeff_val = writer
+                    .insert_op_with_result(dialect::felt::constant(writer.location, coeff_attr)?)?;
 
-                let div_op = writer.inner.block.insert_operation_before(
-                    writer.inner.ret_op,
-                    dialect::felt::div(writer.inner.location, neg_b, coeff_val)?,
-                );
-                div_op.result(0)?.into()
+                writer.insert_op_with_result(dialect::felt::div(
+                    writer.location,
+                    neg_b,
+                    coeff_val,
+                )?)?
             }
         }
     };
 
     // Write the solved witness to the struct.
-    writer.inner.block.insert_operation_before(
-        writer.inner.ret_op,
-        dialect::r#struct::writem(
-            writer.inner.location,
-            writer.inner.self_value,
-            &format!("w{w_u}"),
-            result,
-        )?,
-    );
+    writer.write_member(&format!("w{w_u}"), result)?;
 
     // Mark as known and cache the value.
-    writer.known.insert(w_u);
-    writer.inner.witness_cache.insert(w_u, result);
+    writer.mark_known(w_u, result);
 
     Ok(())
 }
@@ -137,17 +118,17 @@ fn solve_witness<'c, 'b>(
 /// Collects LLZK values for all terms in `expr`, optionally skipping one linear witness.
 ///
 /// Iterates mul_terms, linear_combinations, and q_c, emitting the corresponding
-/// LLZK operations via `inner`. If `skip_witness` is `Some(w_u)`, that witness's
+/// LLZK operations via `writer`. If `skip_witness` is `Some(w_u)`, that witness's
 /// linear term is excluded from the returned values and its coefficient is returned
 /// as the second element of the tuple instead.
 ///
 /// This is the shared core of both `emit_constrain` (skip_witness = None) and
 /// `solve_witness` (skip_witness = Some(w_u) to isolate B from the unknown term).
 fn collect_expr_terms<'c, 'b>(
-    inner: &mut BlockWriter<'c, 'b>,
+    writer: &mut BlockWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     skip_witness: Option<u32>,
-) -> Result<(Vec<Value<'c, 'b>>, Option<FieldElement>), LlzkError> {
+) -> Result<(Vec<Value<'c, 'b>>, Option<FieldElement>), Error> {
     let mut terms = Vec::new();
     let mut skipped_coeff = None;
 
@@ -156,13 +137,10 @@ fn collect_expr_terms<'c, 'b>(
         if coeff.is_zero() {
             continue;
         }
-        let vi = inner.read_witness(w_i.0)?;
-        let vj = inner.read_witness(w_j.0)?;
-        let mul_op = inner
-            .block
-            .insert_operation_before(inner.ret_op, dialect::felt::mul(inner.location, vi, vj)?);
-        let product: Value = mul_op.result(0)?.into();
-        if let Some(val) = inner.apply_coefficient(product, coeff)? {
+        let vi = writer.read_witness(w_i.0)?;
+        let vj = writer.read_witness(w_j.0)?;
+        let product = writer.insert_op_with_result(dialect::felt::mul(writer.location, vi, vj)?)?;
+        if let Some(val) = apply_coefficient(writer, product, coeff)? {
             terms.push(val);
         }
     }
@@ -176,21 +154,66 @@ fn collect_expr_terms<'c, 'b>(
             skipped_coeff = Some(*coeff);
             continue;
         }
-        let vk = inner.read_witness(w_k.0)?;
-        if let Some(val) = inner.apply_coefficient(vk, coeff)? {
+        let vk = writer.read_witness(w_k.0)?;
+        if let Some(val) = apply_coefficient(writer, vk, coeff)? {
             terms.push(val);
         }
     }
 
     // Constant term q_c
     if !expr.q_c.is_zero() {
-        let const_attr = field_to_felt_const(inner.context, &expr.q_c);
-        let const_op = inner.block.insert_operation_before(
-            inner.ret_op,
-            dialect::felt::constant(inner.location, const_attr)?,
+        let const_attr = field_to_felt_const(writer.context, &expr.q_c);
+        terms.push(
+            writer.insert_op_with_result(dialect::felt::constant(writer.location, const_attr)?)?,
         );
-        terms.push(const_op.result(0)?.into());
     }
 
     Ok((terms, skipped_coeff))
+}
+
+/// Accumulates a list of values by chaining `felt.add` operations.
+///
+/// Returns `None` if the list is empty.
+fn accumulate_terms<'c, 'b>(
+    writer: &BlockWriter<'c, 'b>,
+    terms: &[Value<'c, 'b>],
+) -> Result<Option<Value<'c, 'b>>, Error> {
+    if terms.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = terms[0];
+    for &term in &terms[1..] {
+        acc = writer.insert_op_with_result(dialect::felt::add(writer.location, acc, term)?)?;
+    }
+    Ok(Some(acc))
+}
+
+/// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
+///
+/// Returns `None` if the coefficient is zero (term should be skipped).
+fn apply_coefficient<'c, 'b>(
+    writer: &BlockWriter<'c, 'b>,
+    value: Value<'c, 'b>,
+    coeff: &FieldElement,
+) -> Result<Option<Value<'c, 'b>>, Error> {
+    if coeff.is_zero() {
+        return Ok(None);
+    }
+    if coeff.is_one() {
+        return Ok(Some(value));
+    }
+    if *coeff == -FieldElement::one() {
+        return Ok(Some(writer.insert_op_with_result(dialect::felt::neg(
+            writer.location,
+            value,
+        )?)?));
+    }
+    let coeff_attr = field_to_felt_const(writer.context, coeff);
+    let coeff_val =
+        writer.insert_op_with_result(dialect::felt::constant(writer.location, coeff_attr)?)?;
+    Ok(Some(writer.insert_op_with_result(dialect::felt::mul(
+        writer.location,
+        value,
+        coeff_val,
+    )?)?))
 }

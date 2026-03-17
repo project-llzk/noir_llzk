@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use acir::{
     FieldElement,
-    circuit::{Circuit, Program},
+    circuit::{Circuit, Opcode, Program},
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -13,8 +13,9 @@ use llzk::{
 };
 
 use crate::{
-    Error, FIELD_NAME, compute::ComputeWriter, constrain::ConstraintWriter,
-    opcode::TranslatedOpcode,
+    Error, FIELD_NAME,
+    block_writer::BlockWriter,
+    opcodes::{TranslatedOpcode, assert_zero::AssertZero, call::Call},
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -26,7 +27,6 @@ pub(crate) struct CircuitTranslator<'c, 'p> {
     context: &'c LlzkContext,
     circuit: &'p Circuit<FieldElement>,
     /// Full program, needed to resolve called circuits by index for `Call`.
-    #[allow(dead_code)]
     program: &'p Program<FieldElement>,
 }
 
@@ -66,8 +66,12 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let ops = self.build_handlers()?;
         let input_witnesses = self.sorted_input_witnesses();
 
+        // Collect the set of witnesses actually referenced by opcodes.
+        let opcode_witnesses: BTreeSet<u32> =
+            ops.iter().flat_map(|op| op.get_witnesses()).collect();
+
         // Phase 1: struct members
-        self.emit_witness_members(&struct_def, &input_witnesses)?;
+        self.emit_witness_members(&struct_def, &input_witnesses, &opcode_witnesses)?;
         for op in &ops {
             op.emit_member(self.context, &struct_def)?;
         }
@@ -84,7 +88,8 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             Some(&arg_attrs),
         )?;
         struct_def.body().append_operation(compute.into());
-        let mut compute_writer = ComputeWriter::new(self.context, &struct_def, &input_witnesses)?;
+        let mut compute_writer =
+            BlockWriter::for_compute(self.context, &struct_def, &input_witnesses)?;
         for op in &ops {
             op.emit_compute(&mut compute_writer)?;
         }
@@ -98,7 +103,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         )?;
         struct_def.body().append_operation(constrain.into());
         let mut constrain_writer =
-            ConstraintWriter::new(self.context, &struct_def, &input_witnesses)?;
+            BlockWriter::for_constrain(self.context, &struct_def, &input_witnesses)?;
         for op in &ops {
             op.emit_constrain(&mut constrain_writer)?;
         }
@@ -113,39 +118,59 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             .opcodes
             .iter()
             .enumerate()
-            .map(TranslatedOpcode::try_from)
+            .map(|(index, opcode)| self.build_handler(index, opcode))
             .collect()
     }
 
-    /// Returns input witness indices: private parameters first, then public,
-    /// each group sorted by index.
+    /// Dispatches a single opcode to its handler, supplying program context for `Call`.
+    fn build_handler(
+        &self,
+        index: usize,
+        opcode: &'p Opcode<FieldElement>,
+    ) -> Result<TranslatedOpcode<'p>, Error> {
+        match opcode {
+            Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
+            Opcode::Call {
+                id,
+                inputs,
+                outputs,
+                ..
+            } => {
+                let callee = self.program.functions.get(id.as_usize()).ok_or(
+                    Error::OutOfRangeCallTarget {
+                        id: id.0,
+                        num_circuits: self.program.functions.len(),
+                    },
+                )?;
+                Ok(Box::new(Call::new(index, id.0, inputs, outputs, callee)))
+            }
+            other => Err(Error::UnsupportedOpcode(other.to_string())),
+        }
+    }
+
+    /// Returns input witness indices sorted by witness index.
     fn sorted_input_witnesses(&self) -> Vec<u32> {
-        let mut private: Vec<u32> = self
+        let mut witnesses: Vec<u32> = self
             .circuit
             .private_parameters
             .iter()
             .map(|w| w.0)
+            .chain(self.circuit.public_parameters.0.iter().map(|w| w.0))
             .collect();
-        private.sort();
-        let mut public: Vec<u32> = self
-            .circuit
-            .public_parameters
-            .0
-            .iter()
-            .map(|w| w.0)
-            .collect();
-        public.sort();
-        private.into_iter().chain(public).collect()
+        witnesses.sort();
+        witnesses
     }
 
     /// Emits `struct.member @w{i} : !felt.type` for every internal witness
-    /// (i.e., all witnesses except inputs, which live as function parameters).
+    /// actually referenced by opcodes (excluding inputs, which live as function
+    /// parameters).
     ///
     /// Public return witnesses are marked `{llzk.pub}`.
     fn emit_witness_members(
         &self,
         struct_def: &StructDefOp<'c>,
         input_witnesses: &[u32],
+        opcode_witnesses: &BTreeSet<u32>,
     ) -> Result<(), Error> {
         let location = Location::unknown(self.context);
         let felt_type = FeltType::with_field(self.context, FIELD_NAME);
@@ -154,9 +179,9 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let public_witnesses: HashSet<u32> =
             self.circuit.return_values.0.iter().map(|w| w.0).collect();
 
-        // `current_witness_index` is the highest index (inclusive range).
+        // Only emit members for witnesses that opcodes actually reference.
         // Skip inputs — they are available as function parameters.
-        for i in 0..=self.circuit.current_witness_index {
+        for &i in opcode_witnesses {
             if input_set.contains(&i) {
                 continue;
             }

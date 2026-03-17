@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use llzk::prelude::LlzkError;
+use llzk::prelude::{LlzkError, MeliorError};
 
 /// Error type for ACIR-to-LLZK translation.
 #[derive(Debug)]
@@ -17,6 +17,13 @@ pub enum Error {
         num_unknowns: usize,
         /// The opcode index where the error occurred.
         opcode_index: usize,
+    },
+    /// A `Call` opcode references a circuit index that does not exist in the program.
+    OutOfRangeCallTarget {
+        /// The out-of-range circuit index that was requested.
+        id: u32,
+        /// Total number of circuits in the program.
+        num_circuits: usize,
     },
     /// An error from the underlying LLZK library.
     Llzk(LlzkError),
@@ -35,6 +42,10 @@ impl fmt::Display for Error {
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
             ),
+            Error::OutOfRangeCallTarget { id, num_circuits } => write!(
+                f,
+                "call targets circuit {id}, but the program only has {num_circuits} circuit(s)"
+            ),
             Error::Llzk(e) => write!(f, "{e}"),
         }
     }
@@ -52,5 +63,11 @@ impl std::error::Error for Error {
 impl From<LlzkError> for Error {
     fn from(e: LlzkError) -> Self {
         Error::Llzk(e)
+    }
+}
+
+impl From<MeliorError> for Error {
+    fn from(e: MeliorError) -> Self {
+        Error::Llzk(LlzkError::from(e))
     }
 }
