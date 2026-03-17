@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::dialect::felt::FeltConstAttribute;
-use llzk::prelude::{LlzkContext, Value, dialect::felt};
+use llzk::prelude::{LlzkContext, Value, dialect::constrain, dialect::felt};
 use num_bigint::BigUint;
 
 use crate::FIELD_NAME;
@@ -18,6 +18,12 @@ pub(crate) fn field_to_felt_const<'c>(
     let bytes = fe.to_le_bytes();
     let biguint = BigUint::from_bytes_le(&bytes);
     FeltConstAttribute::from_biguint(context, &biguint, Some(FIELD_NAME))
+}
+
+/// Returns `true` if the predicate expression is a trivial constant `1`
+/// (i.e., always true — the call is unconditional).
+pub(crate) fn is_trivial_predicate(expr: &Expression<FieldElement>) -> bool {
+    expr.mul_terms.is_empty() && expr.linear_combinations.is_empty() && expr.q_c.is_one()
 }
 
 /// Evaluates an ACIR `Expression` into a single LLZK SSA `Value`
@@ -118,6 +124,24 @@ pub(crate) fn apply_coefficient<'c, 'b>(
         value,
         coeff_val,
     )?)?))
+}
+
+/// Emits a gated equality constraint: `predicate * (lhs - rhs) == 0`.
+///
+/// This is trivially satisfied when the predicate is zero, allowing the
+/// constraint to be conditionally enforced.
+pub(crate) fn emit_gated_eq<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    predicate: Value<'c, 'b>,
+    lhs: Value<'c, 'b>,
+    rhs: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let neg_rhs = writer.insert_op_with_result(felt::neg(writer.location, rhs)?)?;
+    let diff = writer.insert_op_with_result(felt::add(writer.location, lhs, neg_rhs)?)?;
+    let gated = writer.insert_op_with_result(felt::mul(writer.location, predicate, diff)?)?;
+    let zero = writer.emit_zero()?;
+    writer.insert_op(constrain::eq(writer.location, gated, zero));
+    Ok(())
 }
 
 /// Collects all unique witness indices referenced in an expression.

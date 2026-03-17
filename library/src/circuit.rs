@@ -134,7 +134,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                 id,
                 inputs,
                 outputs,
-                ..
+                predicate,
             } => {
                 let callee = self.program.functions.get(id.as_usize()).ok_or(
                     Error::OutOfRangeCallTarget {
@@ -142,7 +142,9 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                         num_circuits: self.program.functions.len(),
                     },
                 )?;
-                Ok(Box::new(Call::new(index, id.0, inputs, outputs, callee)))
+                Ok(Box::new(Call::new(
+                    index, id.0, inputs, outputs, callee, predicate,
+                )))
             }
             other => Err(Error::UnsupportedOpcode(other.to_string())),
         }

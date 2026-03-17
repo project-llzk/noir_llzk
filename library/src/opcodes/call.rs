@@ -1,10 +1,20 @@
-use acir::{FieldElement, circuit::Circuit, native_types::Witness};
+use acir::{
+    FieldElement,
+    circuit::Circuit,
+    native_types::{Expression, Witness},
+};
 use llzk::prelude::{
     BlockLike, FeltType, LlzkContext, Location, StructDefOp, StructDefOpLike, StructType, Type,
     Value, dialect,
 };
 
-use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
+use crate::{
+    FIELD_NAME,
+    block_writer::BlockWriter,
+    common::{collect_witnesses, emit_expression, emit_gated_eq, is_trivial_predicate},
+    error::Error,
+    opcodes::OpcodeEmitter,
+};
 
 pub(crate) struct Call<'p> {
     /// Position of this opcode in the caller's opcode list — used as the subcircuit suffix.
@@ -18,6 +28,8 @@ pub(crate) struct Call<'p> {
     outputs: &'p [Witness],
     /// The callee circuit, needed to determine return-value witness indices.
     callee: &'p Circuit<FieldElement>,
+
+    predicate: &'p Expression<FieldElement>,
 }
 
 impl<'p> Call<'p> {
@@ -27,6 +39,7 @@ impl<'p> Call<'p> {
         inputs: &'p [Witness],
         outputs: &'p [Witness],
         callee: &'p Circuit<FieldElement>,
+        predicate: &'p Expression<FieldElement>,
     ) -> Self {
         Self {
             index,
@@ -34,17 +47,21 @@ impl<'p> Call<'p> {
             inputs,
             outputs,
             callee,
+            predicate,
         }
     }
 }
 
 impl<'p> OpcodeEmitter for Call<'p> {
     fn get_witnesses(&self) -> std::collections::BTreeSet<u32> {
-        self.inputs
+        let mut witnesses: std::collections::BTreeSet<u32> = self
+            .inputs
             .iter()
             .chain(self.outputs.iter())
             .map(|w| w.0)
-            .collect()
+            .collect();
+        witnesses.extend(collect_witnesses(self.predicate));
+        witnesses
     }
 
     /// Emits `struct.member @subcircuit_{index} : !struct.type<@Circuit{callee_id}>`.
@@ -117,10 +134,19 @@ impl<'p> OpcodeEmitter for Call<'p> {
     /// 1. Reads `@subcircuit_{index}` from `%self`.
     /// 2. Gathers caller input witnesses for the callee.
     /// 3. Invokes `@Circuit{callee_id}::@constrain(%callee, %arg0, ...)`.
+    /// 4. Constrains output witnesses against callee return values, gated by the predicate.
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let trivial = is_trivial_predicate(self.predicate);
         let callee_name = format!("Circuit{}", self.callee_id);
         let callee_struct_type: Type<'c> =
             StructType::from_str(writer.context, &callee_name).into();
+
+        // Evaluate the predicate once (only when non-trivial).
+        let pred_val = if trivial {
+            None
+        } else {
+            Some(emit_expression(writer, self.predicate)?)
+        };
 
         // Read the stored subcomponent from %self.
         let callee_val: Value<'c, 'b> =
@@ -144,11 +170,20 @@ impl<'p> OpcodeEmitter for Call<'p> {
             let stored_val = writer.read_witness(caller_out_witness.0)?;
             let callee_ret_val: Value<'c, 'b> =
                 writer.read_member(felt_type, callee_val, &format!("w{}", callee_ret_witness.0))?;
-            writer.insert_op(dialect::constrain::eq(
-                writer.location,
-                stored_val,
-                callee_ret_val,
-            ));
+
+            match pred_val {
+                None => {
+                    // Trivial predicate: unconditional equality.
+                    writer.insert_op(dialect::constrain::eq(
+                        writer.location,
+                        stored_val,
+                        callee_ret_val,
+                    ));
+                }
+                Some(p) => {
+                    emit_gated_eq(writer, p, stored_val, callee_ret_val)?;
+                }
+            }
         }
 
         Ok(())
