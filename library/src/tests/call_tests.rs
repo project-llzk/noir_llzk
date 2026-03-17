@@ -468,9 +468,13 @@ fn call_only_circuit_verifies() {
     translate_and_assert(&context, &program, "Circuit0", 1, 1, 1, &["Circuit1"]);
 }
 
-/// The `predicate` field of a Call opcode is not used during translation.
+/// A non-trivial predicate (here `w0`) gates call constraints:
+///   - `@constrain` emits `predicate * (stored - callee_ret) == 0` instead of a
+///     direct equality, so the predicate witness must appear as an operand of a
+///     `felt.mul` in `@constrain`.
+///   - `@compute` does *not* gate outputs — the verifier handles that.
 #[test]
-fn call_with_nontrivial_predicate_is_ignored() {
+fn call_with_nontrivial_predicate() {
     let context = LlzkContext::new();
 
     let circuit1 = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![mul_constraint(0, 1, 2)]);
@@ -493,10 +497,41 @@ fn call_with_nontrivial_predicate_is_ignored() {
         }],
     );
 
-    // 1 internal witness (w2) + 1 subcircuit = 2 members
-    // writem: subcircuit + w2 = 2; readm: subcircuit + w2 (from %self) + w2 (from callee, return constraint) = 3
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
+    let module = translate_program(&context, &program).unwrap();
+    let struct0 = first_struct_def(&module);
+
+    // Basic structural checks.
+    let info = collect_call_info(&struct0);
+    info.assert_counts(2, 1, 2, 3, "Circuit0");
+    info.calls[0].assert_shape(&context, 0, "Circuit1", "Circuit0");
+
+    // The predicate witness (w0 = %arg1) must appear in @constrain as the first
+    // operand of a `felt.mul` — this is the gating multiplication in
+    // `predicate * (stored - callee_ret) == 0`.
+    let constrain_fn = struct0
+        .get_constrain_func()
+        .expect("should have @constrain");
+    let constrain_block = constrain_fn.region(0).unwrap().first_block().unwrap();
+    let felt_muls: Vec<OperationRef> = super::iter_block_ops(constrain_block)
+        .filter(llzk::prelude::dialect::felt::is_felt_mul)
+        .collect();
+    assert_eq!(
+        felt_muls.len(),
+        1,
+        "@constrain should have exactly one felt.mul (the predicate gating)"
+    );
+    // The first operand of that mul should be the predicate — a block argument,
+    // not an SSA result from another op.
+    let pred_operand: Value = felt_muls[0]
+        .operand(0)
+        .expect("felt.mul should have operand 0");
+    assert!(
+        pred_operand.is_block_argument(),
+        "predicate operand of gating felt.mul should be a block argument (the predicate witness)"
+    );
+
+    print_and_verify_module(&module, "nontrivial_predicate");
 }
 
 /// A Call opcode referencing a circuit index that does not exist in the program
