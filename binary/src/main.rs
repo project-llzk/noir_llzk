@@ -1,9 +1,6 @@
 use std::{fs, path::Path, process};
 
-use acir::{FieldElement, circuit::Program};
-use acir_llzk::program::translate_program;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use acir_llzk::{load_program, program::translate_program};
 use llzk::prelude::LlzkContext;
 
 fn main() {
@@ -31,21 +28,4 @@ fn main() {
     });
 
     print!("{}", module.as_operation());
-}
-
-/// Deserializes an ACIR `Program` from a JSON artifact file.
-fn load_program(json_str: &str) -> Result<Program<FieldElement>, String> {
-    let json: serde_json::Value =
-        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
-
-    let bytecode_b64 = json
-        .get("bytecode")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "JSON artifact missing 'bytecode' string field".to_string())?;
-
-    let bytecode = STANDARD
-        .decode(bytecode_b64)
-        .map_err(|e| format!("base64 decode error: {e}"))?;
-
-    Program::deserialize_program(&bytecode).map_err(|e| format!("ACIR deserialization error: {e}"))
 }
