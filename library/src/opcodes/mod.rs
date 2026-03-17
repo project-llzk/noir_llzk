@@ -1,6 +1,8 @@
 pub(crate) mod assert_zero;
 pub(crate) mod call;
 
+use std::collections::BTreeSet;
+
 use llzk::prelude::{LlzkContext, StructDefOp};
 
 use crate::{block_writer::BlockWriter, error::Error};
@@ -15,6 +17,9 @@ use crate::{block_writer::BlockWriter, error::Error};
 /// To add a new opcode: create a struct, implement this trait (only the
 /// relevant methods), and add a match arm to the [`TryFrom`] impl below.
 pub(crate) trait OpcodeEmitter {
+    /// Returns all witness indices referenced by this opcode.
+    fn get_witnesses(&self) -> BTreeSet<u32>;
+
     /// Emits any `struct.member` declaration required by this opcode.
     ///
     /// Default: no-op. Only `Call` needs to override this.

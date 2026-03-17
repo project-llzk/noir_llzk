@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::OpcodeEmitter;
 use crate::{
     block_writer::BlockWriter,
@@ -13,6 +15,10 @@ pub(crate) struct AssertZero<'a> {
 }
 
 impl OpcodeEmitter for AssertZero<'_> {
+    fn get_witnesses(&self) -> BTreeSet<u32> {
+        collect_witnesses(self.expr).into_iter().collect()
+    }
+
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let all_witnesses = collect_witnesses(self.expr);
         let unknowns: Vec<u32> = all_witnesses

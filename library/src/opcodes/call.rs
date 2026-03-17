@@ -39,6 +39,14 @@ impl<'p> Call<'p> {
 }
 
 impl<'p> OpcodeEmitter for Call<'p> {
+    fn get_witnesses(&self) -> std::collections::BTreeSet<u32> {
+        self.inputs
+            .iter()
+            .chain(self.outputs.iter())
+            .map(|w| w.0)
+            .collect()
+    }
+
     /// Emits `struct.member @subcircuit_{index} : !struct.type<@Circuit{callee_id}>`.
     fn emit_member<'c>(
         &self,
