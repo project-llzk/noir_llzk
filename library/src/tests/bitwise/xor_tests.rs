@@ -1,0 +1,165 @@
+use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::native_types::Witness;
+use llzk::prelude::{LlzkContext, OperationLike};
+
+use super::super::{
+    make_circuit_with_opcodes, translate_single_circuit, wrap_struct_in_module, xor_blackbox,
+};
+use super::count_occurrences;
+
+/// Witness-to-witness XOR emits bitwise ops and equality constraints.
+#[test]
+fn xor_witness_inputs_emits_correct_ops_and_verifies() {
+    let context = LlzkContext::new();
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, 8, 2)]);
+    let struct_def =
+        translate_single_circuit(&context, circuit).expect("translation should succeed");
+    let module = wrap_struct_in_module(&context, struct_def);
+    let ir = format!("{}", module.as_operation());
+
+    println!("xor_witness_inputs:\n{ir}");
+
+    assert!(ir.contains("felt.bit_xor"), "should lower to felt.bit_xor");
+    assert!(
+        ir.contains("constrain.eq"),
+        "should emit equality constraints"
+    );
+    // Compute: 1 bit_xor + 1 bit_and.
+    // Constrain: 2 input-mask bit_and ops + 2 input eq + 1 XOR + 1 output eq.
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_xor"),
+        2,
+        "expected 2 bit_xor ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_and"),
+        3,
+        "expected 3 bit_and ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "constrain.eq"),
+        3,
+        "expected 3 constrain.eq ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.const"),
+        2,
+        "expected one shared mask constant per phase"
+    );
+
+    assert!(module.as_operation().verify(), "module should verify");
+}
+
+/// Constant XOR still emits the final equality, but skips tautological range constraints.
+#[test]
+fn xor_constant_inputs_emits_felt_constants_and_verifies() {
+    let context = LlzkContext::new();
+
+    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
+        lhs: FunctionInput::Constant(FieldElement::from(0xFFu128)),
+        rhs: FunctionInput::Constant(FieldElement::from(0x0Fu128)),
+        num_bits: 8,
+        output: Witness(0),
+    });
+    let circuit = make_circuit_with_opcodes(0, &[], &[], &[], vec![opcode]);
+    let struct_def =
+        translate_single_circuit(&context, circuit).expect("translation should succeed");
+    let module = wrap_struct_in_module(&context, struct_def);
+    let ir = format!("{}", module.as_operation());
+
+    println!("xor_constant_inputs:\n{ir}");
+
+    // Compute: 1 bit_xor + 1 bit_and. Constrain: 1 XOR + 1 output eq.
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_xor"),
+        2,
+        "expected 2 bit_xor ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_and"),
+        1,
+        "expected 1 bit_and op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "constrain.eq"),
+        1,
+        "no bit-width constraints needed for constants that fit"
+    );
+    assert!(module.as_operation().verify(), "module should verify");
+}
+
+/// Mixed witness/constant XOR only constrains the witness input's bit-width.
+#[test]
+fn xor_mixed_witness_and_constant_verifies() {
+    let context = LlzkContext::new();
+
+    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
+        lhs: FunctionInput::Witness(Witness(0)),
+        rhs: FunctionInput::Constant(FieldElement::from(0x0Fu128)),
+        num_bits: 8,
+        output: Witness(1),
+    });
+    let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
+    let struct_def =
+        translate_single_circuit(&context, circuit).expect("translation should succeed");
+    let module = wrap_struct_in_module(&context, struct_def);
+    let ir = format!("{}", module.as_operation());
+
+    println!("xor_mixed:\n{ir}");
+
+    // Compute: 1 bit_xor + 1 bit_and. Constrain: 1 input-mask bit_and + 1 input eq + 1 XOR + 1 output eq.
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_xor"),
+        2,
+        "expected 2 bit_xor ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.bit_and"),
+        2,
+        "expected 2 bit_and ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "constrain.eq"),
+        2,
+        "expected 2 constrain.eq ops total"
+    );
+    assert!(module.as_operation().verify(), "module should verify");
+}
+
+/// Zero-bit XOR uses a zero mask.
+#[test]
+fn xor_zero_bits_verifies() {
+    let context = LlzkContext::new();
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, 0, 2)]);
+    let struct_def =
+        translate_single_circuit(&context, circuit).expect("translation should succeed");
+    let module = wrap_struct_in_module(&context, struct_def);
+    let ir = format!("{}", module.as_operation());
+
+    println!("xor_zero_bits:\n{ir}");
+
+    assert!(
+        ir.contains("felt.const  0"),
+        "zero-bit mask should be constant 0"
+    );
+    assert!(module.as_operation().verify(), "module should verify");
+}
+
+/// XOR verifies across several bit widths.
+#[test]
+fn xor_various_bit_widths_verify() {
+    for num_bits in [1, 4, 16, 32, 64, 128] {
+        let context = LlzkContext::new();
+        let circuit =
+            make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, num_bits, 2)]);
+        let struct_def = translate_single_circuit(&context, circuit)
+            .unwrap_or_else(|e| panic!("translation failed for {num_bits} bits: {e}"));
+        let module = wrap_struct_in_module(&context, struct_def);
+        assert!(
+            module.as_operation().verify(),
+            "module should verify for {num_bits}-bit XOR"
+        );
+    }
+}

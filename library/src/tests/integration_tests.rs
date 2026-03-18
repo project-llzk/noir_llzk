@@ -109,3 +109,8 @@ fn noir_single_mul() {
 fn noir_linear_assert() {
     run_noir_test("circuit_call");
 }
+
+#[test]
+fn noir_bitwise_blackboxes() {
+    run_noir_test("bitwise");
+}
