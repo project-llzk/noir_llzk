@@ -16,8 +16,11 @@ use crate::{
     block_writer::BlockWriter,
     common::field_to_felt_const,
     error::Error,
-    opcodes::{OpcodeEmitter, bitwise},
+    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
 };
+
+/// Grumpkin curve parameter `b` in the short Weierstrass form `y² = x³ + b`.
+const GRUMPKIN_B: i128 = -17;
 
 pub(crate) struct EmbeddedCurveAdd<'a> {
     pub(crate) input1: &'a [FunctionInput<FieldElement>; 3],
@@ -31,19 +34,21 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         let mut witnesses = BTreeSet::from([self.outputs.0.0, self.outputs.1.0, self.outputs.2.0]);
 
         for input in self.input1.iter().chain(self.input2.iter()) {
-            bitwise::collect_input_witness(&mut witnesses, input);
+            collect_input_witness(&mut witnesses, input);
         }
-        bitwise::collect_input_witness(&mut witnesses, self.predicate);
+        collect_input_witness(&mut witnesses, self.predicate);
 
         witnesses
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let input1_x = bitwise::emit_blackbox_input(writer, &self.input1[0])?;
-        let input1_y = bitwise::emit_blackbox_input(writer, &self.input1[1])?;
-        let input2_x = bitwise::emit_blackbox_input(writer, &self.input2[0])?;
-        let input2_y = bitwise::emit_blackbox_input(writer, &self.input2[1])?;
-        let predicate = bitwise::emit_blackbox_input(writer, self.predicate)?;
+        let input1_x = emit_blackbox_input(writer, &self.input1[0])?;
+        let input1_y = emit_blackbox_input(writer, &self.input1[1])?;
+        let input1_infinite = emit_blackbox_input(writer, &self.input1[2])?;
+        let input2_x = emit_blackbox_input(writer, &self.input2[0])?;
+        let input2_y = emit_blackbox_input(writer, &self.input2[1])?;
+        let input2_infinite = emit_blackbox_input(writer, &self.input2[2])?;
+        let predicate = emit_blackbox_input(writer, self.predicate)?;
         let predicate_is_true = emit_is_one(writer, predicate)?;
         let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
 
@@ -53,9 +58,8 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
             &then_block,
             writer.context,
             writer.location,
-            (input1_x, input1_y),
-            (input2_x, input2_y),
-            self.is_doubling(),
+            (input1_x, input1_y, input1_infinite),
+            (input2_x, input2_y, input2_infinite),
         )?;
         then_block.append_operation(scf::r#yield(
             &[output_x, output_y, output_infinite],
@@ -107,13 +111,13 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let input1_x = bitwise::emit_blackbox_input(writer, &self.input1[0])?;
-        let input1_y = bitwise::emit_blackbox_input(writer, &self.input1[1])?;
-        let input1_infinite = bitwise::emit_blackbox_input(writer, &self.input1[2])?;
-        let input2_x = bitwise::emit_blackbox_input(writer, &self.input2[0])?;
-        let input2_y = bitwise::emit_blackbox_input(writer, &self.input2[1])?;
-        let input2_infinite = bitwise::emit_blackbox_input(writer, &self.input2[2])?;
-        let predicate = bitwise::emit_blackbox_input(writer, self.predicate)?;
+        let input1_x = emit_blackbox_input(writer, &self.input1[0])?;
+        let input1_y = emit_blackbox_input(writer, &self.input1[1])?;
+        let input1_infinite = emit_blackbox_input(writer, &self.input1[2])?;
+        let input2_x = emit_blackbox_input(writer, &self.input2[0])?;
+        let input2_y = emit_blackbox_input(writer, &self.input2[1])?;
+        let input2_infinite = emit_blackbox_input(writer, &self.input2[2])?;
+        let predicate = emit_blackbox_input(writer, self.predicate)?;
         let predicate_is_true = emit_is_one(writer, predicate)?;
         let output_x = writer.read_witness(self.outputs.0.0)?;
         let output_y = writer.read_witness(self.outputs.1.0)?;
@@ -121,18 +125,8 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
 
         let then_region = Region::new();
         let then_block = Block::new(&[]);
-        emit_boolean_constraint(
-            &then_block,
-            writer.context,
-            writer.location,
-            input1_infinite,
-        )?;
-        emit_boolean_constraint(
-            &then_block,
-            writer.context,
-            writer.location,
-            input2_infinite,
-        )?;
+        // Noir's EmbeddedCurveAdd requires finite inputs. Constraining the
+        // infinity flags to zero subsumes any boolean check.
         constrain_to_constant(
             &then_block,
             writer.context,
@@ -161,14 +155,18 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
             input2_x,
             input2_y,
         )?;
+        // Grumpkin has cofactor 1, so Noir's subgroup check is vacuous once the
+        // point is known to be on the curve.
 
-        let (expected_x, expected_y, expected_infinite) = emit_curve_add_result(
+        // Both infinity flags are already constrained to zero above, so the
+        // full infinity-handling tree is unreachable. Use the finite-only
+        // version to avoid emitting dead IR.
+        let (expected_x, expected_y, expected_infinite) = emit_finite_curve_add_result(
             &then_block,
             writer.context,
             writer.location,
             (input1_x, input1_y),
             (input2_x, input2_y),
-            self.is_doubling(),
         )?;
         then_block.append_operation(dialect::constrain::eq(
             writer.location,
@@ -242,23 +240,6 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Embedd
     }
 }
 
-impl EmbeddedCurveAdd<'_> {
-    fn is_doubling(&self) -> bool {
-        self.input1
-            .iter()
-            .zip(self.input2.iter())
-            .all(|(lhs, rhs)| same_input(lhs, rhs))
-    }
-}
-
-fn same_input(lhs: &FunctionInput<FieldElement>, rhs: &FunctionInput<FieldElement>) -> bool {
-    match (lhs, rhs) {
-        (FunctionInput::Witness(lhs), FunctionInput::Witness(rhs)) => lhs.0 == rhs.0,
-        (FunctionInput::Constant(lhs), FunctionInput::Constant(rhs)) => lhs == rhs,
-        _ => false,
-    }
-}
-
 fn emit_is_one<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     value: Value<'c, 'b>,
@@ -268,8 +249,191 @@ fn emit_is_one<'c, 'b>(
 }
 
 type AffinePointValue<'c, 'a> = (Value<'c, 'a>, Value<'c, 'a>);
+type EmbeddedPointValue<'c, 'a> = (Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>);
 
 fn emit_curve_add_result<'c, 'a>(
+    block: &'a Block<'c>,
+    context: &'c llzk::prelude::LlzkContext,
+    location: Location<'c>,
+    input1: EmbeddedPointValue<'c, '_>,
+    input2: EmbeddedPointValue<'c, '_>,
+) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
+    let (input1_x, input1_y, input1_infinite) = input1;
+    let (input2_x, input2_y, input2_infinite) = input2;
+    let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
+    let zero = append_felt_constant(block, context, location, &FieldElement::zero())?;
+    let input1_is_zero =
+        append_op_with_result(block, dialect::bool::eq(location, input1_infinite, zero)?)?;
+    let input2_is_zero =
+        append_op_with_result(block, dialect::bool::eq(location, input2_infinite, zero)?)?;
+    let input1_is_infinite =
+        append_op_with_result(block, dialect::bool::not(location, input1_is_zero)?)?;
+    let input2_is_infinite =
+        append_op_with_result(block, dialect::bool::not(location, input2_is_zero)?)?;
+    let any_input_infinite = append_op_with_result(
+        block,
+        dialect::bool::or(location, input1_is_infinite, input2_is_infinite)?,
+    )?;
+
+    let finite_then = Region::new();
+    let finite_then_block = Block::new(&[]);
+    let finite = emit_finite_curve_add_result(
+        &finite_then_block,
+        context,
+        location,
+        (input1_x, input1_y),
+        (input2_x, input2_y),
+    )?;
+    finite_then_block.append_operation(scf::r#yield(&[finite.0, finite.1, finite.2], location));
+    finite_then.append_block(finite_then_block);
+
+    let finite_else = Region::new();
+    let finite_else_block = Block::new(&[]);
+    let infinity = emit_infinity_point(&finite_else_block, context, location)?;
+    finite_else_block.append_operation(scf::r#yield(
+        &[infinity.0, infinity.1, infinity.2],
+        location,
+    ));
+    finite_else.append_block(finite_else_block);
+
+    let result = block.append_operation(scf::r#if(
+        any_input_infinite,
+        &[felt_type, felt_type, felt_type],
+        finite_else,
+        finite_then,
+        location,
+    ));
+
+    Ok((
+        result.result(0)?.into(),
+        result.result(1)?.into(),
+        result.result(2)?.into(),
+    ))
+}
+
+/// Emits curve addition for inputs known to be finite (infinity flags == 0).
+///
+/// Handles all runtime cases: x different (chord), x equal + y equal (doubling),
+/// x equal + y different (inverse → infinity), and doubling at y=0 (→ infinity).
+fn emit_finite_curve_add_result<'c, 'a>(
+    block: &'a Block<'c>,
+    context: &'c llzk::prelude::LlzkContext,
+    location: Location<'c>,
+    input1: AffinePointValue<'c, '_>,
+    input2: AffinePointValue<'c, '_>,
+) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
+    let (input1_x, input1_y) = input1;
+    let (input2_x, input2_y) = input2;
+    let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
+
+    let x_equal = append_op_with_result(block, dialect::bool::eq(location, input1_x, input2_x)?)?;
+
+    // x_equal → check y
+    let x_equal_then = Region::new();
+    let x_equal_then_block = Block::new(&[]);
+    let y_equal = append_op_with_result(
+        &x_equal_then_block,
+        dialect::bool::eq(location, input1_y, input2_y)?,
+    )?;
+
+    // x_equal, y_equal → check y == 0 (doubling at tangent vertical)
+    let y_equal_then = Region::new();
+    let y_equal_then_block = Block::new(&[]);
+    let zero = append_felt_constant(
+        &y_equal_then_block,
+        context,
+        location,
+        &FieldElement::zero(),
+    )?;
+    let y_is_zero = append_op_with_result(
+        &y_equal_then_block,
+        dialect::bool::eq(location, input1_y, zero)?,
+    )?;
+
+    // y == 0 → infinity (vertical tangent)
+    let y_zero_then = Region::new();
+    let y_zero_then_block = Block::new(&[]);
+    let inf = emit_infinity_point(&y_zero_then_block, context, location)?;
+    y_zero_then_block.append_operation(scf::r#yield(&[inf.0, inf.1, inf.2], location));
+    y_zero_then.append_block(y_zero_then_block);
+
+    // y != 0 → doubling formula
+    let y_zero_else = Region::new();
+    let y_zero_else_block = Block::new(&[]);
+    let doubled = emit_affine_curve_formula(
+        &y_zero_else_block,
+        context,
+        location,
+        (input1_x, input1_y),
+        (input2_x, input2_y),
+        true,
+    )?;
+    y_zero_else_block.append_operation(scf::r#yield(&[doubled.0, doubled.1, doubled.2], location));
+    y_zero_else.append_block(y_zero_else_block);
+
+    let y_eq_result = y_equal_then_block.append_operation(scf::r#if(
+        y_is_zero,
+        &[felt_type, felt_type, felt_type],
+        y_zero_then,
+        y_zero_else,
+        location,
+    ));
+    let yr_x: Value<'c, '_> = y_eq_result.result(0)?.into();
+    let yr_y: Value<'c, '_> = y_eq_result.result(1)?.into();
+    let yr_inf: Value<'c, '_> = y_eq_result.result(2)?.into();
+    y_equal_then_block.append_operation(scf::r#yield(&[yr_x, yr_y, yr_inf], location));
+    y_equal_then.append_block(y_equal_then_block);
+
+    // x_equal, y_different → inverse points, return infinity
+    let y_equal_else = Region::new();
+    let y_equal_else_block = Block::new(&[]);
+    let inf = emit_infinity_point(&y_equal_else_block, context, location)?;
+    y_equal_else_block.append_operation(scf::r#yield(&[inf.0, inf.1, inf.2], location));
+    y_equal_else.append_block(y_equal_else_block);
+
+    let x_eq_result = x_equal_then_block.append_operation(scf::r#if(
+        y_equal,
+        &[felt_type, felt_type, felt_type],
+        y_equal_then,
+        y_equal_else,
+        location,
+    ));
+    let xr_x: Value<'c, '_> = x_eq_result.result(0)?.into();
+    let xr_y: Value<'c, '_> = x_eq_result.result(1)?.into();
+    let xr_inf: Value<'c, '_> = x_eq_result.result(2)?.into();
+    x_equal_then_block.append_operation(scf::r#yield(&[xr_x, xr_y, xr_inf], location));
+    x_equal_then.append_block(x_equal_then_block);
+
+    // x_different → chord formula (general addition)
+    let x_equal_else = Region::new();
+    let x_equal_else_block = Block::new(&[]);
+    let added = emit_affine_curve_formula(
+        &x_equal_else_block,
+        context,
+        location,
+        (input1_x, input1_y),
+        (input2_x, input2_y),
+        false,
+    )?;
+    x_equal_else_block.append_operation(scf::r#yield(&[added.0, added.1, added.2], location));
+    x_equal_else.append_block(x_equal_else_block);
+
+    let result = block.append_operation(scf::r#if(
+        x_equal,
+        &[felt_type, felt_type, felt_type],
+        x_equal_then,
+        x_equal_else,
+        location,
+    ));
+
+    Ok((
+        result.result(0)?.into(),
+        result.result(1)?.into(),
+        result.result(2)?.into(),
+    ))
+}
+
+fn emit_affine_curve_formula<'c, 'a>(
     block: &'a Block<'c>,
     context: &'c llzk::prelude::LlzkContext,
     location: Location<'c>,
@@ -313,6 +477,17 @@ fn emit_curve_add_result<'c, 'a>(
     Ok((output_x, output_y, output_infinite))
 }
 
+fn emit_infinity_point<'c, 'a>(
+    block: &'a Block<'c>,
+    context: &'c llzk::prelude::LlzkContext,
+    location: Location<'c>,
+) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
+    let zero_x = append_felt_constant(block, context, location, &FieldElement::zero())?;
+    let zero_y = append_felt_constant(block, context, location, &FieldElement::zero())?;
+    let one_inf = append_felt_constant(block, context, location, &FieldElement::one())?;
+    Ok((zero_x, zero_y, one_inf))
+}
+
 fn constrain_on_curve<'c>(
     block: &Block<'c>,
     context: &'c llzk::prelude::LlzkContext,
@@ -323,25 +498,9 @@ fn constrain_on_curve<'c>(
     let y_sq = append_op_with_result(block, dialect::felt::mul(location, y, y)?)?;
     let x_sq = append_op_with_result(block, dialect::felt::mul(location, x, x)?)?;
     let x_cu = append_op_with_result(block, dialect::felt::mul(location, x_sq, x)?)?;
-    let neg_seventeen =
-        append_felt_constant(block, context, location, &-FieldElement::from(17_u128))?;
-    let rhs = append_op_with_result(block, dialect::felt::add(location, x_cu, neg_seventeen)?)?;
+    let curve_b = append_felt_constant(block, context, location, &FieldElement::from(GRUMPKIN_B))?;
+    let rhs = append_op_with_result(block, dialect::felt::add(location, x_cu, curve_b)?)?;
     block.append_operation(dialect::constrain::eq(location, y_sq, rhs));
-    Ok(())
-}
-
-fn emit_boolean_constraint<'c>(
-    block: &Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    value: Value<'c, '_>,
-) -> Result<(), Error> {
-    let one = append_felt_constant(block, context, location, &FieldElement::one())?;
-    let zero = append_felt_constant(block, context, location, &FieldElement::zero())?;
-    let value_minus_one = append_op_with_result(block, dialect::felt::sub(location, value, one)?)?;
-    let product =
-        append_op_with_result(block, dialect::felt::mul(location, value, value_minus_one)?)?;
-    block.append_operation(dialect::constrain::eq(location, product, zero));
     Ok(())
 }
 

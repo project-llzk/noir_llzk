@@ -2,8 +2,6 @@ pub(crate) mod and;
 pub(crate) mod rangecheck;
 pub(crate) mod xor;
 
-use std::collections::BTreeSet;
-
 use crate::{block_writer::BlockWriter, error::Error};
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
 use llzk::prelude::Value;
