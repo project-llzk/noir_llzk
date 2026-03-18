@@ -6,8 +6,13 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  NOIR_TOOLCHAIN: v1.0.0-beta.19
 
 jobs:
   fmt:
@@ -53,10 +58,19 @@ jobs:
           ref: 55cf619b032314198aacafc305871fb66b12b70e
           type: Debug
           mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
+      - name: Cache Noir toolchain
+        id: cache-noir
+        uses: actions/cache@v4
+        with:
+          path: ~/.nargo
+          key: ${{ runner.os }}-noir-${{ env.NOIR_TOOLCHAIN }}
+      - name: Add Noir to PATH
+        run: echo "$HOME/.nargo/bin" >> "$GITHUB_PATH"
       - name: Install Noir toolchain
+        if: steps.cache-noir.outputs.cache-hit != 'true'
         uses: noir-lang/noirup@v0.1.2
         with:
-          toolchain: v1.0.0-beta.19
+          toolchain: ${{ env.NOIR_TOOLCHAIN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
