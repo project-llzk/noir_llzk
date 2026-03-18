@@ -38,7 +38,7 @@ runs:
         _BUILD_TYPE: ${{ inputs.type }}
     - name: "Build"
       shell: bash
-      run: cmake --build $_ROOT/build --parallel
+      run: cmake --build $_ROOT/build --parallel 2
       env:
         _ROOT: ${{ inputs.root }}
     - name: "Install"
