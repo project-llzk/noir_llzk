@@ -15,38 +15,61 @@ A tool to compile Noir to LLZK via ACIR.
 brew install llvm@20 zstd
 ```
 
+Set the MLIR prefix path (used by the cmake commands below and by Cargo during build):
+
+```sh
+export MLIR_SYS_200_PREFIX=$(brew --prefix llvm@20)
+```
+
 ### Building PCL
 
 Clone and build the `pcl-mlir` component at a known-good commit:
 
 ```sh
 git clone https://github.com/Veridise/pcl-mlir.git
-cd pcl-mlir && git checkout a82620c4dabf6e51ceda66bba2abb19f7f74ac7d && cd ..
+cd pcl-mlir && git checkout 55cf619b032314198aacafc305871fb66b12b70e && cd ..
 ```
 
-Make sure Homebrew's LLVM 20 tools are on your `PATH` and tell CMake where to find
-the LLVM/MLIR CMake configs (Homebrew installs them outside the default search paths):
+Build with CMake:
 
 ```sh
-export PATH="$PATH:/opt/homebrew/opt/llvm@20/bin"
-export CMAKE_PREFIX_PATH="$(llvm-config --cmakedir):$(llvm-config --cmakedir)/../mlir"
-```
-
-Build with CMake, using Homebrew's Clang (required for ABI compatibility with the
-LLVM 20 libraries and for C++20 / Clang-specific coverage flags):
-
-```sh
-mkdir -p pcl-mlir/build
 cmake -S pcl-mlir -B pcl-mlir/build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DBUILD_TESTING=OFF \
-  -DCMAKE_CXX_COMPILER=clang++ \
-  -DCMAKE_C_COMPILER=clang
+  -DCMAKE_PREFIX_PATH=$MLIR_SYS_200_PREFIX
 cmake --build pcl-mlir/build
 ```
 
 Note the path to `pcl-mlir` — you'll need it for the environment variables below.
 
+### Building LLZK
+
+The [LLZK library](https://github.com/project-llzk/llzk-lib) must be built and installed separately.
+The Rust bindings ([llzk-rs](https://github.com/Veridise/llzk-rs)) expect the `LLZK_SYS_10_PREFIX`
+environment variable to point to the LLZK installation prefix.
+
+Clone at the commit used by the `llzk-rs` v1 release:
+
+```sh
+git clone https://github.com/project-llzk/llzk-lib.git
+cd llzk-lib && git checkout 2f11a3cda959a44cde9a98c0efa3e76e110fa6f9 && cd ..
+```
+
+Build and install with CMake:
+
+```sh
+cmake -B llzk-lib/build -S llzk-lib \
+  -DCMAKE_INSTALL_PREFIX=$(pwd)/llzk-lib/build/install \
+  -DCMAKE_PREFIX_PATH=$MLIR_SYS_200_PREFIX
+cmake --build llzk-lib/build
+cmake --install llzk-lib/build
+```
+
+Then set the `LLZK_SYS_10_PREFIX` environment variable to point to the install location:
+
+```sh
+export LLZK_SYS_10_PREFIX=$(pwd)/llzk-lib/build/install
+```
 ## Build
 
 ### Environment variables
@@ -58,6 +81,7 @@ The following environment variables must be set before building:
 | `MLIR_SYS_200_PREFIX` | LLVM 20 installation prefix |
 | `TABLEGEN_200_PREFIX` | LLVM 20 installation prefix (same as above) |
 | `LIBCLANG_PATH` | Path to `libclang` shared library |
+| `LLZK_SYS_10_PREFIX` | Path to the LLZK installation prefix (see above) |
 | `LLZK_PCL_ROOT` | Path to `pcl-mlir` source directory |
 | `LLZK_PCL_PREFIX` | Path to `pcl-mlir/build` output directory |
 

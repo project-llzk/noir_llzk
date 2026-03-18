@@ -33,9 +33,6 @@ runs:
     - name: "Configure CMake"
       shell: bash
       run: |
-        export PATH="$PATH:$_MLIR_DIR/bin"
-        export CMAKE_PREFIX_PATH=$(llvm-config --cmakedir)
-        export CMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH:$CMAKE_PREFIX_PATH/../mlir"
         mkdir -p $LLZK_PCL_PREFIX
 
         cmake \
@@ -43,8 +40,7 @@ runs:
           -B $LLZK_PCL_PREFIX \
           -DCMAKE_BUILD_TYPE=$_BUILD_TYPE \
           -DBUILD_TESTING=OFF \
-          -DCMAKE_CXX_COMPILER=clang++ \
-          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_PREFIX_PATH=$_MLIR_DIR
       env:
         _MLIR_DIR: ${{ inputs.mlir-dir }}
         _BUILD_TYPE: ${{ inputs.type }}

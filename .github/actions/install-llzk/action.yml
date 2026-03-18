@@ -1,0 +1,50 @@
+name: "Install LLZK"
+description: "Builds and installs the LLZK library from source"
+inputs:
+  ref:
+    description: "Commit or tag used for building"
+    required: true
+  root:
+    description: "Where the library will be cloned"
+    default: "./llzk-lib"
+  type:
+    description: "CMake build type"
+    default: "Debug"
+  mlir-dir:
+    description: "Directory where MLIR/LLVM is installed"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: project-llzk/llzk-lib
+        ref: ${{ inputs.ref }}
+        path: ${{ inputs.root }}
+        fetch-depth: 1
+    - name: "Configure CMake"
+      shell: bash
+      run: |
+        cmake -B $_ROOT/build \
+          -S $_ROOT \
+          -DCMAKE_INSTALL_PREFIX=$_ROOT/build/install \
+          -DCMAKE_PREFIX_PATH=$_MLIR_DIR \
+          -DCMAKE_BUILD_TYPE=$_BUILD_TYPE \
+          -DLLZK_VERSION_OVERRIDE=1.0.0 \
+          -DBUILD_TESTING=OFF
+      env:
+        _ROOT: ${{ inputs.root }}
+        _MLIR_DIR: ${{ inputs.mlir-dir }}
+        _BUILD_TYPE: ${{ inputs.type }}
+    - name: "Build"
+      shell: bash
+      run: cmake --build $_ROOT/build --parallel 2
+      env:
+        _ROOT: ${{ inputs.root }}
+    - name: "Install"
+      shell: bash
+      run: |
+        cmake --install $_ROOT/build
+        echo LLZK_SYS_10_PREFIX=$(realpath $_ROOT/build/install) >> $GITHUB_ENV
+      env:
+        _ROOT: ${{ inputs.root }}
