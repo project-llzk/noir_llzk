@@ -131,6 +131,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         index: usize,
         opcode: &'p Opcode<FieldElement>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
+        if let Some(curve_add_op) = crate::opcodes::embedded_curve_add::from_opcode(opcode) {
+            return Ok(Box::new(curve_add_op));
+        }
+
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
         }

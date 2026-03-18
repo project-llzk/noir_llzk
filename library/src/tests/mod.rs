@@ -15,6 +15,7 @@ mod call_tests;
 mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
+mod embedded_curve_add_tests;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;
@@ -126,6 +127,21 @@ pub(super) fn range_blackbox(input: u32, num_bits: u32) -> Opcode<FieldElement> 
     Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE {
         input: FunctionInput::Witness(Witness(input)),
         num_bits,
+    })
+}
+
+/// Builds a black-box `EmbeddedCurveAdd` opcode over witnesses.
+pub(super) fn embedded_curve_add_blackbox(
+    input1: [u32; 3],
+    input2: [u32; 3],
+    predicate: u32,
+    outputs: (u32, u32, u32),
+) -> Opcode<FieldElement> {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EmbeddedCurveAdd {
+        input1: Box::new(input1.map(|w| FunctionInput::Witness(Witness(w)))),
+        input2: Box::new(input2.map(|w| FunctionInput::Witness(Witness(w)))),
+        predicate: FunctionInput::Witness(Witness(predicate)),
+        outputs: (Witness(outputs.0), Witness(outputs.1), Witness(outputs.2)),
     })
 }
 

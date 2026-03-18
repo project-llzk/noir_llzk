@@ -1,6 +1,7 @@
 pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
 pub(crate) mod call;
+pub(crate) mod embedded_curve_add;
 pub(crate) mod memory_ops;
 
 use llzk::prelude::{LlzkContext, StructDefOp};
