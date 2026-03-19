@@ -58,7 +58,7 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
         // Write each initial witness value into the array at its constant index.
         for (i, witness) in self.init.iter().enumerate() {
             let val = writer.read_witness(witness.0)?;
-            let idx = writer.insert_index(i)?;
+            let idx = writer.insert_integer(i)?;
             writer.insert_array_write(arr, &[idx], val);
         }
 

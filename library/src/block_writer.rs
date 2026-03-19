@@ -31,6 +31,8 @@ pub(crate) struct BlockWriter<'c, 'a> {
     known: Option<HashSet<u32>>,
     /// Cache of `felt.constant` values — each distinct field element is emitted at most once.
     constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
+    /// Cache of `arith.constant` index values — each distinct integer is emitted at most once.
+    integer_cache: HashMap<usize, Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -51,6 +53,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             witness_cache,
             known,
             constant_cache: HashMap::new(),
+            integer_cache: HashMap::new(),
         }
     }
 
@@ -201,8 +204,19 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         ))
     }
 
+    /// Returns an `arith.constant` index value for `i`, emitting the operation
+    /// at most once per distinct value per block.
+    pub(crate) fn insert_integer(&mut self, i: usize) -> Result<Value<'c, 'a>, Error> {
+        if let Some(&val) = self.integer_cache.get(&i) {
+            return Ok(val);
+        }
+        let val = self.insert_integer_op(i)?;
+        self.integer_cache.insert(i, val);
+        Ok(val)
+    }
+
     /// Emits an `arith.constant` producing an index value.
-    pub(crate) fn insert_index(&self, i: usize) -> Result<Value<'c, 'a>, Error> {
+    fn insert_integer_op(&self, i: usize) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(arith::constant(
             self.context,
             IntegerAttribute::new(Type::index(self.context), i as i64).into(),
