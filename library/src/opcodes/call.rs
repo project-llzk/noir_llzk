@@ -4,12 +4,10 @@ use acir::{
     native_types::{Expression, Witness},
 };
 use llzk::prelude::{
-    BlockLike, FeltType, LlzkContext, Location, StructDefOp, StructDefOpLike, StructType, Type,
-    Value, dialect,
+    BlockLike, LlzkContext, Location, StructDefOp, StructDefOpLike, StructType, Value, dialect,
 };
 
 use crate::{
-    FIELD_NAME,
     block_writer::BlockWriter,
     common::{collect_witnesses, emit_expression, emit_gated_eq, is_trivial_predicate},
     error::Error,
@@ -88,8 +86,6 @@ impl<'p> OpcodeEmitter for Call<'p> {
     /// 4. Reads callee return values and writes them to caller output witnesses, marking each known.
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let callee_name = format!("Circuit{}", self.callee_id);
-        let callee_struct_type: Type<'c> =
-            StructType::from_str(writer.context, &callee_name).into();
 
         // Gather callee input values from the caller's witness cache.
         let arg_vals = self
@@ -99,6 +95,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct
+        let callee_struct_type = writer.struct_type(&callee_name);
         let callee_val: Value<'c, 'b> = writer
             .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
             .result(0)?
@@ -109,7 +106,6 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Extract callee return values (BTreeSet — ascending index order) and write them to
         // the caller's output witnesses, making each known for subsequent opcodes.
-        let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
         for (callee_ret_idx, caller_out_witness) in self
             .callee
             .return_values
@@ -119,7 +115,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
             .zip(self.outputs)
         {
             let ret_val: Value<'c, 'b> =
-                writer.read_member(felt_type, callee_val, &format!("w{callee_ret_idx}"))?;
+                writer.read_field_member(callee_val, &format!("w{callee_ret_idx}"))?;
 
             writer.write_member(&format!("w{}", caller_out_witness.0), ret_val)?;
 
@@ -138,8 +134,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let trivial = is_trivial_predicate(self.predicate);
         let callee_name = format!("Circuit{}", self.callee_id);
-        let callee_struct_type: Type<'c> =
-            StructType::from_str(writer.context, &callee_name).into();
+        let callee_struct_type = writer.struct_type(&callee_name);
 
         // Evaluate the predicate once (only when non-trivial).
         let pred_val = if trivial {
@@ -163,13 +158,12 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Constrain that each output witness stored by @compute matches the
         // corresponding return value from the callee struct.
-        let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
         for (callee_ret_witness, caller_out_witness) in
             self.callee.return_values.0.iter().zip(self.outputs)
         {
             let stored_val = writer.read_witness(caller_out_witness.0)?;
             let callee_ret_val: Value<'c, 'b> =
-                writer.read_member(felt_type, callee_val, &format!("w{}", callee_ret_witness.0))?;
+                writer.read_field_member(callee_val, &format!("w{}", callee_ret_witness.0))?;
 
             match pred_val {
                 None => {

@@ -4,7 +4,7 @@ use acir::FieldElement;
 use llzk::builder::OpBuilder;
 use llzk::prelude::{
     BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationLike, OperationRef,
-    RegionLike, StructDefOp, StructDefOpLike, SymbolRefAttribute, Type, Value, dialect,
+    RegionLike, StructDefOp, StructDefOpLike, StructType, SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -17,7 +17,7 @@ use crate::error::Error;
 /// Use [`BlockWriter::for_compute`] or [`BlockWriter::for_constrain`] to
 /// construct a writer for the appropriate phase.
 pub(crate) struct BlockWriter<'c, 'a> {
-    pub(crate) context: &'c LlzkContext,
+    context: &'c LlzkContext,
     block: BlockRef<'c, 'a>,
     ret_op: OperationRef<'c, 'a>,
     location: Location<'c>,
@@ -174,6 +174,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Ok(())
     }
 
+    /// Returns the struct type for the given name.
+    pub(crate) fn struct_type(&self, name: &str) -> Type<'c> {
+        StructType::from_str(self.context, name).into()
+    }
+
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.
     pub(crate) fn call_function(
         &self,
@@ -195,7 +200,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     }
 
     /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
-    pub(crate) fn read_member(
+    pub fn read_member(
         &self,
         ty: Type<'c>,
         from: Value<'c, 'a>,
@@ -208,6 +213,19 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             from,
             name,
         )?)
+    }
+
+    /// Reads a felt-typed member of `from` by `name`.
+    ///
+    /// Convenience wrapper around [`read_member`](Self::read_member) that uses
+    /// the canonical felt type.
+    pub(crate) fn read_field_member(
+        &self,
+        from: Value<'c, 'a>,
+        name: &str,
+    ) -> Result<Value<'c, 'a>, Error> {
+        let felt_type: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
+        self.read_member(felt_type, from, name)
     }
 
     // ── Core IR operations ──────────────────────────────────────────────
