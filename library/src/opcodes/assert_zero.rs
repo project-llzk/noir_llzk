@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use super::OpcodeEmitter;
 use crate::{
     block_writer::BlockWriter,
-    common::{collect_witnesses, emit_expression, emit_expression_excluding, field_to_felt_const},
+    common::{collect_witnesses, emit_expression, emit_expression_excluding},
     error::Error,
 };
 use acir::{AcirField, FieldElement, native_types::Expression};
@@ -44,11 +44,11 @@ impl OpcodeEmitter for AssertZero<'_> {
         let expr_val = emit_expression(writer, self.expr)?;
 
         // If the expression is trivially zero the constraint is vacuous.
-        if expr_val == writer.emit_zero()? {
+        if expr_val == writer.emit_constant(&FieldElement::zero())? {
             return Ok(());
         }
 
-        let zero_val = writer.emit_zero()?;
+        let zero_val = writer.emit_constant(&FieldElement::zero())?;
         writer.insert_op(dialect::constrain::eq(writer.location, expr_val, zero_val));
 
         Ok(())
@@ -80,7 +80,7 @@ fn solve_witness<'c, 'b>(
     //   otherwise     → w_u = -B / coeff
     let result = match b_val {
         // B = 0 → w_u = 0
-        None => writer.emit_zero()?,
+        None => writer.emit_constant(&FieldElement::zero())?,
         // coeff = -1 → w_u = B
         Some(b) if coeff == -FieldElement::one() => b,
         // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
@@ -90,9 +90,7 @@ fn solve_witness<'c, 'b>(
             if coeff.is_one() {
                 neg_b
             } else {
-                let coeff_attr = field_to_felt_const(writer.context, &coeff);
-                let coeff_val = writer
-                    .insert_op_with_result(dialect::felt::constant(writer.location, coeff_attr)?)?;
+                let coeff_val = writer.emit_constant(&coeff)?;
 
                 writer.insert_op_with_result(dialect::felt::div(
                     writer.location,

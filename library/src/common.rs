@@ -33,7 +33,7 @@ pub(crate) fn emit_expression<'c, 'b>(
 ) -> Result<Value<'c, 'b>, Error> {
     match emit_expression_excluding(writer, expr, None)?.0 {
         Some(val) => Ok(val),
-        None => writer.emit_zero(),
+        None => writer.emit_constant(&FieldElement::zero()),
     }
 }
 
@@ -83,8 +83,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
 
     // Constant term q_c
     if !expr.q_c.is_zero() {
-        let const_attr = field_to_felt_const(writer.context, &expr.q_c);
-        terms.push(writer.insert_op_with_result(felt::constant(writer.location, const_attr)?)?);
+        terms.push(writer.emit_constant(&expr.q_c)?);
     }
 
     // Sum all terms.
@@ -102,7 +101,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
 ///
 /// Returns `None` if the coefficient is zero (term should be skipped).
 pub(crate) fn apply_coefficient<'c, 'b>(
-    writer: &BlockWriter<'c, 'b>,
+    writer: &mut BlockWriter<'c, 'b>,
     value: Value<'c, 'b>,
     coeff: &FieldElement,
 ) -> Result<Option<Value<'c, 'b>>, Error> {
@@ -117,8 +116,7 @@ pub(crate) fn apply_coefficient<'c, 'b>(
             writer.insert_op_with_result(felt::neg(writer.location, value)?)?,
         ));
     }
-    let coeff_attr = field_to_felt_const(writer.context, coeff);
-    let coeff_val = writer.insert_op_with_result(felt::constant(writer.location, coeff_attr)?)?;
+    let coeff_val = writer.emit_constant(coeff)?;
     Ok(Some(writer.insert_op_with_result(felt::mul(
         writer.location,
         value,
@@ -139,7 +137,7 @@ pub(crate) fn emit_gated_eq<'c, 'b>(
     let neg_rhs = writer.insert_op_with_result(felt::neg(writer.location, rhs)?)?;
     let diff = writer.insert_op_with_result(felt::add(writer.location, lhs, neg_rhs)?)?;
     let gated = writer.insert_op_with_result(felt::mul(writer.location, predicate, diff)?)?;
-    let zero = writer.emit_zero()?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
     writer.insert_op(constrain::eq(writer.location, gated, zero));
     Ok(())
 }

@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
+use acir::FieldElement;
 use llzk::builder::OpBuilder;
-use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
     BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationLike, OperationRef,
     RegionLike, StructDefOp, StructDefOpLike, SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
+use crate::common::field_to_felt_const;
 use crate::error::Error;
 
 /// Shared LLZK block writer that manages witness reads and emits operations
@@ -25,8 +26,8 @@ pub(crate) struct BlockWriter<'c, 'a> {
     witness_cache: HashMap<u32, Value<'c, 'a>>,
     /// Witnesses that have been solved (compute phase only).
     known: Option<HashSet<u32>>,
-    /// Cached `felt.constant 0` — emitted at most once per block.
-    zero_cache: Option<Value<'c, 'a>>,
+    /// Cache of `felt.constant` values — each distinct field element is emitted at most once.
+    constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -46,7 +47,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             self_value,
             witness_cache,
             known,
-            zero_cache: None,
+            constant_cache: HashMap::new(),
         }
     }
 
@@ -224,15 +225,20 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     // ── Caching helpers ─────────────────────────────────────────────────
 
-    /// Returns a `felt.constant 0` value, emitting the operation at most once per block.
-    pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, Error> {
-        if let Some(zero) = self.zero_cache {
-            return Ok(zero);
+    /// Returns a `felt.constant` value for the given field element, emitting
+    /// the operation at most once per distinct value per block.
+    pub(crate) fn emit_constant(&mut self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
+        if let Some(&val) = self.constant_cache.get(fe) {
+            return Ok(val);
         }
-        let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
-        let zero =
-            self.insert_op_with_result(dialect::felt::constant(self.location, zero_attr)?)?;
-        self.zero_cache = Some(zero);
-        Ok(zero)
+        let val = self.emit_constant_op(fe)?;
+        self.constant_cache.insert(*fe, val);
+        Ok(val)
+    }
+
+    /// Emits a `felt.constant` operation for the given field element.
+    fn emit_constant_op(&self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
+        let attr = field_to_felt_const(self.context, fe);
+        self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)
     }
 }
