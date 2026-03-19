@@ -22,7 +22,14 @@ runs:
         ref: ${{ inputs.ref }}
         path: ${{ inputs.root }}
         fetch-depth: 1
+    - name: "Cache LLZK build"
+      id: cache-llzk
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.root }}/build
+        key: ${{ runner.os }}-llzk-${{ inputs.ref }}-${{ inputs.type }}-${{ inputs.mlir-dir }}
     - name: "Configure CMake"
+      if: steps.cache-llzk.outputs.cache-hit != 'true'
       shell: bash
       run: |
         cmake -B $_ROOT/build \
@@ -37,14 +44,19 @@ runs:
         _MLIR_DIR: ${{ inputs.mlir-dir }}
         _BUILD_TYPE: ${{ inputs.type }}
     - name: "Build"
+      if: steps.cache-llzk.outputs.cache-hit != 'true'
       shell: bash
       run: cmake --build $_ROOT/build --parallel 2
       env:
         _ROOT: ${{ inputs.root }}
     - name: "Install"
+      if: steps.cache-llzk.outputs.cache-hit != 'true'
       shell: bash
-      run: |
-        cmake --install $_ROOT/build
-        echo LLZK_SYS_10_PREFIX=$(realpath $_ROOT/build/install) >> $GITHUB_ENV
+      run: cmake --install $_ROOT/build
+      env:
+        _ROOT: ${{ inputs.root }}
+    - name: "Export LLZK environment"
+      shell: bash
+      run: echo LLZK_SYS_10_PREFIX=$(realpath $_ROOT/build/install) >> $GITHUB_ENV
       env:
         _ROOT: ${{ inputs.root }}
