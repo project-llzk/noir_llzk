@@ -199,22 +199,6 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         ))
     }
 
-    /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
-    pub fn read_member(
-        &self,
-        ty: Type<'c>,
-        from: Value<'c, 'a>,
-        name: &str,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::r#struct::readm(
-            &OpBuilder::new(self.context),
-            self.location,
-            ty,
-            from,
-            name,
-        )?)
-    }
-
     /// Reads a felt-typed member of `from` by `name`.
     ///
     /// Convenience wrapper around [`read_member`](Self::read_member) that uses
@@ -228,6 +212,21 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.read_member(felt_type, from, name)
     }
 
+    /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
+    fn read_member(
+        &self,
+        ty: Type<'c>,
+        from: Value<'c, 'a>,
+        name: &str,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::r#struct::readm(
+            &OpBuilder::new(self.context),
+            self.location,
+            ty,
+            from,
+            name,
+        )?)
+    }
     // ── Core IR operations ──────────────────────────────────────────────
 
     /// Inserts a single-result `op` and returns its first result as a `Value`.
