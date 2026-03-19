@@ -1,5 +1,6 @@
 pub(crate) mod assert_zero;
 pub(crate) mod call;
+pub(crate) mod memory_init;
 
 use std::collections::BTreeSet;
 
