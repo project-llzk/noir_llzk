@@ -22,6 +22,12 @@ runs:
         ref: ${{ inputs.ref }}
         path: ${{ inputs.root }}
         fetch-depth: 1
+    - name: "Cache PCL MLIR build"
+      id: cache-pcl-mlir
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.root }}/build
+        key: ${{ runner.os }}-pcl-mlir-${{ inputs.ref }}-${{ inputs.type }}-${{ inputs.mlir-dir }}
     - name: "Set environment variables"
       shell: bash
       run: |
@@ -31,6 +37,7 @@ runs:
         _ROOT: ${{ inputs.root }}
         _BUILD: ${{ inputs.root }}/build
     - name: "Configure CMake"
+      if: steps.cache-pcl-mlir.outputs.cache-hit != 'true'
       shell: bash
       run: |
         mkdir -p $LLZK_PCL_PREFIX
@@ -45,5 +52,6 @@ runs:
         _MLIR_DIR: ${{ inputs.mlir-dir }}
         _BUILD_TYPE: ${{ inputs.type }}
     - name: "Build project"
+      if: steps.cache-pcl-mlir.outputs.cache-hit != 'true'
       shell: bash
       run: cmake --build $LLZK_PCL_PREFIX --parallel
