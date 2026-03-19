@@ -158,6 +158,24 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
     }
 
+    /// Emits `felt.bit_and lhs, rhs`.
+    pub(crate) fn insert_bit_and(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::bit_and(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.bit_xor lhs, rhs`.
+    pub(crate) fn insert_bit_xor(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::bit_xor(self.location, lhs, rhs)?)
+    }
+
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));

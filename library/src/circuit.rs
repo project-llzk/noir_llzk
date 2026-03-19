@@ -15,7 +15,7 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
-    opcodes::{TranslatedOpcode, assert_zero::AssertZero, call::Call},
+    opcodes::{TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call},
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -128,6 +128,18 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         index: usize,
         opcode: &'p Opcode<FieldElement>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
+        if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
+            return Ok(Box::new(range_op));
+        }
+
+        if let Some(xor_op) = bitwise::xor::from_opcode(opcode) {
+            return Ok(Box::new(xor_op));
+        }
+
+        if let Some(and_op) = bitwise::and::from_opcode(opcode) {
+            return Ok(Box::new(and_op));
+        }
+
         match opcode {
             Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
             Opcode::Call {

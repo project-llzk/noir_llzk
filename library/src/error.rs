@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use acir::FieldElement;
 use llzk::prelude::{LlzkError, MeliorError};
 
 /// Error type for ACIR-to-LLZK translation.
@@ -25,6 +26,13 @@ pub enum Error {
         /// Total number of circuits in the program.
         num_circuits: usize,
     },
+    /// A constant input does not fit in the declared bit width.
+    ConstantOutOfRange {
+        /// The constant value that exceeds the bit width.
+        value: FieldElement,
+        /// The declared bit width.
+        num_bits: u32,
+    },
     /// An error from the underlying LLZK library.
     Llzk(LlzkError),
 }
@@ -46,6 +54,9 @@ impl fmt::Display for Error {
                 f,
                 "call targets circuit {id}, but the program only has {num_circuits} circuit(s)"
             ),
+            Error::ConstantOutOfRange { value, num_bits } => {
+                write!(f, "constant {value} does not fit in {num_bits} bits")
+            }
             Error::Llzk(e) => write!(f, "{e}"),
         }
     }
