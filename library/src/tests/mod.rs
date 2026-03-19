@@ -1,4 +1,5 @@
 use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
@@ -9,6 +10,7 @@ use llzk::prelude::{
 
 use crate::circuit::CircuitTranslator;
 
+mod bitwise;
 mod call_tests;
 mod circuit_tests;
 mod compute_tests;
@@ -90,6 +92,34 @@ pub(super) fn mul_constraint(a: u32, b: u32, out: u32) -> Opcode<FieldElement> {
         mul_terms: vec![(FieldElement::one(), Witness(a), Witness(b))],
         linear_combinations: vec![(-FieldElement::one(), Witness(out))],
         q_c: FieldElement::zero(),
+    })
+}
+
+/// Builds a black-box `AND` opcode over witnesses.
+pub(super) fn and_blackbox(lhs: u32, rhs: u32, num_bits: u32, output: u32) -> Opcode<FieldElement> {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
+        lhs: FunctionInput::Witness(Witness(lhs)),
+        rhs: FunctionInput::Witness(Witness(rhs)),
+        num_bits,
+        output: Witness(output),
+    })
+}
+
+/// Builds a black-box `XOR` opcode over witnesses.
+pub(super) fn xor_blackbox(lhs: u32, rhs: u32, num_bits: u32, output: u32) -> Opcode<FieldElement> {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
+        lhs: FunctionInput::Witness(Witness(lhs)),
+        rhs: FunctionInput::Witness(Witness(rhs)),
+        num_bits,
+        output: Witness(output),
+    })
+}
+
+/// Builds a black-box `RANGE` opcode.
+pub(super) fn range_blackbox(input: u32, num_bits: u32) -> Opcode<FieldElement> {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE {
+        input: FunctionInput::Witness(Witness(input)),
+        num_bits,
     })
 }
 
