@@ -8,10 +8,7 @@ use acir::{
 };
 use llzk::prelude::dialect;
 
-use super::{
-    collect_input_witness, emit_bit_mask, emit_blackbox_input, emit_constrained_input,
-    input_needs_mask,
-};
+use super::{collect_input_witness, emit_bit_mask, emit_blackbox_input};
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
 pub(crate) struct And<'a> {
@@ -50,24 +47,11 @@ impl OpcodeEmitter for And<'_> {
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let output = writer.read_witness(self.output.0)?;
+        let lhs = emit_blackbox_input(writer, self.lhs)?;
+        let rhs = emit_blackbox_input(writer, self.rhs)?;
 
-        let needs_mask = input_needs_mask(self.lhs, self.num_bits)?
-            || input_needs_mask(self.rhs, self.num_bits)?;
-        let mask = if needs_mask {
-            Some(emit_bit_mask(writer, self.num_bits)?)
-        } else {
-            None
-        };
-
-        let lhs_constrained = emit_constrained_input(writer, self.lhs, self.num_bits, mask)?;
-        let rhs_constrained = emit_constrained_input(writer, self.rhs, self.num_bits, mask)?;
-
-        // Enforce output = lhs AND rhs over the selected bit width.
-        let and_result = writer.insert_op_with_result(dialect::felt::bit_and(
-            writer.location,
-            lhs_constrained,
-            rhs_constrained,
-        )?)?;
+        let and_result =
+            writer.insert_op_with_result(dialect::felt::bit_and(writer.location, lhs, rhs)?)?;
         writer.insert_op(dialect::constrain::eq(writer.location, output, and_result));
         Ok(())
     }

@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
 use llzk::prelude::{Value, dialect};
 
-use crate::{block_writer::BlockWriter, common::field_to_felt_const, error::Error};
+use crate::{block_writer::BlockWriter, error::Error};
 
 /// Emits the LLZK value for an ACIR [`FunctionInput`]: either a witness read
 /// or a felt constant.
@@ -17,10 +17,7 @@ pub(crate) fn emit_blackbox_input<'c, 'b>(
 ) -> Result<Value<'c, 'b>, Error> {
     match input {
         FunctionInput::Witness(w) => writer.read_witness(w.0),
-        FunctionInput::Constant(c) => {
-            let attr = field_to_felt_const(writer.context, c);
-            writer.insert_op_with_result(dialect::felt::constant(writer.location, attr)?)
-        }
+        FunctionInput::Constant(c) => writer.emit_constant(c),
     }
 }
 
@@ -35,8 +32,7 @@ pub(crate) fn emit_bit_mask<'c, 'b>(
     } else {
         FieldElement::from(2u128).pow(&FieldElement::from(num_bits as u128)) - FieldElement::one()
     };
-    let attr = field_to_felt_const(writer.context, &mask);
-    writer.insert_op_with_result(dialect::felt::constant(writer.location, attr)?)
+    writer.emit_constant(&mask)
 }
 
 /// Collects witness indices from an ACIR [`FunctionInput`].

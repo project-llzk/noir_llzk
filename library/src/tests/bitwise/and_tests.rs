@@ -27,21 +27,21 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         "should emit equality constraints"
     );
     // Compute: 2 bit_and ops (raw AND + mask).
-    // Constrain: 2 input-mask bit_and ops + 2 input eq + 1 AND + 1 output eq.
+    // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        5,
-        "expected 5 bit_and ops total"
+        3,
+        "expected 3 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        3,
-        "expected 3 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        2,
-        "expected one shared mask constant per phase"
+        1,
+        "expected one mask constant in compute only"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
@@ -66,7 +66,8 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("and_constant_inputs:\n{ir}");
 
-    // Compute: 2 bit_and ops (raw AND + mask). Constrain: 1 AND + 1 output eq.
+    // Compute: 2 bit_and ops (raw AND + mask).
+    // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
         3,
@@ -99,16 +100,16 @@ fn and_mixed_witness_and_constant_verifies() {
 
     println!("and_mixed:\n{ir}");
 
-    // Compute: 2 bit_and ops. Constrain: 1 input-mask bit_and + 1 input eq + 1 AND + 1 output eq.
+    // Compute: 2 bit_and ops. Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        4,
-        "expected 4 bit_and ops total"
+        3,
+        "expected 3 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }

@@ -26,8 +26,8 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
         ir.contains("constrain.eq"),
         "should emit equality constraints"
     );
-    // Compute: 1 bit_xor + 1 bit_and.
-    // Constrain: 2 input-mask bit_and ops + 2 input eq + 1 XOR + 1 output eq.
+    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -35,18 +35,18 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        3,
-        "expected 3 bit_and ops total"
+        1,
+        "expected 1 bit_and op total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        3,
-        "expected 3 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        2,
-        "expected one shared mask constant per phase"
+        1,
+        "expected one mask constant in compute only"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
@@ -71,7 +71,8 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("xor_constant_inputs:\n{ir}");
 
-    // Compute: 1 bit_xor + 1 bit_and. Constrain: 1 XOR + 1 output eq.
+    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -109,7 +110,8 @@ fn xor_mixed_witness_and_constant_verifies() {
 
     println!("xor_mixed:\n{ir}");
 
-    // Compute: 1 bit_xor + 1 bit_and. Constrain: 1 input-mask bit_and + 1 input eq + 1 XOR + 1 output eq.
+    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -117,13 +119,13 @@ fn xor_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        2,
-        "expected 2 bit_and ops total"
+        1,
+        "expected 1 bit_and op total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
