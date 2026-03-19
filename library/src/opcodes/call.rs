@@ -174,11 +174,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
             match pred_val {
                 None => {
                     // Trivial predicate: unconditional equality.
-                    writer.insert_op(dialect::constrain::eq(
-                        writer.location,
-                        stored_val,
-                        callee_ret_val,
-                    ));
+                    writer.insert_constrain_eq(stored_val, callee_ret_val);
                 }
                 Some(p) => {
                     emit_gated_eq(writer, p, stored_val, callee_ret_val)?;

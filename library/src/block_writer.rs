@@ -20,7 +20,7 @@ pub(crate) struct BlockWriter<'c, 'a> {
     pub(crate) context: &'c LlzkContext,
     block: BlockRef<'c, 'a>,
     ret_op: OperationRef<'c, 'a>,
-    pub(crate) location: Location<'c>,
+    location: Location<'c>,
     self_value: Value<'c, 'a>,
     /// Cache of SSA values for witnesses that have been read from the struct.
     witness_cache: HashMap<u32, Value<'c, 'a>>,
@@ -124,16 +124,43 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.read_member(ty, self.self_value, name)
     }
 
-    // ── Core IR operations ──────────────────────────────────────────────
+    // ── Felt arithmetic ────────────────────────────────────────────────
 
-    /// Inserts `op` into the block immediately before the return terminator.
-    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
-        self.block.insert_operation_before(self.ret_op, op)
+    /// Emits `felt.add lhs, rhs`.
+    pub(crate) fn insert_add(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::add(self.location, lhs, rhs)?)
     }
 
-    /// Inserts a single-result `op` and returns its first result as a `Value`.
-    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
-        Ok(self.insert_op(op).result(0)?.into())
+    /// Emits `felt.mul lhs, rhs`.
+    pub(crate) fn insert_mul(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::mul(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.div lhs, rhs`.
+    pub(crate) fn insert_div(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::div(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.neg value`.
+    pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
+    }
+
+    /// Emits `constrain.eq lhs, rhs`.
+    pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
+        self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
     }
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
@@ -181,6 +208,17 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             from,
             name,
         )?)
+    }
+
+    // ── Core IR operations ──────────────────────────────────────────────
+
+    /// Inserts a single-result `op` and returns its first result as a `Value`.
+    fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
+        Ok(self.insert_op(op).result(0)?.into())
+    }
+    /// Inserts `op` into the block immediately before the return terminator.
+    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+        self.block.insert_operation_before(self.ret_op, op)
     }
 
     // ── Witness management ──────────────────────────────────────────────
