@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
+use acir::FieldElement;
 use llzk::builder::OpBuilder;
-use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::{
     BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationLike, OperationRef,
-    RegionLike, StructDefOp, StructDefOpLike, SymbolRefAttribute, Type, Value, dialect,
+    RegionLike, StructDefOp, StructDefOpLike, StructType, SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
+use crate::common::field_to_felt_const;
 use crate::error::Error;
 
 /// Shared LLZK block writer that manages witness reads and emits operations
@@ -16,17 +17,17 @@ use crate::error::Error;
 /// Use [`BlockWriter::for_compute`] or [`BlockWriter::for_constrain`] to
 /// construct a writer for the appropriate phase.
 pub(crate) struct BlockWriter<'c, 'a> {
-    pub(crate) context: &'c LlzkContext,
+    context: &'c LlzkContext,
     block: BlockRef<'c, 'a>,
     ret_op: OperationRef<'c, 'a>,
-    pub(crate) location: Location<'c>,
+    location: Location<'c>,
     self_value: Value<'c, 'a>,
     /// Cache of SSA values for witnesses that have been read from the struct.
     witness_cache: HashMap<u32, Value<'c, 'a>>,
     /// Witnesses that have been solved (compute phase only).
     known: Option<HashSet<u32>>,
-    /// Cached `felt.constant 0` — emitted at most once per block.
-    zero_cache: Option<Value<'c, 'a>>,
+    /// Cache of `felt.constant` values — each distinct field element is emitted at most once.
+    constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -46,7 +47,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             self_value,
             witness_cache,
             known,
-            zero_cache: None,
+            constant_cache: HashMap::new(),
         }
     }
 
@@ -123,16 +124,43 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.read_member(ty, self.self_value, name)
     }
 
-    // ── Core IR operations ──────────────────────────────────────────────
+    // ── Felt arithmetic ────────────────────────────────────────────────
 
-    /// Inserts `op` into the block immediately before the return terminator.
-    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
-        self.block.insert_operation_before(self.ret_op, op)
+    /// Emits `felt.add lhs, rhs`.
+    pub(crate) fn insert_add(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::add(self.location, lhs, rhs)?)
     }
 
-    /// Inserts a single-result `op` and returns its first result as a `Value`.
-    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
-        Ok(self.insert_op(op).result(0)?.into())
+    /// Emits `felt.mul lhs, rhs`.
+    pub(crate) fn insert_mul(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::mul(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.div lhs, rhs`.
+    pub(crate) fn insert_div(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::div(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.neg value`.
+    pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
+    }
+
+    /// Emits `constrain.eq lhs, rhs`.
+    pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
+        self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
     }
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
@@ -144,6 +172,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             val,
         )?);
         Ok(())
+    }
+
+    /// Returns the struct type for the given name.
+    pub(crate) fn struct_type(&self, name: &str) -> Type<'c> {
+        StructType::from_str(self.context, name).into()
     }
 
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.
@@ -166,8 +199,21 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         ))
     }
 
+    /// Reads a felt-typed member of `from` by `name`.
+    ///
+    /// Convenience wrapper around [`read_member`](Self::read_member) that uses
+    /// the canonical felt type.
+    pub(crate) fn read_field_member(
+        &self,
+        from: Value<'c, 'a>,
+        name: &str,
+    ) -> Result<Value<'c, 'a>, Error> {
+        let felt_type: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
+        self.read_member(felt_type, from, name)
+    }
+
     /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
-    pub(crate) fn read_member(
+    fn read_member(
         &self,
         ty: Type<'c>,
         from: Value<'c, 'a>,
@@ -180,6 +226,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             from,
             name,
         )?)
+    }
+    // ── Core IR operations ──────────────────────────────────────────────
+
+    /// Inserts a single-result `op` and returns its first result as a `Value`.
+    fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
+        Ok(self.insert_op(op).result(0)?.into())
+    }
+    /// Inserts `op` into the block immediately before the return terminator.
+    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+        self.block.insert_operation_before(self.ret_op, op)
     }
 
     // ── Witness management ──────────────────────────────────────────────
@@ -224,15 +280,20 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     // ── Caching helpers ─────────────────────────────────────────────────
 
-    /// Returns a `felt.constant 0` value, emitting the operation at most once per block.
-    pub(crate) fn emit_zero(&mut self) -> Result<Value<'c, 'a>, Error> {
-        if let Some(zero) = self.zero_cache {
-            return Ok(zero);
+    /// Returns a `felt.constant` value for the given field element, emitting
+    /// the operation at most once per distinct value per block.
+    pub(crate) fn emit_constant(&mut self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
+        if let Some(&val) = self.constant_cache.get(fe) {
+            return Ok(val);
         }
-        let zero_attr = FeltConstAttribute::new(self.context, 0, Some(FIELD_NAME));
-        let zero =
-            self.insert_op_with_result(dialect::felt::constant(self.location, zero_attr)?)?;
-        self.zero_cache = Some(zero);
-        Ok(zero)
+        let val = self.emit_constant_op(fe)?;
+        self.constant_cache.insert(*fe, val);
+        Ok(val)
+    }
+
+    /// Emits a `felt.constant` operation for the given field element.
+    fn emit_constant_op(&self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
+        let attr = field_to_felt_const(self.context, fe);
+        self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)
     }
 }

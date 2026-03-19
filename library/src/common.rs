@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::dialect::felt::FeltConstAttribute;
-use llzk::prelude::{LlzkContext, Value, dialect::constrain, dialect::felt};
+use llzk::prelude::{LlzkContext, Value};
 use num_bigint::BigUint;
 
 use crate::FIELD_NAME;
@@ -33,7 +33,7 @@ pub(crate) fn emit_expression<'c, 'b>(
 ) -> Result<Value<'c, 'b>, Error> {
     match emit_expression_excluding(writer, expr, None)?.0 {
         Some(val) => Ok(val),
-        None => writer.emit_zero(),
+        None => writer.emit_constant(&FieldElement::zero()),
     }
 }
 
@@ -60,7 +60,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
         }
         let vi = writer.read_witness(w_i.0)?;
         let vj = writer.read_witness(w_j.0)?;
-        let product = writer.insert_op_with_result(felt::mul(writer.location, vi, vj)?)?;
+        let product = writer.insert_mul(vi, vj)?;
         if let Some(val) = apply_coefficient(writer, product, coeff)? {
             terms.push(val);
         }
@@ -83,8 +83,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
 
     // Constant term q_c
     if !expr.q_c.is_zero() {
-        let const_attr = field_to_felt_const(writer.context, &expr.q_c);
-        terms.push(writer.insert_op_with_result(felt::constant(writer.location, const_attr)?)?);
+        terms.push(writer.emit_constant(&expr.q_c)?);
     }
 
     // Sum all terms.
@@ -93,7 +92,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
     }
     let mut acc = terms[0];
     for &term in &terms[1..] {
-        acc = writer.insert_op_with_result(felt::add(writer.location, acc, term)?)?;
+        acc = writer.insert_add(acc, term)?;
     }
     Ok((Some(acc), skipped_coeff))
 }
@@ -102,7 +101,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
 ///
 /// Returns `None` if the coefficient is zero (term should be skipped).
 pub(crate) fn apply_coefficient<'c, 'b>(
-    writer: &BlockWriter<'c, 'b>,
+    writer: &mut BlockWriter<'c, 'b>,
     value: Value<'c, 'b>,
     coeff: &FieldElement,
 ) -> Result<Option<Value<'c, 'b>>, Error> {
@@ -113,17 +112,10 @@ pub(crate) fn apply_coefficient<'c, 'b>(
         return Ok(Some(value));
     }
     if *coeff == -FieldElement::one() {
-        return Ok(Some(
-            writer.insert_op_with_result(felt::neg(writer.location, value)?)?,
-        ));
+        return Ok(Some(writer.insert_neg(value)?));
     }
-    let coeff_attr = field_to_felt_const(writer.context, coeff);
-    let coeff_val = writer.insert_op_with_result(felt::constant(writer.location, coeff_attr)?)?;
-    Ok(Some(writer.insert_op_with_result(felt::mul(
-        writer.location,
-        value,
-        coeff_val,
-    )?)?))
+    let coeff_val = writer.emit_constant(coeff)?;
+    Ok(Some(writer.insert_mul(value, coeff_val)?))
 }
 
 /// Emits a gated equality constraint: `predicate * (lhs - rhs) == 0`.
@@ -136,11 +128,11 @@ pub(crate) fn emit_gated_eq<'c, 'b>(
     lhs: Value<'c, 'b>,
     rhs: Value<'c, 'b>,
 ) -> Result<(), Error> {
-    let neg_rhs = writer.insert_op_with_result(felt::neg(writer.location, rhs)?)?;
-    let diff = writer.insert_op_with_result(felt::add(writer.location, lhs, neg_rhs)?)?;
-    let gated = writer.insert_op_with_result(felt::mul(writer.location, predicate, diff)?)?;
-    let zero = writer.emit_zero()?;
-    writer.insert_op(constrain::eq(writer.location, gated, zero));
+    let neg_rhs = writer.insert_neg(rhs)?;
+    let diff = writer.insert_add(lhs, neg_rhs)?;
+    let gated = writer.insert_mul(predicate, diff)?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    writer.insert_constrain_eq(gated, zero);
     Ok(())
 }
 
