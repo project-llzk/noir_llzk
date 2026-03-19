@@ -5,13 +5,9 @@ pub(crate) mod xor;
 use std::collections::BTreeSet;
 
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
-use llzk::{
-    dialect::felt::FeltConstAttribute,
-    prelude::{Value, dialect},
-};
-use num_bigint::BigUint;
+use llzk::prelude::{Value, dialect};
 
-use crate::{FIELD_NAME, block_writer::BlockWriter, common::field_to_felt_const, error::Error};
+use crate::{block_writer::BlockWriter, common::field_to_felt_const, error::Error};
 
 /// Emits the LLZK value for an ACIR [`FunctionInput`]: either a witness read
 /// or a felt constant.
@@ -35,11 +31,11 @@ pub(crate) fn emit_bit_mask<'c, 'b>(
     num_bits: u32,
 ) -> Result<Value<'c, 'b>, Error> {
     let mask = if num_bits == 0 {
-        BigUint::from(0u8)
+        FieldElement::zero()
     } else {
-        (BigUint::from(1u8) << num_bits) - BigUint::from(1u8)
+        FieldElement::from(2u128).pow(&FieldElement::from(num_bits as u128)) - FieldElement::one()
     };
-    let attr = FeltConstAttribute::from_biguint(writer.context, &mask, Some(FIELD_NAME));
+    let attr = field_to_felt_const(writer.context, &mask);
     writer.insert_op_with_result(dialect::felt::constant(writer.location, attr)?)
 }
 
@@ -58,30 +54,25 @@ pub(crate) fn constant_fits_in_bits(fe: &FieldElement, num_bits: u32) -> bool {
     if num_bits == 0 {
         return fe.is_zero();
     }
-    let bytes = fe.to_le_bytes();
-    let val = BigUint::from_bytes_le(&bytes);
-    val.bits() <= num_bits as u64
+    fe.num_bits() <= num_bits
 }
 
-/// Returns true if `input` needs a bit-width mask and constraint.
-///
-/// Constants that already fit in `num_bits` are known at compile time;
-/// masking and constraining them would be dead code.
-pub(crate) fn input_needs_mask(input: &FunctionInput<FieldElement>, num_bits: u32) -> bool {
-    if let FunctionInput::Constant(c) = input {
-        !constant_fits_in_bits(c, num_bits)
-    } else {
-        true
+/// Returns whether `input` needs a bit-width mask and constraint.
+pub(crate) fn input_needs_mask(
+    input: &FunctionInput<FieldElement>,
+    num_bits: u32,
+) -> Result<bool, Error> {
+    match input {
+        FunctionInput::Witness(_) => Ok(true),
+        FunctionInput::Constant(c) if constant_fits_in_bits(c, num_bits) => Ok(false),
+        FunctionInput::Constant(c) => Err(Error::ConstantOutOfRange {
+            value: *c,
+            num_bits,
+        }),
     }
 }
 
-/// Emits a constrained input for the constrain phase of a bitwise blackbox.
-///
-/// For witness inputs: emits `masked = input & mask`, constrains
-/// `input == masked`, and returns `masked`.
-///
-/// For constant inputs that already fit in `num_bits`: emits just the
-/// constant value — no mask or constraint needed.
+/// Returns the input value, constraining witnesses to the selected bit width.
 pub(crate) fn emit_constrained_input<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     input: &FunctionInput<FieldElement>,
@@ -89,13 +80,17 @@ pub(crate) fn emit_constrained_input<'c, 'b>(
     mask: Option<Value<'c, 'b>>,
 ) -> Result<Value<'c, 'b>, Error> {
     let val = emit_blackbox_input(writer, input)?;
-
-    if let Some(mask) = mask.filter(|_| input_needs_mask(input, num_bits)) {
-        let masked =
-            writer.insert_op_with_result(dialect::felt::bit_and(writer.location, val, mask)?)?;
-        writer.insert_op(dialect::constrain::eq(writer.location, val, masked));
-        Ok(masked)
-    } else {
-        Ok(val)
+    let needs_mask = input_needs_mask(input, num_bits)?;
+    if !needs_mask {
+        return Ok(val);
     }
+
+    let Some(mask) = mask else {
+        return Ok(val);
+    };
+
+    let masked =
+        writer.insert_op_with_result(dialect::felt::bit_and(writer.location, val, mask)?)?;
+    writer.insert_op(dialect::constrain::eq(writer.location, val, masked));
+    Ok(masked)
 }

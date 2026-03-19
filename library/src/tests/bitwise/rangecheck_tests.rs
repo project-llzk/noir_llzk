@@ -72,38 +72,22 @@ fn rangecheck_constant_input_that_fits_emits_no_constraints() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// An oversized constant still emits the unsatisfiable rangecheck shape.
+/// An oversized constant is rejected at translation time.
 #[test]
-fn rangecheck_constant_input_that_does_not_fit_emits_unsat_constraint_shape() {
+fn rangecheck_constant_input_that_does_not_fit_is_rejected() {
     let context = LlzkContext::new();
     let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE {
         input: FunctionInput::Constant(FieldElement::from(256u128)),
         num_bits: 8,
     });
     let circuit = make_circuit_with_opcodes(0, &[], &[], &[], vec![opcode]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("rangecheck_constant_oversized:\n{ir}");
-
-    assert_eq!(
-        count_occurrences(&ir, "felt.bit_and"),
-        1,
-        "expected 1 bit_and op total"
+    let err =
+        translate_single_circuit(&context, circuit).expect_err("should reject oversized constant");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("does not fit"),
+        "error should mention 'does not fit', got: {msg}"
     );
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
-    );
-    assert_eq!(
-        count_occurrences(&ir, "felt.const"),
-        2,
-        "expected input constant plus mask"
-    );
-    assert!(module.as_operation().verify(), "module should verify");
 }
 
 /// Zero-bit rangecheck uses a zero mask.

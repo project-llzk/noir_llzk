@@ -51,8 +51,8 @@ impl OpcodeEmitter for And<'_> {
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let output = writer.read_witness(self.output.0)?;
 
-        let needs_mask =
-            input_needs_mask(self.lhs, self.num_bits) || input_needs_mask(self.rhs, self.num_bits);
+        let needs_mask = input_needs_mask(self.lhs, self.num_bits)?
+            || input_needs_mask(self.rhs, self.num_bits)?;
         let mask = if needs_mask {
             Some(emit_bit_mask(writer, self.num_bits)?)
         } else {

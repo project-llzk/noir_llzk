@@ -22,7 +22,7 @@ impl OpcodeEmitter for Rangecheck<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        if !input_needs_mask(self.input, self.num_bits) {
+        if !input_needs_mask(self.input, self.num_bits)? {
             return Ok(());
         }
 
