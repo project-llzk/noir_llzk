@@ -26,7 +26,7 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
         ir.contains("constrain.eq"),
         "should emit equality constraints"
     );
-    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Compute: 1 XOR.
     // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
@@ -35,8 +35,8 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        1,
-        "expected 1 bit_and op total"
+        0,
+        "expected no bit_and ops"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -45,14 +45,14 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        1,
-        "expected one mask constant in compute only"
+        0,
+        "expected no constants for witness inputs"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Constant XOR still emits the final equality, but skips tautological range constraints.
+/// Constant XOR emits the expected compute and constrain ops.
 #[test]
 fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
@@ -71,7 +71,7 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("xor_constant_inputs:\n{ir}");
 
-    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Compute: 1 XOR.
     // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
@@ -80,8 +80,8 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        1,
-        "expected 1 bit_and op total"
+        0,
+        "expected no bit_and ops"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -91,7 +91,7 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Mixed witness/constant XOR only constrains the witness input's bit-width.
+/// Mixed witness/constant XOR trusts prior RANGE constraints.
 #[test]
 fn xor_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
@@ -110,7 +110,7 @@ fn xor_mixed_witness_and_constant_verifies() {
 
     println!("xor_mixed:\n{ir}");
 
-    // Compute: 1 bit_xor + 1 bit_and (mask).
+    // Compute: 1 XOR.
     // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
@@ -119,8 +119,8 @@ fn xor_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        1,
-        "expected 1 bit_and op total"
+        0,
+        "expected no bit_and ops"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -130,7 +130,7 @@ fn xor_mixed_witness_and_constant_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Zero-bit XOR uses a zero mask.
+/// Zero-bit XOR still verifies.
 #[test]
 fn xor_zero_bits_verifies() {
     let context = LlzkContext::new();
@@ -142,10 +142,6 @@ fn xor_zero_bits_verifies() {
 
     println!("xor_zero_bits:\n{ir}");
 
-    assert!(
-        ir.contains("felt.const  0"),
-        "zero-bit mask should be constant 0"
-    );
     assert!(module.as_operation().verify(), "module should verify");
 }
 

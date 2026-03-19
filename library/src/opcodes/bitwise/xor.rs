@@ -6,15 +6,13 @@ use acir::{
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
     native_types::Witness,
 };
-use llzk::prelude::dialect;
 
-use super::{collect_input_witness, emit_bit_mask, emit_blackbox_input};
+use super::{collect_input_witness, emit_blackbox_input};
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
 pub(crate) struct Xor<'a> {
     pub(crate) lhs: &'a FunctionInput<FieldElement>,
     pub(crate) rhs: &'a FunctionInput<FieldElement>,
-    pub(crate) num_bits: u32,
     pub(crate) output: Witness,
 }
 
@@ -29,17 +27,8 @@ impl OpcodeEmitter for Xor<'_> {
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let lhs = emit_blackbox_input(writer, self.lhs)?;
         let rhs = emit_blackbox_input(writer, self.rhs)?;
-        let mask = emit_bit_mask(writer, self.num_bits)?;
 
-        // Unlike AND, (lhs ^ mask) ^ (rhs ^ mask) != (lhs ^ rhs) ^ mask in general,
-        // so compute raw XOR then mask the result.
-        let raw_xor =
-            writer.insert_op_with_result(dialect::felt::bit_xor(writer.location, lhs, rhs)?)?;
-        let result = writer.insert_op_with_result(dialect::felt::bit_and(
-            writer.location,
-            raw_xor,
-            mask,
-        )?)?;
+        let result = writer.insert_bit_xor(lhs, rhs)?;
 
         writer.write_member(&format!("w{}", self.output.0), result)?;
         writer.mark_known(self.output.0, result);
@@ -51,9 +40,8 @@ impl OpcodeEmitter for Xor<'_> {
         let lhs = emit_blackbox_input(writer, self.lhs)?;
         let rhs = emit_blackbox_input(writer, self.rhs)?;
 
-        let xor_result =
-            writer.insert_op_with_result(dialect::felt::bit_xor(writer.location, lhs, rhs)?)?;
-        writer.insert_op(dialect::constrain::eq(writer.location, output, xor_result));
+        let xor_result = writer.insert_bit_xor(lhs, rhs)?;
+        writer.insert_constrain_eq(output, xor_result);
         Ok(())
     }
 }
@@ -63,12 +51,11 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Xor<'a
         Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
             lhs,
             rhs,
-            num_bits,
+            num_bits: _,
             output,
         }) => Some(Xor {
             lhs,
             rhs,
-            num_bits: *num_bits,
             output: *output,
         }),
         _ => None,

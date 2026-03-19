@@ -26,12 +26,12 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         ir.contains("constrain.eq"),
         "should emit equality constraints"
     );
-    // Compute: 2 bit_and ops (raw AND + mask).
+    // Compute: 1 AND.
     // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        3,
-        "expected 3 bit_and ops total"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -40,14 +40,14 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        1,
-        "expected one mask constant in compute only"
+        0,
+        "expected no constants for witness inputs"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Constant AND still emits the final equality, but skips tautological range constraints.
+/// Constant AND emits the expected compute and constrain ops.
 #[test]
 fn and_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
@@ -66,12 +66,12 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("and_constant_inputs:\n{ir}");
 
-    // Compute: 2 bit_and ops (raw AND + mask).
+    // Compute: 1 AND.
     // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        3,
-        "expected 3 bit_and ops total"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -81,7 +81,7 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Mixed witness/constant AND only constrains the witness input's bit-width.
+/// Mixed witness/constant AND trusts prior RANGE constraints.
 #[test]
 fn and_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
@@ -100,11 +100,11 @@ fn and_mixed_witness_and_constant_verifies() {
 
     println!("and_mixed:\n{ir}");
 
-    // Compute: 2 bit_and ops. Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
+    // Compute: 1 AND. Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        3,
-        "expected 3 bit_and ops total"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -114,7 +114,7 @@ fn and_mixed_witness_and_constant_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Zero-bit AND uses a zero mask.
+/// Zero-bit AND still verifies.
 #[test]
 fn and_zero_bits_verifies() {
     let context = LlzkContext::new();
@@ -126,10 +126,6 @@ fn and_zero_bits_verifies() {
 
     println!("and_zero_bits:\n{ir}");
 
-    assert!(
-        ir.contains("felt.const  0"),
-        "zero-bit mask should be constant 0"
-    );
     assert!(module.as_operation().verify(), "module should verify");
 }
 
