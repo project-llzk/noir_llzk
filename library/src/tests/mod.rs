@@ -4,9 +4,11 @@ use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    BlockLike, BlockRef, LlzkContext, Location, Module, OperationLike, OperationRef, StructDefOp,
-    StructDefOpRef, llzk_module,
+    BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationLike,
+    OperationMutLike, OperationRef, StringAttribute, StructDefOp, StructDefOpRef, StructType,
+    TypeAttribute, llzk_module,
 };
+use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 
 use crate::circuit::CircuitTranslator;
 
@@ -17,6 +19,7 @@ mod compute_tests;
 mod constrain_tests;
 mod integration_tests;
 mod memory_init_tests;
+mod memory_op_tests;
 
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
@@ -64,12 +67,54 @@ fn make_circuit_with_opcodes(
 ///
 /// Creates a single-circuit [`Program`] internally so that [`CircuitTranslator`]
 /// has the program reference it needs for future `Call` opcode support.
+/// Returns only the circuit struct def (first element of the translation result).
 pub(super) fn translate_single_circuit<'c>(
     context: &'c LlzkContext,
     circuit: Circuit<FieldElement>,
 ) -> Result<StructDefOp<'c>, crate::Error> {
     let program = make_program(vec![circuit]);
-    CircuitTranslator::new(context, &program.functions[0], &program).translate(0)
+    let mut structs =
+        CircuitTranslator::new(context, &program.functions[0], &program).translate(0)?;
+    // The circuit struct is always the last element; auxiliaries come first.
+    Ok(structs.pop().unwrap())
+}
+
+/// Translates a single circuit and wraps all resulting struct defs in a module.
+///
+/// Unlike [`translate_single_circuit`], this includes auxiliary struct defs
+/// (`MemRead_{N}`, `MemWrite_{N}`) that memory operations depend on.
+fn translate_circuit_to_module<'c>(
+    context: &'c LlzkContext,
+    circuit: Circuit<FieldElement>,
+) -> Result<Module<'c>, crate::Error> {
+    let program = make_program(vec![circuit]);
+    let struct_defs =
+        CircuitTranslator::new(context, &program.functions[0], &program).translate(0)?;
+    Ok(wrap_structs_in_module(context, struct_defs))
+}
+
+/// Wraps multiple `StructDefOp`s in a new LLZK module with required attributes.
+fn wrap_structs_in_module<'c>(
+    context: &'c LlzkContext,
+    struct_defs: Vec<StructDefOp<'c>>,
+) -> Module<'c> {
+    let location = Location::unknown(context);
+    let mut module = llzk_module(location);
+    module.as_operation_mut().set_attribute(
+        MAIN_ATTR_NAME.as_ref(),
+        TypeAttribute::new(
+            StructType::new(FlatSymbolRefAttribute::new(context, "Circuit0"), &[]).into(),
+        )
+        .into(),
+    );
+    module.as_operation_mut().set_attribute(
+        LANG_ATTR_NAME.as_ref(),
+        StringAttribute::new(context, "ACIR").into(),
+    );
+    for s in struct_defs {
+        module.body().append_operation(s.into());
+    }
+    module
 }
 
 /// Wraps a `StructDefOp` in a module, prints the IR, and asserts verification passes.
@@ -145,5 +190,7 @@ pub(super) fn iter_block_ops<'c, 'a>(
 fn print_and_verify_module(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
     println!("{label}:\n{ir}");
-    assert!(module.as_operation().verify(), "Module should verify");
+    if let Err(e) = llzk::operation::verify_operation_with_diags(&module.as_operation()) {
+        panic!("Module verification failed for {label}: {e}");
+    }
 }

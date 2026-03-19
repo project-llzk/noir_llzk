@@ -64,6 +64,24 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
 
         // Store the completed array to the struct member.
         writer.write_member(&format!("mem{}", self.block_id), arr)?;
+
+        // Register the initial array as version 0 for this block, so that
+        // subsequent MemoryOp handlers can access it via version chaining.
+        writer
+            .memory_versions
+            .set(self.block_id, arr, self.init.len());
+        Ok(())
+    }
+
+    /// In `@constrain`: read the stored array and register it as the initial
+    /// version so that subsequent `MemoryOp` constrain handlers can build the
+    /// version chain.
+    fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let array_type = writer.array_type(self.init.len());
+        let arr = writer.read_self_member(array_type, &format!("mem{}", self.block_id))?;
+        writer
+            .memory_versions
+            .set(self.block_id, arr, self.init.len());
         Ok(())
     }
 }

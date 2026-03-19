@@ -35,8 +35,10 @@ pub fn translate_program<'c>(
     );
 
     for (i, circuit) in program.functions.iter().enumerate() {
-        let struct_def = CircuitTranslator::new(context, circuit, program).translate(i)?;
-        module.body().append_operation(struct_def.into());
+        let struct_defs = CircuitTranslator::new(context, circuit, program).translate(i)?;
+        for struct_def in struct_defs {
+            module.body().append_operation(struct_def.into());
+        }
     }
 
     Ok(module)

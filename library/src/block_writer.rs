@@ -14,6 +14,28 @@ use crate::FIELD_NAME;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 
+/// Tracks the current array version for each memory block during emission.
+///
+/// After `MemoryInit`, the version is the initial array.  Each `MemoryOp` write
+/// updates it to the `new_data` array from the `MemWrite` subcomponent.
+#[derive(Default)]
+pub(crate) struct MemoryVersions<'c, 'a> {
+    /// Maps `block_id` → (current array SSA value, array length).
+    versions: HashMap<u32, (Value<'c, 'a>, usize)>,
+}
+
+impl<'c, 'a> MemoryVersions<'c, 'a> {
+    /// Registers (or updates) the current array version for a memory block.
+    pub(crate) fn set(&mut self, block_id: u32, value: Value<'c, 'a>, len: usize) {
+        self.versions.insert(block_id, (value, len));
+    }
+
+    /// Returns the current array version and length for a memory block.
+    pub(crate) fn get(&self, block_id: u32) -> Option<(Value<'c, 'a>, usize)> {
+        self.versions.get(&block_id).copied()
+    }
+}
+
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).
 ///
@@ -33,6 +55,8 @@ pub(crate) struct BlockWriter<'c, 'a> {
     constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
     /// Cache of `arith.constant` index values — each distinct integer is emitted at most once.
     integer_cache: HashMap<usize, Value<'c, 'a>>,
+    /// Tracks the current array version for each memory block.
+    pub(crate) memory_versions: MemoryVersions<'c, 'a>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -54,6 +78,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             known,
             constant_cache: HashMap::new(),
             integer_cache: HashMap::new(),
+            memory_versions: MemoryVersions::default(),
         }
     }
 
@@ -150,6 +175,15 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::mul(self.location, lhs, rhs)?)
     }
 
+    /// Emits `felt.sub lhs, rhs`.
+    pub(crate) fn insert_sub(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::sub(self.location, lhs, rhs)?)
+    }
+
     /// Emits `felt.div lhs, rhs`.
     pub(crate) fn insert_div(
         &self,
@@ -242,6 +276,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         ))
     }
 
+    /// Returns `!array.type<!felt.type, len>`.
+    pub(crate) fn array_type(&self, len: usize) -> Type<'c> {
+        ArrayType::new_with_dims(self.felt_type(), &[len as i64]).into()
+    }
+
     /// Emits `array.write array[indices] = value`.
     pub(crate) fn insert_array_write(
         &self,
@@ -286,7 +325,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     }
 
     /// Reads the `name` member of `from` (typed `ty`) before the return terminator.
-    fn read_member(
+    pub(crate) fn read_member(
         &self,
         ty: Type<'c>,
         from: Value<'c, 'a>,

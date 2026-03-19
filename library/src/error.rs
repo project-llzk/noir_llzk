@@ -33,6 +33,18 @@ pub enum Error {
         /// The declared bit width.
         num_bits: u32,
     },
+    /// A `MemoryOp` has an `operation` expression that is not a constant 0 or 1.
+    NonConstantMemoryOperation {
+        /// The opcode index where the error occurred.
+        opcode_index: usize,
+    },
+    /// A `MemoryOp` references a `block_id` for which no `MemoryInit` was seen.
+    UninitializedMemoryBlock {
+        /// The block ID that was not initialized.
+        block_id: u32,
+        /// The opcode index where the error occurred.
+        opcode_index: usize,
+    },
     /// An error from the underlying LLZK library.
     Llzk(LlzkError),
 }
@@ -57,6 +69,18 @@ impl fmt::Display for Error {
             Error::ConstantOutOfRange { value, num_bits } => {
                 write!(f, "constant {value} does not fit in {num_bits} bits")
             }
+            Error::NonConstantMemoryOperation { opcode_index } => write!(
+                f,
+                "MemoryOp at opcode {opcode_index} has a non-constant operation expression \
+                 (expected 0 or 1)"
+            ),
+            Error::UninitializedMemoryBlock {
+                block_id,
+                opcode_index,
+            } => write!(
+                f,
+                "MemoryOp at opcode {opcode_index} references uninitialized block {block_id}"
+            ),
             Error::Llzk(e) => write!(f, "{e}"),
         }
     }

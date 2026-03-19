@@ -2,6 +2,7 @@ pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
 pub(crate) mod call;
 pub(crate) mod memory_init;
+pub(crate) mod memory_op;
 
 use llzk::prelude::{LlzkContext, StructDefOp};
 use std::collections::BTreeSet;
