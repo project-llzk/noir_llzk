@@ -112,9 +112,7 @@ pub(crate) fn apply_coefficient<'c, 'b>(
         return Ok(Some(value));
     }
     if *coeff == -FieldElement::one() {
-        return Ok(Some(
-            writer.insert_neg(value)?,
-        ));
+        return Ok(Some(writer.insert_neg(value)?));
     }
     let coeff_val = writer.emit_constant(coeff)?;
     Ok(Some(writer.insert_mul(value, coeff_val)?))
