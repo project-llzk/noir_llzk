@@ -1,13 +1,9 @@
 use std::collections::BTreeSet;
 
 use acir::native_types::Witness;
-use llzk::prelude::melior_dialects::arith;
+use llzk::dialect::array::ArrayType;
 use llzk::prelude::{BlockLike, StructDefOpLike};
-use llzk::{
-    builder::OpBuilder,
-    dialect::array::{ArrayCtor, ArrayType},
-    prelude::{FeltType, IntegerAttribute, LlzkContext, Location, StructDefOp, Type, dialect},
-};
+use llzk::prelude::{FeltType, LlzkContext, Location, StructDefOp, Type, dialect};
 
 use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
@@ -56,27 +52,14 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
     /// 2. Writes each initial witness value at its slot index via `array.write`.
     /// 3. Persists the populated array via `struct.writem @mem{block_id}`.
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
-        let array_type = ArrayType::new_with_dims(felt_type, &[self.init.len() as i64]);
-        let builder = OpBuilder::new(writer.context);
-
         // Create an uninitialized array of the required type.
-        let arr = writer.insert_op_with_result(dialect::array::new(
-            &builder,
-            writer.location,
-            array_type,
-            ArrayCtor::Empty,
-        ))?;
+        let arr = writer.insert_new_array(self.init.len())?;
 
         // Write each initial witness value into the array at its constant index.
         for (i, witness) in self.init.iter().enumerate() {
             let val = writer.read_witness(witness.0)?;
-            let idx = writer.insert_op_with_result(arith::constant(
-                writer.context,
-                IntegerAttribute::new(Type::index(writer.context), i as i64).into(),
-                writer.location,
-            ))?;
-            writer.insert_op(dialect::array::write(writer.location, arr, &[idx], val));
+            let idx = writer.insert_index(i)?;
+            writer.insert_array_write(arr, &[idx], val);
         }
 
         // Store the completed array to the struct member.
