@@ -2,9 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use acir::FieldElement;
 use llzk::builder::OpBuilder;
+use llzk::dialect::array::{ArrayCtor, ArrayType};
+use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, LlzkContext, Location, Operation, OperationLike, OperationRef,
-    RegionLike, StructDefOp, StructDefOpLike, StructType, SymbolRefAttribute, Type, Value, dialect,
+    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
+    SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -28,6 +31,8 @@ pub(crate) struct BlockWriter<'c, 'a> {
     known: Option<HashSet<u32>>,
     /// Cache of `felt.constant` values — each distinct field element is emitted at most once.
     constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
+    /// Cache of `arith.constant` index values — each distinct integer is emitted at most once.
+    integer_cache: HashMap<usize, Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -48,6 +53,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             witness_cache,
             known,
             constant_cache: HashMap::new(),
+            integer_cache: HashMap::new(),
         }
     }
 
@@ -197,6 +203,55 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         StructType::from_str(self.context, name).into()
     }
 
+    /// Returns the canonical felt type for this circuit's field.
+    pub(crate) fn felt_type(&self) -> Type<'c> {
+        FeltType::with_field(self.context, FIELD_NAME).into()
+    }
+
+    // ── Array operations ──────────────────────────────────────────────
+
+    /// Creates a new empty `!array.type<!felt.type, len>`.
+    pub(crate) fn insert_new_array(&self, len: usize) -> Result<Value<'c, 'a>, Error> {
+        let array_type = ArrayType::new_with_dims(self.felt_type(), &[len as i64]);
+        let builder = OpBuilder::new(self.context);
+        self.insert_op_with_result(dialect::array::new(
+            &builder,
+            self.location,
+            array_type,
+            ArrayCtor::Empty,
+        ))
+    }
+
+    /// Returns an `arith.constant` index value for `i`, emitting the operation
+    /// at most once per distinct value per block.
+    pub(crate) fn insert_integer(&mut self, i: usize) -> Result<Value<'c, 'a>, Error> {
+        if let Some(&val) = self.integer_cache.get(&i) {
+            return Ok(val);
+        }
+        let val = self.insert_integer_op(i)?;
+        self.integer_cache.insert(i, val);
+        Ok(val)
+    }
+
+    /// Emits an `arith.constant` producing an index value.
+    fn insert_integer_op(&self, i: usize) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(arith::constant(
+            self.context,
+            IntegerAttribute::new(Type::index(self.context), i as i64).into(),
+            self.location,
+        ))
+    }
+
+    /// Emits `array.write array[indices] = value`.
+    pub(crate) fn insert_array_write(
+        &self,
+        array: Value<'c, 'a>,
+        indices: &[Value<'c, 'a>],
+        value: Value<'c, 'a>,
+    ) {
+        self.insert_op(dialect::array::write(self.location, array, indices, value));
+    }
+
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.
     pub(crate) fn call_function(
         &self,
@@ -265,8 +320,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             return Ok(val);
         }
 
-        let felt_type: Type = FeltType::with_field(self.context, FIELD_NAME).into();
-        let val = self.read_member(felt_type, self.self_value, &format!("w{w_idx}"))?;
+        let val = self.read_field_member(self.self_value, &format!("w{w_idx}"))?;
         self.witness_cache.insert(w_idx, val);
         Ok(val)
     }

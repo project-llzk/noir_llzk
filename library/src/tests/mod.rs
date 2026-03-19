@@ -16,6 +16,7 @@ mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
 mod integration_tests;
+mod memory_init_tests;
 
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.

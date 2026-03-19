@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use acir::{
     FieldElement,
-    circuit::{Circuit, Opcode, Program},
+    circuit::{Circuit, Opcode, Program, opcodes::BlockType},
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -15,7 +15,9 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
-    opcodes::{TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call},
+    opcodes::{
+        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_init::MemoryInit,
+    },
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -158,6 +160,19 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     index, id.0, inputs, outputs, callee, predicate,
                 )))
             }
+            Opcode::MemoryInit {
+                block_id,
+                init,
+                block_type,
+            } => match block_type {
+                BlockType::Memory => Ok(Box::new(MemoryInit {
+                    block_id: block_id.0,
+                    init,
+                })),
+                _ => Err(Error::UnsupportedOpcode(format!(
+                    "MemoryInit with block_type {block_type:?}"
+                ))),
+            },
             other => Err(Error::UnsupportedOpcode(other.to_string())),
         }
     }
