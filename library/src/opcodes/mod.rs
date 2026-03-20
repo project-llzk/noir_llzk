@@ -4,10 +4,45 @@ pub(crate) mod call;
 pub(crate) mod memory_init;
 pub(crate) mod memory_op;
 
+use std::collections::{BTreeSet, HashMap};
+
+use acir::{FieldElement, circuit::Program};
 use llzk::prelude::{LlzkContext, StructDefOp};
-use std::collections::BTreeSet;
 
 use crate::{block_writer::BlockWriter, error::Error};
+
+/// Shared mutable state accumulated while converting ACIR opcodes into
+/// [`TranslatedOpcode`]s.  Threaded through each opcode's `from_opcode`
+/// constructor so that cross-opcode bookkeeping (block sizes, read/write
+/// counters) stays out of the top-level dispatcher.
+pub(crate) struct BuildContext<'p> {
+    /// Full program — needed by `Call` to resolve callee circuits by index.
+    pub(crate) program: &'p Program<FieldElement>,
+    /// Maps `block_id` → array length, populated by `MemoryInit` and read by
+    /// `MemoryOp`.
+    pub(crate) block_sizes: HashMap<u32, usize>,
+    /// Running counter of `MemoryRead` subcomponents (for unique member names).
+    pub(crate) read_count: usize,
+    /// Running counter of `MemoryWrite` subcomponents (for unique member names).
+    pub(crate) write_count: usize,
+    /// Distinct array sizes that need a `MemRead_{N}` struct def.
+    pub(crate) read_sizes: BTreeSet<usize>,
+    /// Distinct array sizes that need a `MemWrite_{N}` struct def.
+    pub(crate) write_sizes: BTreeSet<usize>,
+}
+
+impl<'p> BuildContext<'p> {
+    pub(crate) fn new(program: &'p Program<FieldElement>) -> Self {
+        Self {
+            program,
+            block_sizes: HashMap::new(),
+            read_count: 0,
+            write_count: 0,
+            read_sizes: BTreeSet::new(),
+            write_sizes: BTreeSet::new(),
+        }
+    }
+}
 
 /// Trait implemented by each ACIR opcode's translator.
 ///

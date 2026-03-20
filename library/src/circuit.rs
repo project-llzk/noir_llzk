@@ -1,8 +1,8 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 use acir::{
-    AcirField, FieldElement,
-    circuit::{Circuit, Opcode, Program, opcodes::BlockType},
+    FieldElement,
+    circuit::{Circuit, Opcode, Program},
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -16,8 +16,8 @@ use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
     opcodes::{
-        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_init::MemoryInit,
-        memory_op::{self, MemoryRead, MemoryWrite},
+        BuildContext, TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call,
+        memory_init::MemoryInit, memory_op,
     },
 };
 
@@ -58,10 +58,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// 4. Build and populate the `@compute` function.
     /// 5. Build and populate the `@constrain` function.
     /// 6. Emit auxiliary `MemRead_{N}` / `MemWrite_{N}` struct defs.
-    pub(crate) fn translate(
-        self,
-        circuit_index: usize,
-    ) -> Result<Vec<StructDefOp<'c>>, Error> {
+    pub(crate) fn translate(self, circuit_index: usize) -> Result<Vec<StructDefOp<'c>>, Error> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
 
@@ -140,42 +137,21 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     fn build_handlers(
         &self,
     ) -> Result<(Vec<TranslatedOpcode<'p>>, BTreeSet<usize>, BTreeSet<usize>), Error> {
-        let mut block_sizes: HashMap<u32, usize> = HashMap::new();
-        let mut read_count: usize = 0;
-        let mut write_count: usize = 0;
-        let mut read_sizes: BTreeSet<usize> = BTreeSet::new();
-        let mut write_sizes: BTreeSet<usize> = BTreeSet::new();
-
+        let mut ctx = BuildContext::new(self.program);
         let mut handlers: Vec<TranslatedOpcode<'p>> = Vec::new();
 
         for (index, opcode) in self.circuit.opcodes.iter().enumerate() {
-            let handler =
-                self.build_handler(
-                    index,
-                    opcode,
-                    &mut block_sizes,
-                    &mut read_count,
-                    &mut write_count,
-                    &mut read_sizes,
-                    &mut write_sizes,
-                )?;
-            handlers.push(handler);
+            handlers.push(Self::build_handler(index, opcode, &mut ctx)?);
         }
 
-        Ok((handlers, read_sizes, write_sizes))
+        Ok((handlers, ctx.read_sizes, ctx.write_sizes))
     }
 
     /// Dispatches a single opcode to its handler.
-    #[allow(clippy::too_many_arguments)]
     fn build_handler(
-        &self,
         index: usize,
         opcode: &'p Opcode<FieldElement>,
-        block_sizes: &mut HashMap<u32, usize>,
-        read_count: &mut usize,
-        write_count: &mut usize,
-        read_sizes: &mut BTreeSet<usize>,
-        write_sizes: &mut BTreeSet<usize>,
+        ctx: &mut BuildContext<'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
@@ -191,92 +167,9 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         match opcode {
             Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
-            Opcode::Call {
-                id,
-                inputs,
-                outputs,
-                predicate,
-            } => {
-                let callee = self.program.functions.get(id.as_usize()).ok_or(
-                    Error::OutOfRangeCallTarget {
-                        id: id.0,
-                        num_circuits: self.program.functions.len(),
-                    },
-                )?;
-                Ok(Box::new(Call::new(
-                    index, id.0, inputs, outputs, callee, predicate,
-                )))
-            }
-            Opcode::MemoryInit {
-                block_id,
-                init,
-                block_type,
-            } => match block_type {
-                BlockType::Memory => {
-                    block_sizes.insert(block_id.0, init.len());
-                    Ok(Box::new(MemoryInit {
-                        block_id: block_id.0,
-                        init,
-                    }))
-                }
-                _ => Err(Error::UnsupportedOpcode(format!(
-                    "MemoryInit with block_type {block_type:?}"
-                ))),
-            },
-            Opcode::MemoryOp {
-                block_id,
-                op: mem_op,
-                ..
-            } => {
-                let array_len = *block_sizes.get(&block_id.0).ok_or(
-                    Error::UninitializedMemoryBlock {
-                        block_id: block_id.0,
-                        opcode_index: index,
-                    },
-                )?;
-
-                // Determine read vs write from the operation expression.
-                let op_expr = &mem_op.operation;
-                let is_write = if op_expr.is_const() {
-                    if op_expr.q_c.is_zero() {
-                        false // read
-                    } else if op_expr.q_c.is_one() {
-                        true // write
-                    } else {
-                        return Err(Error::NonConstantMemoryOperation {
-                            opcode_index: index,
-                        });
-                    }
-                } else {
-                    return Err(Error::NonConstantMemoryOperation {
-                        opcode_index: index,
-                    });
-                };
-
-                if is_write {
-                    let mi = *write_count;
-                    *write_count += 1;
-                    write_sizes.insert(array_len);
-                    Ok(Box::new(MemoryWrite {
-                        member_index: mi,
-                        block_id: block_id.0,
-                        array_len,
-                        index_expr: &mem_op.index,
-                        value_expr: &mem_op.value,
-                    }))
-                } else {
-                    let mi = *read_count;
-                    *read_count += 1;
-                    read_sizes.insert(array_len);
-                    Ok(Box::new(MemoryRead {
-                        member_index: mi,
-                        block_id: block_id.0,
-                        array_len,
-                        index_expr: &mem_op.index,
-                        value_expr: &mem_op.value,
-                    }))
-                }
-            }
+            Opcode::Call { .. } => Ok(Box::new(Call::from_opcode(opcode, index, ctx)?)),
+            Opcode::MemoryInit { .. } => Ok(Box::new(MemoryInit::from_opcode(opcode, ctx)?)),
+            Opcode::MemoryOp { .. } => memory_op::from_opcode(opcode, index, ctx),
             other => Err(Error::UnsupportedOpcode(other.to_string())),
         }
     }

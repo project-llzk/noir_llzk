@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use acir::circuit::Opcode;
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
@@ -14,7 +15,7 @@ use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::common::{collect_witnesses, emit_expression};
 use crate::error::Error;
-use crate::opcodes::OpcodeEmitter;
+use crate::opcodes::{BuildContext, OpcodeEmitter, TranslatedOpcode};
 
 // ── Struct def emission ────────────────────────────────────────────────
 
@@ -442,6 +443,74 @@ pub(crate) fn emit_mem_write_struct_def<'c>(
 
 // ── Opcode handlers ────────────────────────────────────────────────────
 
+/// Dispatches an ACIR `MemoryOp` opcode to either [`MemoryRead`] or
+/// [`MemoryWrite`] based on the `operation` expression, updating counters and
+/// size sets in `ctx`.
+pub(crate) fn from_opcode<'p>(
+    opcode: &'p Opcode<FieldElement>,
+    index: usize,
+    ctx: &mut BuildContext<'p>,
+) -> Result<TranslatedOpcode<'p>, Error> {
+    let Opcode::MemoryOp {
+        block_id,
+        op: mem_op,
+        ..
+    } = opcode
+    else {
+        unreachable!("memory_op::from_opcode called with non-MemoryOp opcode");
+    };
+
+    let array_len = *ctx
+        .block_sizes
+        .get(&block_id.0)
+        .ok_or(Error::UninitializedMemoryBlock {
+            block_id: block_id.0,
+            opcode_index: index,
+        })?;
+
+    // Determine read vs write from the operation expression.
+    let op_expr = &mem_op.operation;
+    let is_write = if op_expr.is_const() {
+        if op_expr.q_c.is_zero() {
+            false // read
+        } else if op_expr.q_c.is_one() {
+            true // write
+        } else {
+            return Err(Error::NonConstantMemoryOperation {
+                opcode_index: index,
+            });
+        }
+    } else {
+        return Err(Error::NonConstantMemoryOperation {
+            opcode_index: index,
+        });
+    };
+
+    if is_write {
+        let mi = ctx.write_count;
+        ctx.write_count += 1;
+        ctx.write_sizes.insert(array_len);
+        Ok(Box::new(MemoryWrite {
+            member_index: mi,
+            block_id: block_id.0,
+            array_len,
+            index_expr: &mem_op.index,
+            value_expr: &mem_op.value,
+        }))
+    } else {
+        let mi = ctx.read_count;
+        ctx.read_count += 1;
+        ctx.read_sizes.insert(array_len);
+        Ok(Box::new(MemoryRead {
+            member_index: mi,
+            block_id: block_id.0,
+            array_len,
+            index_expr: &mem_op.index,
+            value_expr: &mem_op.value,
+        }))
+    }
+}
+
 /// Translates an ACIR `MemoryOp` with `operation=0` (read).
 ///
 /// Emits a `MemRead_{N}` subcomponent member on the circuit struct.  In
@@ -518,9 +587,10 @@ impl<'p> OpcodeEmitter for MemoryRead<'p> {
         let read_struct_type = writer.struct_type(&struct_name);
 
         // Get current array version and evaluate index (same args as compute).
-        let (data, _len) = writer.memory_versions.get(self.block_id).expect(
-            "MemoryRead constrain: block not initialized",
-        );
+        let (data, _len) = writer
+            .memory_versions
+            .get(self.block_id)
+            .expect("MemoryRead constrain: block not initialized");
         let idx = emit_expression(writer, self.index_expr)?;
 
         let read_struct =
@@ -654,9 +724,10 @@ impl<'p> OpcodeEmitter for MemoryWrite<'p> {
         let write_struct_type = writer.struct_type(&struct_name);
 
         // Get current array version and evaluate index/value (same args as compute).
-        let (data, _len) = writer.memory_versions.get(self.block_id).expect(
-            "MemoryWrite constrain: block not initialized",
-        );
+        let (data, _len) = writer
+            .memory_versions
+            .get(self.block_id)
+            .expect("MemoryWrite constrain: block not initialized");
         let idx = emit_expression(writer, self.index_expr)?;
         let val = emit_expression(writer, self.value_expr)?;
 

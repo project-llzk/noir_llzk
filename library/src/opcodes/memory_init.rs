@@ -1,11 +1,19 @@
 use std::collections::BTreeSet;
 
+use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::BlockType;
 use acir::native_types::Witness;
 use llzk::dialect::array::ArrayType;
 use llzk::prelude::{BlockLike, StructDefOpLike};
 use llzk::prelude::{FeltType, LlzkContext, Location, StructDefOp, Type, dialect};
 
-use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
+use crate::{
+    FIELD_NAME,
+    block_writer::BlockWriter,
+    error::Error,
+    opcodes::{BuildContext, OpcodeEmitter},
+};
 
 /// Translates an ACIR `MemoryInit` opcode.
 ///
@@ -20,6 +28,35 @@ use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::Opcode
 pub(crate) struct MemoryInit<'p> {
     pub(crate) block_id: u32,
     pub(crate) init: &'p [Witness],
+}
+
+impl<'p> MemoryInit<'p> {
+    pub(crate) fn from_opcode(
+        opcode: &'p Opcode<FieldElement>,
+        ctx: &mut BuildContext<'p>,
+    ) -> Result<Self, Error> {
+        let Opcode::MemoryInit {
+            block_id,
+            init,
+            block_type,
+        } = opcode
+        else {
+            unreachable!("MemoryInit::from_opcode called with non-MemoryInit opcode");
+        };
+
+        match block_type {
+            BlockType::Memory => {
+                ctx.block_sizes.insert(block_id.0, init.len());
+                Ok(Self {
+                    block_id: block_id.0,
+                    init,
+                })
+            }
+            _ => Err(Error::UnsupportedOpcode(format!(
+                "MemoryInit with block_type {block_type:?}"
+            ))),
+        }
+    }
 }
 
 impl<'p> OpcodeEmitter for MemoryInit<'p> {

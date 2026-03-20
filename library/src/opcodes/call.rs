@@ -1,6 +1,6 @@
 use acir::{
     FieldElement,
-    circuit::Circuit,
+    circuit::{Circuit, Opcode},
     native_types::{Expression, Witness},
 };
 use llzk::prelude::{
@@ -11,7 +11,7 @@ use crate::{
     block_writer::BlockWriter,
     common::{collect_witnesses, emit_expression, emit_gated_eq, is_trivial_predicate},
     error::Error,
-    opcodes::OpcodeEmitter,
+    opcodes::{BuildContext, OpcodeEmitter},
 };
 
 pub(crate) struct Call<'p> {
@@ -31,22 +31,38 @@ pub(crate) struct Call<'p> {
 }
 
 impl<'p> Call<'p> {
-    pub(crate) fn new(
+    pub(crate) fn from_opcode(
+        opcode: &'p Opcode<FieldElement>,
         index: usize,
-        callee_id: u32,
-        inputs: &'p [Witness],
-        outputs: &'p [Witness],
-        callee: &'p Circuit<FieldElement>,
-        predicate: &'p Expression<FieldElement>,
-    ) -> Self {
-        Self {
+        ctx: &BuildContext<'p>,
+    ) -> Result<Self, Error> {
+        let Opcode::Call {
+            id,
+            inputs,
+            outputs,
+            predicate,
+        } = opcode
+        else {
+            unreachable!("Call::from_opcode called with non-Call opcode");
+        };
+
+        let callee =
+            ctx.program
+                .functions
+                .get(id.as_usize())
+                .ok_or(Error::OutOfRangeCallTarget {
+                    id: id.0,
+                    num_circuits: ctx.program.functions.len(),
+                })?;
+
+        Ok(Self {
             index,
-            callee_id,
+            callee_id: id.0,
             inputs,
             outputs,
             callee,
             predicate,
-        }
+        })
     }
 }
 
