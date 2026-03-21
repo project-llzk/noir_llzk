@@ -2,13 +2,60 @@ use std::collections::BTreeSet;
 
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
+use llzk::dialect::array::ArrayType;
 use llzk::dialect::felt::FeltConstAttribute;
-use llzk::prelude::{LlzkContext, Value};
+use llzk::prelude::{
+    FeltType, LlzkContext, LlzkError, Location, Operation, StructDefOp, Value, dialect,
+};
 use num_bigint::BigUint;
 
 use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::error::Error;
+
+/// Creates an empty struct def with the given name (no generic params, no inline ops).
+pub(crate) fn empty_struct<'c>(
+    location: Location<'c>,
+    name: &str,
+) -> Result<StructDefOp<'c>, LlzkError> {
+    dialect::r#struct::def(location, name, &[], [] as [Result<Operation, LlzkError>; 0])
+}
+
+/// Creates a felt-typed struct member.
+pub(crate) fn field_member<'c>(
+    location: Location<'c>,
+    context: &'c LlzkContext,
+    name: &str,
+    is_public: bool,
+) -> Result<Operation<'c>, LlzkError> {
+    Ok(dialect::r#struct::member(
+        location,
+        name,
+        FeltType::with_field(context, FIELD_NAME),
+        false,
+        is_public,
+    )?
+    .into())
+}
+
+/// Creates an array-of-felt-typed struct member.
+pub(crate) fn array_member<'c>(
+    location: Location<'c>,
+    context: &'c LlzkContext,
+    name: &str,
+    len: usize,
+    is_public: bool,
+) -> Result<Operation<'c>, LlzkError> {
+    let felt_type = FeltType::with_field(context, FIELD_NAME).into();
+    Ok(dialect::r#struct::member(
+        location,
+        name,
+        ArrayType::new_with_dims(felt_type, &[len as i64]),
+        false,
+        is_public,
+    )?
+    .into())
+}
 
 /// Converts an ACIR `FieldElement` to an LLZK `FeltConstAttribute`.
 pub(crate) fn field_to_felt_const<'c>(

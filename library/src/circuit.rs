@@ -7,14 +7,15 @@ use acir::{
 use llzk::{
     attributes::NamedAttribute,
     prelude::{
-        BlockLike, FeltType, LlzkContext, LlzkError, Location, Operation, PublicAttribute,
-        StructDefOp, StructDefOpLike, StructType, Type, dialect,
+        BlockLike, FeltType, LlzkContext, Location, PublicAttribute, StructDefOp, StructDefOpLike,
+        StructType, Type, dialect,
     },
 };
 
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
+    common::{empty_struct, field_member},
     opcodes::{
         BuildContext, TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call,
         memory_init::MemoryInit, memory_op,
@@ -62,12 +63,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
 
-        let struct_def = dialect::r#struct::def(
-            location,
-            &struct_name,
-            &[],
-            [] as [Result<Operation, LlzkError>; 0],
-        )?;
+        let struct_def = empty_struct(location, &struct_name)?;
 
         let (ops, read_sizes, write_sizes) = self.build_handlers()?;
         let input_witnesses = self.sorted_input_witnesses();
@@ -199,8 +195,6 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         opcode_witnesses: &BTreeSet<u32>,
     ) -> Result<(), Error> {
         let location = Location::unknown(self.context);
-        let felt_type = FeltType::with_field(self.context, FIELD_NAME);
-
         let input_set: HashSet<u32> = input_witnesses.iter().copied().collect();
         let public_witnesses: HashSet<u32> =
             self.circuit.return_values.0.iter().map(|w| w.0).collect();
@@ -213,9 +207,12 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             }
             let member_name = format!("w{i}");
             let is_public = public_witnesses.contains(&i);
-            let member =
-                dialect::r#struct::member(location, &member_name, felt_type, false, is_public)?;
-            struct_def.body().append_operation(member.into());
+            struct_def.body().append_operation(field_member(
+                location,
+                self.context,
+                &member_name,
+                is_public,
+            )?);
         }
 
         Ok(())

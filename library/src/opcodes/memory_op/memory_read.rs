@@ -5,13 +5,13 @@ use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
 use llzk::dialect::array::ArrayType;
 use llzk::prelude::{
-    BlockLike, FeltType, LlzkContext, LlzkError, Location, Operation, OperationLike, RegionLike,
-    StructDefOp, StructDefOpLike, StructType, Type, Value, dialect,
+    BlockLike, FeltType, LlzkContext, Location, OperationLike, RegionLike, StructDefOp,
+    StructDefOpLike, StructType, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
-use crate::common::{collect_witnesses, emit_expression};
+use crate::common::{array_member, collect_witnesses, emit_expression, empty_struct, field_member};
 use crate::error::Error;
 use crate::opcodes::OpcodeEmitter;
 
@@ -164,44 +164,18 @@ pub(crate) fn emit_struct_def<'c>(
     let array_type: Type<'c> = ArrayType::new_with_dims(felt_type, &[n as i64]).into();
     let struct_type = StructType::from_str(context, &struct_name);
 
-    let struct_def = dialect::r#struct::def(
-        location,
-        &struct_name,
-        &[],
-        [] as [Result<Operation, LlzkError>; 0],
-    )?;
+    let struct_def = empty_struct(location, &struct_name)?;
 
     // Members: @data, @index, @value
-    struct_def.body().append_operation(
-        dialect::r#struct::member(
-            location,
-            "data",
-            ArrayType::new_with_dims(felt_type, &[n as i64]),
-            false,
-            false,
-        )?
-        .into(),
-    );
-    struct_def.body().append_operation(
-        dialect::r#struct::member(
-            location,
-            "index",
-            FeltType::with_field(context, FIELD_NAME),
-            false,
-            false,
-        )?
-        .into(),
-    );
-    struct_def.body().append_operation(
-        dialect::r#struct::member(
-            location,
-            "value",
-            FeltType::with_field(context, FIELD_NAME),
-            false,
-            true, // public — read by the parent circuit to extract the solved witness
-        )?
-        .into(),
-    );
+    struct_def
+        .body()
+        .append_operation(array_member(location, context, "data", n, false)?);
+    struct_def
+        .body()
+        .append_operation(field_member(location, context, "index", false)?);
+    struct_def
+        .body()
+        .append_operation(field_member(location, context, "value", true)?); // public
 
     // ── @compute(%block_data: array<felt, N>, %idx: felt) -> MemRead_N ──
     let compute = dialect::r#struct::helpers::compute_fn(

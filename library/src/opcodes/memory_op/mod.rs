@@ -4,8 +4,8 @@ mod memory_write;
 pub(crate) use memory_read::{MemoryRead, emit_struct_def as emit_mem_read_struct_def};
 pub(crate) use memory_write::{MemoryWrite, emit_struct_def as emit_mem_write_struct_def};
 
-use acir::{AcirField, FieldElement};
 use acir::circuit::Opcode;
+use acir::{AcirField, FieldElement};
 
 use crate::error::Error;
 use crate::opcodes::{BuildContext, TranslatedOpcode};

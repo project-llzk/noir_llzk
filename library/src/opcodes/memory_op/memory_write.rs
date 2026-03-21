@@ -6,13 +6,13 @@ use llzk::builder::OpBuilder;
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, FeltType, IntegerAttribute, LlzkContext, LlzkError, Location, Operation,
-    OperationLike, RegionLike, StructDefOp, StructDefOpLike, StructType, Type, Value, dialect,
+    BlockLike, FeltType, IntegerAttribute, LlzkContext, Location, OperationLike, RegionLike,
+    StructDefOp, StructDefOpLike, StructType, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
-use crate::common::{collect_witnesses, emit_expression};
+use crate::common::{array_member, collect_witnesses, emit_expression, empty_struct, field_member};
 use crate::error::Error;
 use crate::opcodes::OpcodeEmitter;
 
@@ -145,45 +145,19 @@ pub(crate) fn emit_struct_def<'c>(
     let array_type: Type<'c> = ArrayType::new_with_dims(felt_type, &[n as i64]).into();
     let struct_type = StructType::from_str(context, &struct_name);
 
-    let struct_def = dialect::r#struct::def(
-        location,
-        &struct_name,
-        &[],
-        [] as [Result<Operation, LlzkError>; 0],
-    )?;
+    let struct_def = empty_struct(location, &struct_name)?;
 
     // Members: @old_data, @new_data (public), @index, @write_value
-    struct_def.body().append_operation(
-        dialect::r#struct::member(
-            location,
-            "old_data",
-            ArrayType::new_with_dims(felt_type, &[n as i64]),
-            false,
-            false,
-        )?
-        .into(),
-    );
-    struct_def.body().append_operation(
-        dialect::r#struct::member(
-            location,
-            "new_data",
-            ArrayType::new_with_dims(felt_type, &[n as i64]),
-            false,
-            true, // public — read by the parent circuit for version chaining
-        )?
-        .into(),
-    );
+    struct_def
+        .body()
+        .append_operation(array_member(location, context, "old_data", n, false)?);
+    struct_def
+        .body()
+        .append_operation(array_member(location, context, "new_data", n, true)?); // public
     for name in ["index", "write_value"] {
-        struct_def.body().append_operation(
-            dialect::r#struct::member(
-                location,
-                name,
-                FeltType::with_field(context, FIELD_NAME),
-                false,
-                false,
-            )?
-            .into(),
-        );
+        struct_def
+            .body()
+            .append_operation(field_member(location, context, name, false)?);
     }
 
     // ── @compute(%old: array<felt, N>, %idx: felt, %val: felt) -> MemWrite_N ──
