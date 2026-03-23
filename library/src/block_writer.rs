@@ -216,6 +216,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
     }
 
+    /// Emits `llzk.nondet` with the given result type.
+    pub(crate) fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::llzk::nondet(self.location, result_type))
+    }
+
     /// Writes `val` into the `name` member of `%self` before the return terminator.
     pub(crate) fn write_member(&self, name: &str, val: Value<'c, 'a>) -> Result<(), Error> {
         self.insert_op(dialect::r#struct::writem(

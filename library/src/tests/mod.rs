@@ -156,6 +156,32 @@ pub(super) fn embedded_curve_add_blackbox(
     })
 }
 
+/// Builds a black-box `MultiScalarMul` opcode over witnesses.
+pub(super) fn multi_scalar_mul_blackbox(
+    points: &[[u32; 3]],
+    scalars: &[[u32; 2]],
+    predicate: u32,
+    outputs: (u32, u32, u32),
+) -> Opcode<FieldElement> {
+    let points = points
+        .iter()
+        .flat_map(|point| point.iter().copied())
+        .map(|w| FunctionInput::Witness(Witness(w)))
+        .collect();
+    let scalars = scalars
+        .iter()
+        .flat_map(|scalar| scalar.iter().copied())
+        .map(|w| FunctionInput::Witness(Witness(w)))
+        .collect();
+
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::MultiScalarMul {
+        points,
+        scalars,
+        predicate: FunctionInput::Witness(Witness(predicate)),
+        outputs: (Witness(outputs.0), Witness(outputs.1), Witness(outputs.2)),
+    })
+}
+
 /// Returns the first `StructDefOp` in the module body.
 pub(super) fn first_struct_def<'c, 'a>(module: &'a Module<'c>) -> StructDefOpRef<'c, 'a> {
     iter_block_ops(module.body())
