@@ -7,9 +7,9 @@ pub(crate) mod memory_ops;
 use std::collections::BTreeSet;
 
 use acir::{FieldElement, circuit::opcodes::FunctionInput};
-use llzk::prelude::{LlzkContext, StructDefOp, Value, dialect};
+use llzk::prelude::{LlzkContext, StructDefOp, Value};
 
-use crate::{block_writer::BlockWriter, common::field_to_felt_const, error::Error};
+use crate::{block_writer::BlockWriter, error::Error};
 
 /// Trait implemented by each ACIR opcode's translator.
 ///
@@ -63,10 +63,7 @@ pub(crate) fn emit_blackbox_input<'c, 'b>(
 ) -> Result<Value<'c, 'b>, Error> {
     match input {
         FunctionInput::Witness(w) => writer.read_witness(w.0),
-        FunctionInput::Constant(c) => {
-            let attr = field_to_felt_const(writer.context, c);
-            writer.insert_op_with_result(dialect::felt::constant(writer.location, attr)?)
-        }
+        FunctionInput::Constant(c) => writer.emit_constant(c),
     }
 }
 

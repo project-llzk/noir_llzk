@@ -114,8 +114,8 @@ fn embedded_curve_add_non_doubling_has_infinity_result_branch() {
     );
     assert_eq!(
         count_ops_by_name(&module, "scf.if"),
-        9,
-        "compute and constrain should share the same finite case split while only compute keeps the extra infinity guard"
+        10,
+        "compute and constrain should share the same finite case split, while constrain now also materializes a strict predicate==1 gate"
     );
 }
 

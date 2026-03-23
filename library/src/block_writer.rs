@@ -124,6 +124,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Self::from_block(context, block, self_value, input_witnesses, 1, None)
     }
 
+    /// Returns the LLZK context this writer was created with.
+    pub(crate) fn context(&self) -> &'c LlzkContext {
+        self.context
+    }
+
+    /// Returns the location used for all emitted operations.
+    pub(crate) fn location(&self) -> Location<'c> {
+        self.location
+    }
+
     /// Reads the `name` member of `%self` (typed `ty`) before the return terminator.
     pub(crate) fn read_self_member(
         &self,
@@ -354,11 +364,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     // ── Core IR operations ──────────────────────────────────────────────
 
     /// Inserts a single-result `op` and returns its first result as a `Value`.
-    fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
+    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
         Ok(self.insert_op(op).result(0)?.into())
     }
     /// Inserts `op` into the block immediately before the return terminator.
-    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
         self.block.insert_operation_before(self.ret_op, op)
     }
 

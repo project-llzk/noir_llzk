@@ -7,14 +7,17 @@ use acir::{
     native_types::Witness,
 };
 use llzk::prelude::{
-    Block, BlockLike, FeltType, Location, Operation, Region, RegionLike, Type, Value, dialect,
+    Block, BlockLike, FeltType, Location, Operation, Type, Value, dialect,
     melior_dialects::scf,
 };
 
 use crate::{
     FIELD_NAME,
     block_writer::BlockWriter,
-    common::field_to_felt_const,
+    common::{
+        append_if_with_results, build_yielding_region, emit_gated_eq, field_to_felt_const,
+        insert_if_with_results,
+    },
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
 };
@@ -50,56 +53,25 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         let input2_infinite = emit_blackbox_input(writer, &self.input2[2])?;
         let predicate = emit_blackbox_input(writer, self.predicate)?;
         let predicate_is_true = emit_is_one(writer, predicate)?;
-        let felt_type: Type<'c> = FeltType::with_field(writer.context, FIELD_NAME).into();
-
-        let then_region = Region::new();
-        let then_block = Block::new(&[]);
-        let (output_x, output_y, output_infinite) = emit_curve_add_result(
-            &then_block,
-            writer.context,
-            writer.location,
-            (input1_x, input1_y, input1_infinite),
-            (input2_x, input2_y, input2_infinite),
-        )?;
-        then_block.append_operation(scf::r#yield(
-            &[output_x, output_y, output_infinite],
-            writer.location,
-        ));
-        then_region.append_block(then_block);
-
-        let else_region = Region::new();
-        let else_block = Block::new(&[]);
-        let zero_x = append_felt_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            &FieldElement::zero(),
-        )?;
-        let zero_y = append_felt_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            &FieldElement::zero(),
-        )?;
-        let one_inf = append_felt_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            &FieldElement::one(),
-        )?;
-        else_block.append_operation(scf::r#yield(&[zero_x, zero_y, one_inf], writer.location));
-        else_region.append_block(else_block);
-
-        let result_op = writer.insert_op(scf::r#if(
+        let context = writer.context();
+        let location = writer.location();
+        let result_types = [felt_type(context), felt_type(context), felt_type(context)];
+        let [output_x, output_y, output_infinite] = insert_if_with_results(
+            writer,
             predicate_is_true,
-            &[felt_type, felt_type, felt_type],
-            then_region,
-            else_region,
-            writer.location,
-        ));
-        let output_x: Value<'c, 'b> = result_op.result(0)?.into();
-        let output_y: Value<'c, 'b> = result_op.result(1)?.into();
-        let output_infinite: Value<'c, 'b> = result_op.result(2)?.into();
+            &result_types,
+            |then_block| {
+                emit_curve_add_result(
+                    then_block,
+                    context,
+                    location,
+                    (input1_x, input1_y, input1_infinite),
+                    (input2_x, input2_y, input2_infinite),
+                )
+                .map(point_to_array)
+            },
+            |else_block| emit_infinity_point(else_block, context, location).map(point_to_array),
+        )?;
 
         writer.write_member(&format!("w{}", self.outputs.0.0), output_x)?;
         writer.write_member(&format!("w{}", self.outputs.1.0), output_y)?;
@@ -118,107 +90,62 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         let input2_y = emit_blackbox_input(writer, &self.input2[1])?;
         let input2_infinite = emit_blackbox_input(writer, &self.input2[2])?;
         let predicate = emit_blackbox_input(writer, self.predicate)?;
-        let predicate_is_true = emit_is_one(writer, predicate)?;
         let output_x = writer.read_witness(self.outputs.0.0)?;
         let output_y = writer.read_witness(self.outputs.1.0)?;
         let output_infinite = writer.read_witness(self.outputs.2.0)?;
 
-        let then_region = Region::new();
-        let then_block = Block::new(&[]);
-        // Noir's EmbeddedCurveAdd requires finite inputs. Constraining the
-        // infinity flags to zero subsumes any boolean check.
-        constrain_to_constant(
-            &then_block,
-            writer.context,
-            writer.location,
-            input1_infinite,
-            &FieldElement::zero(),
-        )?;
-        constrain_to_constant(
-            &then_block,
-            writer.context,
-            writer.location,
-            input2_infinite,
-            &FieldElement::zero(),
-        )?;
-        constrain_on_curve(
-            &then_block,
-            writer.context,
-            writer.location,
-            input1_x,
-            input1_y,
-        )?;
-        constrain_on_curve(
-            &then_block,
-            writer.context,
-            writer.location,
-            input2_x,
-            input2_y,
-        )?;
-        // Grumpkin has cofactor 1, so Noir's subgroup check is vacuous once the
-        // point is known to be on the curve.
+        let zero = writer.emit_constant(&FieldElement::zero())?;
+        let one = writer.emit_constant(&FieldElement::one())?;
+        let (predicate_is_true, predicate_is_true_felt) = emit_predicate_gate(writer, predicate)?;
 
-        // Both infinity flags are already constrained to zero above, so the
-        // full infinity-handling tree is unreachable. Use the finite-only
-        // version to avoid emitting dead IR.
-        let (expected_x, expected_y, expected_infinite) = emit_finite_curve_add_result(
-            &then_block,
-            writer.context,
-            writer.location,
-            (input1_x, input1_y),
-            (input2_x, input2_y),
-        )?;
-        then_block.append_operation(dialect::constrain::eq(
-            writer.location,
-            output_x,
-            expected_x,
-        ));
-        then_block.append_operation(dialect::constrain::eq(
-            writer.location,
-            output_y,
-            expected_y,
-        ));
-        then_block.append_operation(dialect::constrain::eq(
-            writer.location,
-            output_infinite,
-            expected_infinite,
-        ));
-        then_block.append_operation(scf::r#yield(&[], writer.location));
-        then_region.append_block(then_block);
+        // ── Gated input constraints (no division, safe unconditionally) ──
 
-        let else_region = Region::new();
-        let else_block = Block::new(&[]);
-        constrain_to_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            output_x,
-            &FieldElement::zero(),
-        )?;
-        constrain_to_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            output_y,
-            &FieldElement::zero(),
-        )?;
-        constrain_to_constant(
-            &else_block,
-            writer.context,
-            writer.location,
-            output_infinite,
-            &FieldElement::one(),
-        )?;
-        else_block.append_operation(scf::r#yield(&[], writer.location));
-        else_region.append_block(else_block);
+        // Noir's EmbeddedCurveAdd requires finite inputs.
+        emit_gated_eq(writer, predicate_is_true_felt, input1_infinite, zero)?;
+        emit_gated_eq(writer, predicate_is_true_felt, input2_infinite, zero)?;
 
-        writer.insert_op(scf::r#if(
+        // On-curve: predicate * (y² - (x³ + b)) == 0
+        // Grumpkin has cofactor 1, so this subsumes the subgroup check.
+        emit_gated_on_curve(writer, predicate_is_true_felt, input1_x, input1_y)?;
+        emit_gated_on_curve(writer, predicate_is_true_felt, input2_x, input2_y)?;
+
+        // ── Curve math (needs scf::if — divisions may fail when predicate is false) ──
+
+        let context = writer.context();
+        let location = writer.location();
+        let no_results: [Type<'c>; 0] = [];
+        let _ = insert_if_with_results(
+            writer,
             predicate_is_true,
-            &[],
-            then_region,
-            else_region,
-            writer.location,
-        ));
+            &no_results,
+            |then_block| {
+                let (expected_x, expected_y, expected_infinite) = emit_finite_curve_add_result(
+                    then_block,
+                    context,
+                    location,
+                    (input1_x, input1_y),
+                    (input2_x, input2_y),
+                )?;
+                then_block.append_operation(dialect::constrain::eq(location, output_x, expected_x));
+                then_block.append_operation(dialect::constrain::eq(location, output_y, expected_y));
+                then_block.append_operation(dialect::constrain::eq(
+                    location,
+                    output_infinite,
+                    expected_infinite,
+                ));
+                Ok([])
+            },
+            |_else_block| Ok([]),
+        )?;
+
+        // ── Gated predicate-false output constraints ──
+
+        let predicate_is_false = writer.insert_neg(predicate_is_true_felt)?;
+        let predicate_is_false = writer.insert_add(one, predicate_is_false)?;
+        emit_gated_eq(writer, predicate_is_false, output_x, zero)?;
+        emit_gated_eq(writer, predicate_is_false, output_y, zero)?;
+        emit_gated_eq(writer, predicate_is_false, output_infinite, one)?;
+
         Ok(())
     }
 }
@@ -240,12 +167,59 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Embedd
     }
 }
 
+/// Emits a gated on-curve constraint: `predicate * (y² - (x³ + b)) == 0`.
+fn emit_gated_on_curve<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    predicate: Value<'c, 'b>,
+    x: Value<'c, 'b>,
+    y: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let y_sq = writer.insert_mul(y, y)?;
+    let x_sq = writer.insert_mul(x, x)?;
+    let x_cu = writer.insert_mul(x_sq, x)?;
+    let curve_b = writer.emit_constant(&FieldElement::from(GRUMPKIN_B))?;
+    let rhs = writer.insert_add(x_cu, curve_b)?;
+    emit_gated_eq(writer, predicate, y_sq, rhs)
+}
+
 fn emit_is_one<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     value: Value<'c, 'b>,
 ) -> Result<Value<'c, 'b>, Error> {
-    let one = append_felt_constant_via_writer(writer, &FieldElement::one())?;
-    writer.insert_op_with_result(dialect::bool::eq(writer.location, value, one)?)
+    let one = writer.emit_constant(&FieldElement::one())?;
+    writer.insert_op_with_result(dialect::bool::eq(writer.location(), value, one)?)
+}
+
+fn emit_predicate_gate<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    predicate: Value<'c, 'b>,
+) -> Result<(Value<'c, 'b>, Value<'c, 'b>), Error> {
+    let predicate_is_true = emit_is_one(writer, predicate)?;
+    let context = writer.context();
+    let location = writer.location();
+    let result_types = [felt_type(context)];
+    let [predicate_gate] = insert_if_with_results(
+        writer,
+        predicate_is_true,
+        &result_types,
+        |then_block| {
+            Ok([append_felt_constant(
+                then_block,
+                context,
+                location,
+                &FieldElement::one(),
+            )?])
+        },
+        |else_block| {
+            Ok([append_felt_constant(
+                else_block,
+                context,
+                location,
+                &FieldElement::zero(),
+            )?])
+        },
+    )?;
+    Ok((predicate_is_true, predicate_gate))
 }
 
 type AffinePointValue<'c, 'a> = (Value<'c, 'a>, Value<'c, 'a>);
@@ -274,41 +248,25 @@ fn emit_curve_add_result<'c, 'a>(
         block,
         dialect::bool::or(location, input1_is_infinite, input2_is_infinite)?,
     )?;
-
-    let finite_then = Region::new();
-    let finite_then_block = Block::new(&[]);
-    let finite = emit_finite_curve_add_result(
-        &finite_then_block,
-        context,
+    let result_types = [felt_type, felt_type, felt_type];
+    append_if_with_results(
+        block,
         location,
-        (input1_x, input1_y),
-        (input2_x, input2_y),
-    )?;
-    finite_then_block.append_operation(scf::r#yield(&[finite.0, finite.1, finite.2], location));
-    finite_then.append_block(finite_then_block);
-
-    let finite_else = Region::new();
-    let finite_else_block = Block::new(&[]);
-    let infinity = emit_infinity_point(&finite_else_block, context, location)?;
-    finite_else_block.append_operation(scf::r#yield(
-        &[infinity.0, infinity.1, infinity.2],
-        location,
-    ));
-    finite_else.append_block(finite_else_block);
-
-    let result = block.append_operation(scf::r#if(
         any_input_infinite,
-        &[felt_type, felt_type, felt_type],
-        finite_else,
-        finite_then,
-        location,
-    ));
-
-    Ok((
-        result.result(0)?.into(),
-        result.result(1)?.into(),
-        result.result(2)?.into(),
-    ))
+        &result_types,
+        |then_block| emit_infinity_point(then_block, context, location).map(point_to_array),
+        |else_block| {
+            emit_finite_curve_add_result(
+                else_block,
+                context,
+                location,
+                (input1_x, input1_y),
+                (input2_x, input2_y),
+            )
+            .map(point_to_array)
+        },
+    )
+    .map(point_from_array)
 }
 
 /// Emits curve addition for inputs known to be finite (infinity flags == 0).
@@ -328,109 +286,82 @@ fn emit_finite_curve_add_result<'c, 'a>(
 
     let x_equal = append_op_with_result(block, dialect::bool::eq(location, input1_x, input2_x)?)?;
 
-    // x_equal → check y
-    let x_equal_then = Region::new();
-    let x_equal_then_block = Block::new(&[]);
-    let y_equal = append_op_with_result(
-        &x_equal_then_block,
-        dialect::bool::eq(location, input1_y, input2_y)?,
-    )?;
-
     // x_equal, y_equal → check y == 0 (doubling at tangent vertical)
-    let y_equal_then = Region::new();
-    let y_equal_then_block = Block::new(&[]);
-    let zero = append_felt_constant(
-        &y_equal_then_block,
-        context,
+    let result_types = [felt_type, felt_type, felt_type];
+    append_if_with_results(
+        block,
         location,
-        &FieldElement::zero(),
-    )?;
-    let y_is_zero = append_op_with_result(
-        &y_equal_then_block,
-        dialect::bool::eq(location, input1_y, zero)?,
-    )?;
-
-    // y == 0 → infinity (vertical tangent)
-    let y_zero_then = Region::new();
-    let y_zero_then_block = Block::new(&[]);
-    let inf = emit_infinity_point(&y_zero_then_block, context, location)?;
-    y_zero_then_block.append_operation(scf::r#yield(&[inf.0, inf.1, inf.2], location));
-    y_zero_then.append_block(y_zero_then_block);
-
-    // y != 0 → doubling formula
-    let y_zero_else = Region::new();
-    let y_zero_else_block = Block::new(&[]);
-    let doubled = emit_affine_curve_formula(
-        &y_zero_else_block,
-        context,
-        location,
-        (input1_x, input1_y),
-        (input2_x, input2_y),
-        true,
-    )?;
-    y_zero_else_block.append_operation(scf::r#yield(&[doubled.0, doubled.1, doubled.2], location));
-    y_zero_else.append_block(y_zero_else_block);
-
-    let y_eq_result = y_equal_then_block.append_operation(scf::r#if(
-        y_is_zero,
-        &[felt_type, felt_type, felt_type],
-        y_zero_then,
-        y_zero_else,
-        location,
-    ));
-    let yr_x: Value<'c, '_> = y_eq_result.result(0)?.into();
-    let yr_y: Value<'c, '_> = y_eq_result.result(1)?.into();
-    let yr_inf: Value<'c, '_> = y_eq_result.result(2)?.into();
-    y_equal_then_block.append_operation(scf::r#yield(&[yr_x, yr_y, yr_inf], location));
-    y_equal_then.append_block(y_equal_then_block);
-
-    // x_equal, y_different → inverse points, return infinity
-    let y_equal_else = Region::new();
-    let y_equal_else_block = Block::new(&[]);
-    let inf = emit_infinity_point(&y_equal_else_block, context, location)?;
-    y_equal_else_block.append_operation(scf::r#yield(&[inf.0, inf.1, inf.2], location));
-    y_equal_else.append_block(y_equal_else_block);
-
-    let x_eq_result = x_equal_then_block.append_operation(scf::r#if(
-        y_equal,
-        &[felt_type, felt_type, felt_type],
-        y_equal_then,
-        y_equal_else,
-        location,
-    ));
-    let xr_x: Value<'c, '_> = x_eq_result.result(0)?.into();
-    let xr_y: Value<'c, '_> = x_eq_result.result(1)?.into();
-    let xr_inf: Value<'c, '_> = x_eq_result.result(2)?.into();
-    x_equal_then_block.append_operation(scf::r#yield(&[xr_x, xr_y, xr_inf], location));
-    x_equal_then.append_block(x_equal_then_block);
-
-    // x_different → chord formula (general addition)
-    let x_equal_else = Region::new();
-    let x_equal_else_block = Block::new(&[]);
-    let added = emit_affine_curve_formula(
-        &x_equal_else_block,
-        context,
-        location,
-        (input1_x, input1_y),
-        (input2_x, input2_y),
-        false,
-    )?;
-    x_equal_else_block.append_operation(scf::r#yield(&[added.0, added.1, added.2], location));
-    x_equal_else.append_block(x_equal_else_block);
-
-    let result = block.append_operation(scf::r#if(
         x_equal,
-        &[felt_type, felt_type, felt_type],
-        x_equal_then,
-        x_equal_else,
-        location,
-    ));
-
-    Ok((
-        result.result(0)?.into(),
-        result.result(1)?.into(),
-        result.result(2)?.into(),
-    ))
+        &result_types,
+        |x_equal_then_block| {
+            let y_equal = append_op_with_result(
+                x_equal_then_block,
+                dialect::bool::eq(location, input1_y, input2_y)?,
+            )?;
+            let zero =
+                append_felt_constant(x_equal_then_block, context, location, &FieldElement::zero())?;
+            let y_is_zero = append_op_with_result(
+                x_equal_then_block,
+                dialect::bool::eq(location, input1_y, zero)?,
+            )?;
+            let nested_result_types = [felt_type, felt_type, felt_type];
+            let y_equal_then = build_yielding_region(location, |y_equal_then_block| {
+                let y_zero_then = build_yielding_region(location, |y_zero_then_block| {
+                    emit_infinity_point(y_zero_then_block, context, location).map(point_to_array)
+                })?;
+                let y_zero_else = build_yielding_region(location, |y_zero_else_block| {
+                    emit_affine_curve_formula(
+                        y_zero_else_block,
+                        context,
+                        location,
+                        (input1_x, input1_y),
+                        (input2_x, input2_y),
+                        true,
+                    )
+                    .map(point_to_array)
+                })?;
+                let result = y_equal_then_block.append_operation(scf::r#if(
+                    y_is_zero,
+                    &nested_result_types,
+                    y_zero_then,
+                    y_zero_else,
+                    location,
+                ));
+                Ok([
+                    result.result(0)?.into(),
+                    result.result(1)?.into(),
+                    result.result(2)?.into(),
+                ])
+            })?;
+            let y_equal_else = build_yielding_region(location, |y_equal_else_block| {
+                emit_infinity_point(y_equal_else_block, context, location).map(point_to_array)
+            })?;
+            let result = x_equal_then_block.append_operation(scf::r#if(
+                y_equal,
+                &nested_result_types,
+                y_equal_then,
+                y_equal_else,
+                location,
+            ));
+            Ok([
+                result.result(0)?.into(),
+                result.result(1)?.into(),
+                result.result(2)?.into(),
+            ])
+        },
+        |x_equal_else_block| {
+            emit_affine_curve_formula(
+                x_equal_else_block,
+                context,
+                location,
+                (input1_x, input1_y),
+                (input2_x, input2_y),
+                false,
+            )
+            .map(point_to_array)
+        },
+    )
+    .map(point_from_array)
 }
 
 fn emit_affine_curve_formula<'c, 'a>(
@@ -488,42 +419,6 @@ fn emit_infinity_point<'c, 'a>(
     Ok((zero_x, zero_y, one_inf))
 }
 
-fn constrain_on_curve<'c>(
-    block: &Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    x: Value<'c, '_>,
-    y: Value<'c, '_>,
-) -> Result<(), Error> {
-    let y_sq = append_op_with_result(block, dialect::felt::mul(location, y, y)?)?;
-    let x_sq = append_op_with_result(block, dialect::felt::mul(location, x, x)?)?;
-    let x_cu = append_op_with_result(block, dialect::felt::mul(location, x_sq, x)?)?;
-    let curve_b = append_felt_constant(block, context, location, &FieldElement::from(GRUMPKIN_B))?;
-    let rhs = append_op_with_result(block, dialect::felt::add(location, x_cu, curve_b)?)?;
-    block.append_operation(dialect::constrain::eq(location, y_sq, rhs));
-    Ok(())
-}
-
-fn constrain_to_constant<'c>(
-    block: &Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    value: Value<'c, '_>,
-    constant: &FieldElement,
-) -> Result<(), Error> {
-    let expected = append_felt_constant(block, context, location, constant)?;
-    block.append_operation(dialect::constrain::eq(location, value, expected));
-    Ok(())
-}
-
-fn append_felt_constant_via_writer<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
-    value: &FieldElement,
-) -> Result<Value<'c, 'b>, Error> {
-    let attr = field_to_felt_const(writer.context, value);
-    writer.insert_op_with_result(dialect::felt::constant(writer.location, attr)?)
-}
-
 fn append_felt_constant<'c, 'a>(
     block: &'a Block<'c>,
     context: &'c llzk::prelude::LlzkContext,
@@ -539,4 +434,16 @@ fn append_op_with_result<'c, 'a>(
     op: Operation<'c>,
 ) -> Result<Value<'c, 'a>, Error> {
     Ok(block.append_operation(op).result(0)?.into())
+}
+
+fn felt_type<'c>(context: &'c llzk::prelude::LlzkContext) -> Type<'c> {
+    FeltType::with_field(context, FIELD_NAME).into()
+}
+
+fn point_to_array<'c, 'a>(point: EmbeddedPointValue<'c, 'a>) -> [Value<'c, 'a>; 3] {
+    [point.0, point.1, point.2]
+}
+
+fn point_from_array<'c, 'a>(point: [Value<'c, 'a>; 3]) -> EmbeddedPointValue<'c, 'a> {
+    (point[0], point[1], point[2])
 }
