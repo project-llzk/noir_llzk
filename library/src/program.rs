@@ -7,7 +7,7 @@ use llzk::prelude::{
 };
 use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 
-use crate::{Error, circuit::CircuitTranslator};
+use crate::{Error, blackboxes::registry::BlackboxFunction, circuit::CircuitTranslator};
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";
 
@@ -33,6 +33,12 @@ pub fn translate_program<'c>(
         LANG_ATTR_NAME.as_ref(),
         StringAttribute::new(context, "ACIR").into(),
     );
+
+    for helper in BlackboxFunction::ALL {
+        if helper.is_used(program) {
+            module.body().append_operation(helper.emit(context)?.into());
+        }
+    }
 
     for (i, circuit) in program.functions.iter().enumerate() {
         let struct_def = CircuitTranslator::new(context, circuit, program).translate(i)?;

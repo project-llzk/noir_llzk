@@ -1,17 +1,18 @@
 use llzk::prelude::{LlzkContext, Module, OperationLike, WalkOrder, WalkResult};
 
 use super::{
-    embedded_curve_add_blackbox, make_circuit_with_opcodes, translate_single_circuit,
-    verify_struct_in_module,
+    count_occurrences, embedded_curve_add_blackbox, make_circuit, make_circuit_with_opcodes,
+    translate_single_circuit_module,
 };
-use crate::opcodes::{OpcodeEmitter, embedded_curve_add};
+use crate::blackboxes::registry::BlackboxFunction;
+use crate::opcodes::{OpcodeEmitter, grumpkin::embedded_curve_add};
 
 fn translate_embedded_curve_add_module(
     context: &LlzkContext,
     circuit: acir::circuit::Circuit<acir::FieldElement>,
 ) -> Module<'_> {
-    let struct_def = translate_single_circuit(context, circuit).expect("translation should pass");
-    let module = super::wrap_struct_in_module(context, struct_def);
+    let module =
+        translate_single_circuit_module(context, circuit).expect("translation should pass");
     assert!(module.as_operation().verify(), "Module should verify");
     module
 }
@@ -52,11 +53,10 @@ fn embedded_curve_add_translates_and_verifies() {
         )],
     );
 
-    let struct_def = translate_single_circuit(&context, circuit).expect("translation should pass");
-    verify_struct_in_module(
-        &context,
-        struct_def,
-        "embedded_curve_add_translates_and_verifies",
+    let module = translate_embedded_curve_add_module(&context, circuit);
+    println!(
+        "embedded_curve_add_translates_and_verifies:\n{}",
+        module.as_operation()
     );
 }
 
@@ -76,16 +76,15 @@ fn embedded_curve_add_doubling_translates_and_verifies() {
         )],
     );
 
-    let struct_def = translate_single_circuit(&context, circuit).expect("translation should pass");
-    verify_struct_in_module(
-        &context,
-        struct_def,
-        "embedded_curve_add_doubling_translates_and_verifies",
+    let module = translate_embedded_curve_add_module(&context, circuit);
+    println!(
+        "embedded_curve_add_doubling_translates_and_verifies:\n{}",
+        module.as_operation()
     );
 }
 
 #[test]
-fn embedded_curve_add_non_doubling_has_infinity_result_branch() {
+fn embedded_curve_add_emits_shared_helper_and_calls_it_from_wrappers() {
     let context = LlzkContext::new();
     let circuit = make_circuit_with_opcodes(
         9,
@@ -101,21 +100,83 @@ fn embedded_curve_add_non_doubling_has_infinity_result_branch() {
     );
 
     let module = translate_embedded_curve_add_module(&context, circuit);
+    let ir = format!("{}", module.as_operation());
+    let helper_name = BlackboxFunction::EmbeddedCurveAdd.symbol_name();
 
+    assert!(
+        ir.contains(&format!("function.def @{helper_name}")),
+        "module should define the shared helper"
+    );
+    assert_eq!(
+        ir.matches(&format!("function.call @{helper_name}")).count(),
+        2,
+        "compute and constrain should each call the shared helper once"
+    );
     assert_eq!(
         count_ops_by_name(&module, "bool.not"),
         2,
-        "only compute should emit the runtime infinity guard negations"
+        "the runtime infinity guard should live in the shared helper"
     );
     assert_eq!(
         count_ops_by_name(&module, "bool.or"),
         1,
-        "only compute should emit the runtime infinity guard disjunction"
+        "the runtime infinity guard disjunction should be emitted once in the shared helper"
     );
     assert_eq!(
         count_ops_by_name(&module, "scf.if"),
-        10,
-        "compute and constrain should share the same finite case split, while constrain now also materializes a strict predicate==1 gate"
+        6,
+        "helper extraction should remove the duplicated finite-case branching from the wrappers"
+    );
+}
+
+#[test]
+fn embedded_curve_add_emits_helper_once_for_multiple_opcode_uses() {
+    let context = LlzkContext::new();
+    let circuit = make_circuit_with_opcodes(
+        19,
+        &[0, 1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16],
+        &[],
+        &[7, 8, 9, 17, 18, 19],
+        vec![
+            embedded_curve_add_blackbox([0, 1, 2], [3, 4, 5], 6, (7, 8, 9)),
+            embedded_curve_add_blackbox([10, 11, 12], [13, 14, 15], 16, (17, 18, 19)),
+        ],
+    );
+
+    let module = translate_embedded_curve_add_module(&context, circuit);
+    let ir = format!("{}", module.as_operation());
+    let helper_name = BlackboxFunction::EmbeddedCurveAdd.symbol_name();
+
+    assert_eq!(
+        count_occurrences(&ir, &format!("function.def @{helper_name}")),
+        1,
+        "module should define the shared helper only once"
+    );
+    assert_eq!(
+        count_occurrences(&ir, &format!("function.call @{helper_name}")),
+        4,
+        "each opcode use should call the shared helper from compute and constrain"
+    );
+}
+
+#[test]
+fn embedded_curve_add_does_not_emit_helper_when_unused() {
+    let context = LlzkContext::new();
+    let circuit = make_circuit(0, &[], &[], &[]);
+
+    let module = translate_embedded_curve_add_module(&context, circuit);
+    let ir = format!("{}", module.as_operation());
+    let helper_name = BlackboxFunction::EmbeddedCurveAdd.symbol_name();
+
+    assert_eq!(
+        count_occurrences(&ir, &format!("function.def @{helper_name}")),
+        0,
+        "module should not define the helper when the opcode is unused"
+    );
+    assert_eq!(
+        count_occurrences(&ir, &format!("function.call @{helper_name}")),
+        0,
+        "module should not call the helper when the opcode is unused"
     );
 }
 
@@ -139,12 +200,12 @@ fn embedded_curve_add_doubling_has_y_zero_infinity_branch() {
 
     assert_eq!(
         count_ops_by_name(&module, "felt.div"),
-        4,
-        "both compute and constrain should retain the general-addition and doubling formulas"
+        2,
+        "the shared helper should retain the general-addition and doubling formulas once"
     );
     assert_eq!(
         count_ops_by_name(&module, "bool.cmp"),
-        10,
-        "the finite-point lowering should still include the x, y, and y==0 runtime comparisons"
+        7,
+        "the shared helper should still include the x, y, and y==0 runtime comparisons"
     );
 }

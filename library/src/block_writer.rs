@@ -5,12 +5,13 @@ use llzk::builder::OpBuilder;
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
+    BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, IntegerAttribute, LlzkContext, Location,
+    Operation, OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
     SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
+use crate::blackboxes::registry::BlackboxFunction;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 
@@ -331,6 +332,35 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             )?
             .into(),
         ))
+    }
+
+    /// Calls the top-level `@func(args)` returning `result_types` before the return terminator.
+    fn call_top_level_function(
+        &self,
+        func: &str,
+        args: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        Ok(self.insert_op(
+            dialect::function::call(
+                &OpBuilder::new(self.context),
+                self.location,
+                FlatSymbolRefAttribute::new(self.context, func),
+                args,
+                result_types,
+            )?
+            .into(),
+        ))
+    }
+
+    /// Calls a registered shared blackbox helper before the return terminator.
+    pub(crate) fn call_blackbox_function(
+        &self,
+        func: BlackboxFunction,
+        args: &[Value<'c, 'a>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        let result_types = func.result_types(self.context);
+        self.call_top_level_function(func.symbol_name(), args, &result_types)
     }
 
     /// Reads a felt-typed member of `from` by `name`.
