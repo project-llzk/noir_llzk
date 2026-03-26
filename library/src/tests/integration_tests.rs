@@ -114,3 +114,8 @@ fn noir_linear_assert() {
 fn noir_bitwise_blackboxes() {
     run_noir_test("bitwise");
 }
+
+#[test]
+fn noir_memory_ops() {
+    run_noir_test("memory_ops");
+}

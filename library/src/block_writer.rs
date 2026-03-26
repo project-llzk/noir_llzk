@@ -33,6 +33,8 @@ pub(crate) struct BlockWriter<'c, 'a> {
     constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
     /// Cache of `arith.constant` index values — each distinct integer is emitted at most once.
     integer_cache: HashMap<usize, Value<'c, 'a>>,
+    /// Current array value for each memory block, threaded through operations in order.
+    memories: HashMap<u32, Value<'c, 'a>>,
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -54,6 +56,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             known,
             constant_cache: HashMap::new(),
             integer_cache: HashMap::new(),
+            memories: HashMap::new(),
         }
     }
 
@@ -250,6 +253,39 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         value: Value<'c, 'a>,
     ) {
         self.insert_op(dialect::array::write(self.location, array, indices, value));
+    }
+
+    /// Emits `cast.toindex val`, converting a felt circuit value to the index type
+    /// required by `array.read` / `array.write`.
+    pub(crate) fn insert_cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::cast::toindex(self.location, val))
+    }
+
+    /// Emits `array.read array[idx]`, returning the felt-typed element.
+    ///
+    /// `idx` must be index-typed; pass a felt value through
+    /// [`insert_cast_to_index`](Self::insert_cast_to_index) first.
+    pub(crate) fn insert_array_read(
+        &self,
+        array: Value<'c, 'a>,
+        idx: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::array::read(
+            self.location,
+            self.felt_type(),
+            array,
+            &[idx],
+        ))
+    }
+
+    /// Records `arr` as the current live array for `block_id`.
+    pub(crate) fn set_memory(&mut self, block_id: u32, arr: Value<'c, 'a>) {
+        self.memories.insert(block_id, arr);
+    }
+
+    /// Returns the current live array for `block_id`, or `None` if not yet initialised.
+    pub(crate) fn get_memory(&self, block_id: u32) -> Option<Value<'c, 'a>> {
+        self.memories.get(&block_id).copied()
     }
 
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.

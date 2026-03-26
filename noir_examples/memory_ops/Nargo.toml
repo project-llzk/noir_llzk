@@ -1,0 +1,6 @@
+[package]
+name = "memory_ops"
+type = "bin"
+authors = [""]
+
+[dependencies]

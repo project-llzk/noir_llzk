@@ -3,23 +3,38 @@ use std::collections::BTreeSet;
 use acir::native_types::Witness;
 use llzk::dialect::array::ArrayType;
 use llzk::prelude::{BlockLike, StructDefOpLike};
-use llzk::prelude::{FeltType, LlzkContext, Location, StructDefOp, Type, dialect};
+use llzk::prelude::{FeltType, LlzkContext, Location, StructDefOp, Type, Value, dialect};
 
 use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
 /// Translates an ACIR `MemoryInit` opcode.
 ///
-/// Each memory block becomes an `!array.type<!felt.type, N>` struct member named
-/// `@mem{block_id}`. In both `@compute` and `@constrain`, the array is allocated
-/// with `array.new`, each initial witness value is written via `array.write`, and
-/// the completed array is stored via `struct.writem`.
+/// Emits `@mem{block_id} : !array.type<!felt.type, N>` as a struct member.
 ///
-/// The `@constrain` phase must rebuild the array so that subsequent `MemoryOp`
-/// constrain calls can read and replay the memory trace against the correct
-/// initial state.
+/// In `@compute` the array is built from witnesses and stored to the struct member.
+/// In `@constrain` the array is rebuilt fresh from witnesses so that subsequent
+/// memory operations can reference it.
 pub(crate) struct MemoryInit<'p> {
     pub(crate) block_id: u32,
     pub(crate) init: &'p [Witness],
+}
+
+impl<'p> MemoryInit<'p> {
+    /// Allocates a new array and populates it from the initial witness values,
+    /// then registers it as the current live array in `mem_versions`.
+    fn init_memory<'c, 'b>(
+        &self,
+        writer: &mut BlockWriter<'c, 'b>,
+    ) -> Result<Value<'c, 'b>, Error> {
+        let arr = writer.insert_new_array(self.init.len())?;
+        for (i, witness) in self.init.iter().enumerate() {
+            let val = writer.read_witness(witness.0)?;
+            let idx = writer.insert_integer(i)?;
+            writer.insert_array_write(arr, &[idx], val);
+        }
+        writer.set_memory(self.block_id, arr);
+        Ok(arr)
+    }
 }
 
 impl<'p> OpcodeEmitter for MemoryInit<'p> {
@@ -47,23 +62,16 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
         Ok(())
     }
 
-    /// In `@compute`:
-    /// 1. Allocates an uninitialized `array.new` of the correct type.
-    /// 2. Writes each initial witness value at its slot index via `array.write`.
-    /// 3. Persists the populated array via `struct.writem @mem{block_id}`.
+    /// Builds the initial array from witnesses and stores it to the struct member.
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        // Create an uninitialized array of the required type.
-        let arr = writer.insert_new_array(self.init.len())?;
-
-        // Write each initial witness value into the array at its constant index.
-        for (i, witness) in self.init.iter().enumerate() {
-            let val = writer.read_witness(witness.0)?;
-            let idx = writer.insert_integer(i)?;
-            writer.insert_array_write(arr, &[idx], val);
-        }
-
-        // Store the completed array to the struct member.
+        let arr = self.init_memory(writer)?;
         writer.write_member(&format!("mem{}", self.block_id), arr)?;
+        Ok(())
+    }
+
+    /// Rebuilds the initial array from witnesses for subsequent memory op constraints.
+    fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        self.init_memory(writer)?;
         Ok(())
     }
 }

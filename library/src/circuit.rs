@@ -16,7 +16,8 @@ use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
     opcodes::{
-        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_init::MemoryInit,
+        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_ops,
+        memory_ops::MemoryInit,
     },
 };
 
@@ -173,6 +174,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     "MemoryInit with block_type {block_type:?}"
                 ))),
             },
+            Opcode::MemoryOp { block_id, op } => memory_ops::from_opcode(block_id.0, op),
             other => Err(Error::UnsupportedOpcode(other.to_string())),
         }
     }
