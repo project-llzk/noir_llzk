@@ -9,7 +9,7 @@ use super::super::{
 };
 use super::count_occurrences;
 
-/// Witness-to-witness AND emits bitwise ops and equality constraints.
+/// Witness-to-witness AND range-checks both operands.
 #[test]
 fn and_witness_inputs_emits_correct_ops_and_verifies() {
     let context = LlzkContext::new();
@@ -27,27 +27,27 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         "should emit equality constraints"
     );
     // Compute: 1 AND.
-    // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
+    // Constrain: 2 input masks + 1 AND + 3 equality constraints.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        2,
-        "expected 2 bit_and ops total"
+        4,
+        "expected 4 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        3,
+        "expected 3 constrain.eq ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        0,
-        "expected no constants for witness inputs"
+        1,
+        "expected one shared mask constant"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Constant AND emits the expected compute and constrain ops.
+/// Constant AND skips range checks when both constants fit.
 #[test]
 fn and_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
@@ -66,8 +66,7 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("and_constant_inputs:\n{ir}");
 
-    // Compute: 1 AND.
-    // Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
+    // Compute: 1 AND. Constrain: 1 AND + 1 output eq.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
         2,
@@ -81,7 +80,7 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Mixed witness/constant AND trusts prior RANGE constraints.
+/// Mixed witness/constant AND range-checks only the witness input.
 #[test]
 fn and_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
@@ -100,16 +99,21 @@ fn and_mixed_witness_and_constant_verifies() {
 
     println!("and_mixed:\n{ir}");
 
-    // Compute: 1 AND. Constrain: 1 AND + 1 output eq (inputs trusted via prior RANGE).
+    // Compute: 1 AND. Constrain: 1 input mask + 1 AND + 2 equality constraints.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        2,
-        "expected 2 bit_and ops total"
+        3,
+        "expected 3 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        2,
+        "expected 2 constrain.eq ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.const"),
+        3,
+        "expected two data constants and one mask constant"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
