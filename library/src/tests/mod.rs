@@ -17,6 +17,7 @@ mod compute_tests;
 mod constrain_tests;
 mod integration_tests;
 mod memory_init_tests;
+mod memory_op_tests;
 
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
@@ -34,6 +35,11 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
         functions: circuits,
         unconstrained_functions: vec![],
     }
+}
+
+/// Counts occurrences of `needle` in `haystack`.
+fn count_occurrences(haystack: &str, needle: &str) -> usize {
+    haystack.matches(needle).count()
 }
 
 /// Helper to build a circuit with the given opcodes.

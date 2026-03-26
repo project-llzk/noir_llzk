@@ -6,7 +6,7 @@ use llzk::prelude::{LlzkContext, OperationLike};
 use super::super::{
     make_circuit_with_opcodes, range_blackbox, translate_single_circuit, wrap_struct_in_module,
 };
-use super::count_occurrences;
+use crate::tests::count_occurrences;
 
 /// Witness rangecheck emits one mask and one equality constraint.
 #[test]

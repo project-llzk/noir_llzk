@@ -4,10 +4,11 @@ use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
 use llzk::prelude::{LlzkContext, OperationLike};
 
+use crate::tests::count_occurrences;
+
 use super::super::{
     make_circuit_with_opcodes, translate_single_circuit, wrap_struct_in_module, xor_blackbox,
 };
-use super::count_occurrences;
 
 /// Witness-to-witness XOR range-checks both operands.
 #[test]
