@@ -9,7 +9,7 @@ use super::super::{
 };
 use super::count_occurrences;
 
-/// Witness-to-witness XOR emits bitwise ops and equality constraints.
+/// Witness-to-witness XOR range-checks both operands.
 #[test]
 fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     let context = LlzkContext::new();
@@ -27,7 +27,7 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
         "should emit equality constraints"
     );
     // Compute: 1 XOR.
-    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
+    // Constrain: 2 input masks + 1 XOR + 3 equality constraints.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -35,24 +35,24 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        0,
-        "expected no bit_and ops"
+        2,
+        "expected 2 masking bit_and ops"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        3,
+        "expected 3 constrain.eq ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        0,
-        "expected no constants for witness inputs"
+        1,
+        "expected one shared mask constant"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Constant XOR emits the expected compute and constrain ops.
+/// Constant XOR skips range checks when both constants fit.
 #[test]
 fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
@@ -71,8 +71,7 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
 
     println!("xor_constant_inputs:\n{ir}");
 
-    // Compute: 1 XOR.
-    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
+    // Compute: 1 XOR. Constrain: 1 XOR + 1 output eq.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -91,7 +90,7 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Mixed witness/constant XOR trusts prior RANGE constraints.
+/// Mixed witness/constant XOR range-checks only the witness input.
 #[test]
 fn xor_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
@@ -111,7 +110,7 @@ fn xor_mixed_witness_and_constant_verifies() {
     println!("xor_mixed:\n{ir}");
 
     // Compute: 1 XOR.
-    // Constrain: 1 XOR + 1 output eq (inputs trusted via prior RANGE).
+    // Constrain: 1 input mask + 1 XOR + 2 equality constraints.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_xor"),
         2,
@@ -119,13 +118,18 @@ fn xor_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        0,
-        "expected no bit_and ops"
+        1,
+        "expected 1 masking bit_and op"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        2,
+        "expected 2 constrain.eq ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "felt.const"),
+        3,
+        "expected two data constants and one mask constant"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }

@@ -7,13 +7,14 @@ use acir::{
     native_types::Witness,
 };
 
-use super::{collect_input_witness, emit_blackbox_input};
+use super::{collect_input_witness, constrain_input_width, emit_blackbox_input};
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
 pub(crate) struct And<'a> {
-    pub(crate) lhs: &'a FunctionInput<FieldElement>,
-    pub(crate) rhs: &'a FunctionInput<FieldElement>,
-    pub(crate) output: Witness,
+    lhs: &'a FunctionInput<FieldElement>,
+    rhs: &'a FunctionInput<FieldElement>,
+    num_bits: u32,
+    output: Witness,
 }
 
 impl OpcodeEmitter for And<'_> {
@@ -40,6 +41,9 @@ impl OpcodeEmitter for And<'_> {
         let lhs = emit_blackbox_input(writer, self.lhs)?;
         let rhs = emit_blackbox_input(writer, self.rhs)?;
 
+        constrain_input_width(writer, self.lhs, lhs, self.num_bits)?;
+        constrain_input_width(writer, self.rhs, rhs, self.num_bits)?;
+
         let and_result = writer.insert_bit_and(lhs, rhs)?;
         writer.insert_constrain_eq(output, and_result);
         Ok(())
@@ -51,11 +55,12 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<And<'a
         Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
             lhs,
             rhs,
-            num_bits: _,
+            num_bits,
             output,
         }) => Some(And {
             lhs,
             rhs,
+            num_bits: *num_bits,
             output: *output,
         }),
         _ => None,
