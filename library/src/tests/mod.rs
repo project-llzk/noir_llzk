@@ -10,12 +10,11 @@ use llzk::prelude::{
 
 use crate::{circuit::CircuitTranslator, program::translate_program};
 
-mod bitwise;
+mod blackboxes;
 mod call_tests;
 mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
-mod embedded_curve_add_tests;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;

@@ -1,11 +1,11 @@
 use llzk::prelude::{LlzkContext, Module, OperationLike, WalkOrder, WalkResult};
 
-use super::{
+use crate::blackboxes::registry::BlackboxFunction;
+use crate::opcodes::{OpcodeEmitter, grumpkin::embedded_curve_add};
+use crate::tests::{
     count_occurrences, embedded_curve_add_blackbox, make_circuit, make_circuit_with_opcodes,
     translate_single_circuit_module,
 };
-use crate::blackboxes::registry::BlackboxFunction;
-use crate::opcodes::{OpcodeEmitter, grumpkin::embedded_curve_add};
 
 fn translate_embedded_curve_add_module(
     context: &LlzkContext,
@@ -114,18 +114,18 @@ fn embedded_curve_add_emits_shared_helper_and_calls_it_from_wrappers() {
     );
     assert_eq!(
         count_ops_by_name(&module, "bool.not"),
-        2,
-        "the runtime infinity guard should live in the shared helper"
+        1,
+        "the shared helper should only negate the first point infinity check"
     );
     assert_eq!(
         count_ops_by_name(&module, "bool.or"),
-        1,
-        "the runtime infinity guard disjunction should be emitted once in the shared helper"
+        0,
+        "the shared helper should handle infinity cases with dedicated branches"
     );
     assert_eq!(
         count_ops_by_name(&module, "scf.if"),
-        6,
-        "helper extraction should remove the duplicated finite-case branching from the wrappers"
+        7,
+        "the complete-add helper should handle predicate, infinity, and finite-case branching once"
     );
 }
 

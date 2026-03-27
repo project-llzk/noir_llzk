@@ -360,7 +360,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         args: &[Value<'c, 'a>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
         let result_types = func.result_types(self.context);
-        self.call_top_level_function(func.symbol_name(), args, &result_types)
+        self.call_top_level_function(&func.symbol_name(), args, &result_types)
     }
 
     /// Reads a felt-typed member of `from` by `name`.

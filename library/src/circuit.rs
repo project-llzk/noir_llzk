@@ -16,8 +16,8 @@ use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
     opcodes::{
-        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, grumpkin,
-        memory_ops, memory_ops::MemoryInit,
+        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, grumpkin, memory_ops,
+        memory_ops::MemoryInit,
     },
 };
 

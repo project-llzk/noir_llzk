@@ -1,6 +1,7 @@
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    Block, BlockLike, FeltType, Location, Operation, Type, Value, dialect, melior_dialects::scf,
+    Block, BlockLike, FeltType, Location, Operation, Region, RegionLike, Type, Value, dialect,
+    melior_dialects::scf,
 };
 
 use crate::{
@@ -172,37 +173,66 @@ pub(crate) fn emit_curve_add_result<'c, 'a>(
     let (input2_x, input2_y, input2_infinite) = input2;
     let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
     let zero = append_felt_constant(block, context, location, &FieldElement::zero())?;
-    let input1_is_zero =
+    let input1_is_finite =
         append_op_with_result(block, dialect::bool::eq(location, input1_infinite, zero)?)?;
-    let input2_is_zero =
+    let input2_is_finite =
         append_op_with_result(block, dialect::bool::eq(location, input2_infinite, zero)?)?;
     let input1_is_infinite =
-        append_op_with_result(block, dialect::bool::not(location, input1_is_zero)?)?;
-    let input2_is_infinite =
-        append_op_with_result(block, dialect::bool::not(location, input2_is_zero)?)?;
-    let any_input_infinite = append_op_with_result(
-        block,
-        dialect::bool::or(location, input1_is_infinite, input2_is_infinite)?,
-    )?;
+        append_op_with_result(block, dialect::bool::not(location, input1_is_finite)?)?;
     let result_types = [felt_type, felt_type, felt_type];
-    append_if_with_results(
-        block,
-        location,
-        any_input_infinite,
+    let input1_infinite_then = Region::new();
+    let input1_infinite_then_block = Block::new(&[]);
+    input1_infinite_then_block
+        .append_operation(scf::r#yield(&[input2.0, input2.1, input2.2], location));
+    input1_infinite_then.append_block(input1_infinite_then_block);
+
+    let input1_infinite_else = Region::new();
+    let input1_infinite_else_block = Block::new(&[]);
+    let input2_infinite_then = Region::new();
+    let input2_infinite_then_block = Block::new(&[]);
+    input2_infinite_then_block
+        .append_operation(scf::r#yield(&[input1.0, input1.1, input1.2], location));
+    input2_infinite_then.append_block(input2_infinite_then_block);
+
+    let input2_infinite_else = build_yielding_region(location, |finite_block| {
+        emit_finite_curve_add_result(
+            finite_block,
+            context,
+            location,
+            (input1_x, input1_y),
+            (input2_x, input2_y),
+        )
+        .map(point_to_array)
+    })?;
+    let result = input1_infinite_else_block.append_operation(scf::r#if(
+        input2_is_finite,
         &result_types,
-        |then_block| emit_infinity_point(then_block, context, location).map(point_to_array),
-        |else_block| {
-            emit_finite_curve_add_result(
-                else_block,
-                context,
-                location,
-                (input1_x, input1_y),
-                (input2_x, input2_y),
-            )
-            .map(point_to_array)
-        },
-    )
-    .map(point_from_array)
+        input2_infinite_else,
+        input2_infinite_then,
+        location,
+    ));
+    input1_infinite_else_block.append_operation(scf::r#yield(
+        &[
+            result.result(0)?.into(),
+            result.result(1)?.into(),
+            result.result(2)?.into(),
+        ],
+        location,
+    ));
+    input1_infinite_else.append_block(input1_infinite_else_block);
+
+    let result = block.append_operation(scf::r#if(
+        input1_is_infinite,
+        &result_types,
+        input1_infinite_then,
+        input1_infinite_else,
+        location,
+    ));
+    Ok((
+        result.result(0)?.into(),
+        result.result(1)?.into(),
+        result.result(2)?.into(),
+    ))
 }
 
 pub(crate) fn emit_affine_curve_formula<'c, 'a>(

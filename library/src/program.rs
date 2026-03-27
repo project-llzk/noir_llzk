@@ -34,10 +34,8 @@ pub fn translate_program<'c>(
         StringAttribute::new(context, "ACIR").into(),
     );
 
-    for helper in BlackboxFunction::ALL {
-        if helper.is_used(program) {
-            module.body().append_operation(helper.emit(context)?.into());
-        }
+    for helper in BlackboxFunction::used_in_program(program) {
+        module.body().append_operation(helper.emit(context)?.into());
     }
 
     for (i, circuit) in program.functions.iter().enumerate() {

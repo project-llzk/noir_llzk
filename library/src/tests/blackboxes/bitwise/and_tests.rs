@@ -4,45 +4,44 @@ use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
 use llzk::prelude::{LlzkContext, OperationLike};
 
-use crate::tests::count_occurrences;
-
-use super::super::{
-    make_circuit_with_opcodes, translate_single_circuit, wrap_struct_in_module, xor_blackbox,
+use crate::tests::{
+    and_blackbox, count_occurrences, make_circuit_with_opcodes, translate_single_circuit,
+    wrap_struct_in_module,
 };
 
-/// Witness-to-witness XOR range-checks both operands.
+/// Witness-to-witness AND range-checks both operands.
 #[test]
-fn xor_witness_inputs_emits_correct_ops_and_verifies() {
+fn and_witness_inputs_emits_correct_ops_and_verifies() {
     let context = LlzkContext::new();
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, 8, 2)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, 8, 2)]);
     let struct_def =
         translate_single_circuit(&context, circuit).expect("translation should succeed");
     let module = wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());
 
-    println!("xor_witness_inputs:\n{ir}");
+    println!("and_witness_inputs:\n{ir}");
 
-    assert!(ir.contains("felt.bit_xor"), "should lower to felt.bit_xor");
+    assert!(ir.contains("felt.bit_and"), "should lower to felt.bit_and");
     assert!(
         ir.contains("constrain.eq"),
         "should emit equality constraints"
     );
-    // Compute: 1 XOR.
-    // Constrain: 2 input comparisons + 2 assertions + 1 XOR + 1 equality constraint.
+    // Compute: 1 AND.
+    // Constrain: 2 input comparisons + 2 assertions + 1 AND + 1 equality constraint.
     assert_eq!(
-        count_occurrences(&ir, "felt.bit_xor"),
+        count_occurrences(&ir, "felt.bit_and"),
         2,
-        "expected 2 bit_xor ops total"
-    );
-    assert_eq!(
-        count_occurrences(&ir, "bool.cmp"),
-        2,
-        "expected 2 bool.cmp ops"
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
         1,
         "expected 1 constrain.eq op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.cmp"),
+        2,
+        "expected 2 bool.cmp ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "bool.assert"),
@@ -58,12 +57,12 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Constant XOR skips range checks when both constants fit.
+/// Constant AND skips range checks when both constants fit.
 #[test]
-fn xor_constant_inputs_emits_felt_constants_and_verifies() {
+fn and_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
 
-    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
+    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
         lhs: FunctionInput::Constant(FieldElement::from(0xFFu128)),
         rhs: FunctionInput::Constant(FieldElement::from(0x0Fu128)),
         num_bits: 8,
@@ -75,18 +74,13 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     let module = wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());
 
-    println!("xor_constant_inputs:\n{ir}");
+    println!("and_constant_inputs:\n{ir}");
 
-    // Compute: 1 XOR. Constrain: 1 XOR + 1 output eq.
-    assert_eq!(
-        count_occurrences(&ir, "felt.bit_xor"),
-        2,
-        "expected 2 bit_xor ops total"
-    );
+    // Compute: 1 AND. Constrain: 1 AND + 1 output eq.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        0,
-        "expected no bit_and ops"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
@@ -96,12 +90,12 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Mixed witness/constant XOR range-checks only the witness input.
+/// Mixed witness/constant AND range-checks only the witness input.
 #[test]
-fn xor_mixed_witness_and_constant_verifies() {
+fn and_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
 
-    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::XOR {
+    let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
         lhs: FunctionInput::Witness(Witness(0)),
         rhs: FunctionInput::Constant(FieldElement::from(0x0Fu128)),
         num_bits: 8,
@@ -113,24 +107,23 @@ fn xor_mixed_witness_and_constant_verifies() {
     let module = wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());
 
-    println!("xor_mixed:\n{ir}");
+    println!("and_mixed:\n{ir}");
 
-    // Compute: 1 XOR.
-    // Constrain: 1 input comparison + 1 assertion + 1 XOR + 1 equality constraint.
+    // Compute: 1 AND. Constrain: 1 input comparison + 1 assertion + 1 AND + 1 equality constraint.
     assert_eq!(
-        count_occurrences(&ir, "felt.bit_xor"),
+        count_occurrences(&ir, "felt.bit_and"),
         2,
-        "expected 2 bit_xor ops total"
-    );
-    assert_eq!(
-        count_occurrences(&ir, "bool.cmp"),
-        1,
-        "expected 1 bool.cmp op"
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
         1,
         "expected 1 constrain.eq op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.cmp"),
+        1,
+        "expected 1 bool.cmp op total"
     );
     assert_eq!(
         count_occurrences(&ir, "bool.assert"),
@@ -145,34 +138,34 @@ fn xor_mixed_witness_and_constant_verifies() {
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// Zero-bit XOR still verifies.
+/// Zero-bit AND still verifies.
 #[test]
-fn xor_zero_bits_verifies() {
+fn and_zero_bits_verifies() {
     let context = LlzkContext::new();
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, 0, 2)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, 0, 2)]);
     let struct_def =
         translate_single_circuit(&context, circuit).expect("translation should succeed");
     let module = wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());
 
-    println!("xor_zero_bits:\n{ir}");
+    println!("and_zero_bits:\n{ir}");
 
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// XOR verifies across several bit widths.
+/// AND verifies across several bit widths.
 #[test]
-fn xor_various_bit_widths_verify() {
+fn and_various_bit_widths_verify() {
     for num_bits in [1, 4, 16, 32, 64, 128] {
         let context = LlzkContext::new();
         let circuit =
-            make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![xor_blackbox(0, 1, num_bits, 2)]);
+            make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, num_bits, 2)]);
         let struct_def = translate_single_circuit(&context, circuit)
             .unwrap_or_else(|e| panic!("translation failed for {num_bits} bits: {e}"));
         let module = wrap_struct_in_module(&context, struct_def);
         assert!(
             module.as_operation().verify(),
-            "module should verify for {num_bits}-bit XOR"
+            "module should verify for {num_bits}-bit AND"
         );
     }
 }

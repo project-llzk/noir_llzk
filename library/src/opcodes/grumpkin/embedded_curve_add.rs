@@ -73,8 +73,18 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         emit_gated_eq(writer, predicate_is_true_felt, inputs.input1_infinite, zero)?;
         emit_gated_eq(writer, predicate_is_true_felt, inputs.input2_infinite, zero)?;
 
-        emit_gated_on_curve(writer, predicate_is_true_felt, inputs.input1_x, inputs.input1_y)?;
-        emit_gated_on_curve(writer, predicate_is_true_felt, inputs.input2_x, inputs.input2_y)?;
+        emit_gated_on_curve(
+            writer,
+            predicate_is_true_felt,
+            inputs.input1_x,
+            inputs.input1_y,
+        )?;
+        emit_gated_on_curve(
+            writer,
+            predicate_is_true_felt,
+            inputs.input2_x,
+            inputs.input2_y,
+        )?;
 
         let helper_call = self.call_helper(writer, &inputs)?;
         let expected_x = helper_call.result(0)?.into();
