@@ -1,11 +1,10 @@
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    Block, BlockLike, FeltType, Location, Operation, Region, RegionLike, Type, Value, dialect,
-    melior_dialects::scf,
+    Block, BlockLike, Location, Region, RegionLike, Value, dialect, melior_dialects::scf,
 };
 
 use crate::{
-    FIELD_NAME,
+    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
     block_writer::BlockWriter,
     common::{
         append_if_with_results, build_yielding_region, emit_gated_eq, insert_if_with_results,
@@ -81,7 +80,7 @@ pub(crate) fn emit_finite_curve_add_result<'c, 'a>(
 ) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
     let (input1_x, input1_y) = input1;
     let (input2_x, input2_y) = input2;
-    let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
+    let felt_type = felt_type(context);
 
     let x_equal = append_op_with_result(block, dialect::bool::eq(location, input1_x, input2_x)?)?;
 
@@ -171,7 +170,7 @@ pub(crate) fn emit_curve_add_result<'c, 'a>(
 ) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
     let (input1_x, input1_y, input1_infinite) = input1;
     let (input2_x, input2_y, input2_infinite) = input2;
-    let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
+    let felt_type = felt_type(context);
     let zero = append_felt_constant(block, context, location, &FieldElement::zero())?;
     let input1_is_finite =
         append_op_with_result(block, dialect::bool::eq(location, input1_infinite, zero)?)?;
@@ -288,27 +287,6 @@ pub(crate) fn emit_infinity_point<'c, 'a>(
     let zero_y = append_felt_constant(block, context, location, &FieldElement::zero())?;
     let one_inf = append_felt_constant(block, context, location, &FieldElement::one())?;
     Ok((zero_x, zero_y, one_inf))
-}
-
-pub(crate) fn append_felt_constant<'c, 'a>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    value: &FieldElement,
-) -> Result<Value<'c, 'a>, Error> {
-    let attr = crate::common::field_to_felt_const(context, value);
-    append_op_with_result(block, dialect::felt::constant(location, attr)?)
-}
-
-pub(crate) fn append_op_with_result<'c, 'a>(
-    block: &'a Block<'c>,
-    op: Operation<'c>,
-) -> Result<Value<'c, 'a>, Error> {
-    Ok(block.append_operation(op).result(0)?.into())
-}
-
-pub(crate) fn felt_type<'c>(context: &'c llzk::prelude::LlzkContext) -> Type<'c> {
-    FeltType::with_field(context, FIELD_NAME).into()
 }
 
 pub(crate) fn point_to_array<'c, 'a>(point: EmbeddedPointValue<'c, 'a>) -> [Value<'c, 'a>; 3] {
