@@ -1,5 +1,6 @@
 pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
+pub(crate) mod blake2s;
 pub(crate) mod call;
 pub(crate) mod grumpkin;
 pub(crate) mod memory_ops;
