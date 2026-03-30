@@ -185,6 +185,21 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::bit_xor(self.location, lhs, rhs)?)
     }
 
+    /// Emits `bool.cmp lt(lhs, rhs)`.
+    pub(crate) fn insert_bool_lt(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::bool::lt(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `bool.assert cond`.
+    pub(crate) fn insert_bool_assert(&self, cond: Value<'c, 'a>) -> Result<(), Error> {
+        self.insert_op(dialect::bool::assert(self.location, cond, None)?);
+        Ok(())
+    }
+
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
