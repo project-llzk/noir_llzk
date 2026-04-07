@@ -6,6 +6,7 @@ pub(crate) mod call;
 pub(crate) mod grumpkin;
 pub(crate) mod memory_ops;
 pub(crate) mod poseidon2;
+pub(crate) mod sha256;
 
 use std::collections::BTreeSet;
 
