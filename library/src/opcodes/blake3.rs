@@ -8,18 +8,18 @@ use acir::{
 };
 
 use crate::{
-    blackboxes::{hash::blake2s::BLAKE2S_DIGEST_BYTES, registry::BlackboxFunction},
+    blackboxes::{hash::blake3::BLAKE3_DIGEST_BYTES, registry::BlackboxFunction},
     block_writer::BlockWriter,
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
 };
 
-pub(crate) struct Blake2s<'a> {
+pub(crate) struct Blake3<'a> {
     inputs: &'a [FunctionInput<FieldElement>],
-    outputs: &'a [Witness; BLAKE2S_DIGEST_BYTES],
+    outputs: &'a [Witness; BLAKE3_DIGEST_BYTES],
 }
 
-impl OpcodeEmitter for Blake2s<'_> {
+impl OpcodeEmitter for Blake3<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
         let mut witnesses = BTreeSet::new();
         for output in self.outputs {
@@ -52,7 +52,7 @@ impl OpcodeEmitter for Blake2s<'_> {
     }
 }
 
-impl Blake2s<'_> {
+impl Blake3<'_> {
     fn call_helper<'c, 'b>(
         &self,
         writer: &mut BlockWriter<'c, 'b>,
@@ -63,7 +63,7 @@ impl Blake2s<'_> {
             .map(|input| emit_blackbox_input(writer, input))
             .collect::<Result<Vec<_>, _>>()?;
         writer.call_blackbox_function(
-            BlackboxFunction::Blake2s {
+            BlackboxFunction::Blake3 {
                 num_inputs: self.inputs.len(),
             },
             &inputs,
@@ -73,13 +73,13 @@ impl Blake2s<'_> {
 
 pub(crate) fn from_opcode<'a>(
     opcode: &'a Opcode<FieldElement>,
-) -> Result<Option<Blake2s<'a>>, Error> {
+) -> Result<Option<Blake3<'a>>, Error> {
     match opcode {
-        Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake2s { inputs, outputs }) => {
+        Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake3 { inputs, outputs }) => {
             for input in inputs {
                 validate_byte_input(input)?;
             }
-            Ok(Some(Blake2s { inputs, outputs }))
+            Ok(Some(Blake3 { inputs, outputs }))
         }
         _ => Ok(None),
     }

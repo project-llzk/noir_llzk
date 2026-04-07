@@ -1,25 +1,16 @@
-use std::collections::HashMap;
-
-use acir::FieldElement;
 use llzk::prelude::{
     Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
     Value, dialect,
 };
 
-use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
-    error::Error,
-};
+use crate::{blackboxes::common::felt_type, error::Error};
+
+use super::common::{ConstantCache, IV, emit_round, emit_word_to_bytes, emit_xor, iv_values};
 
 pub(crate) const BLAKE2S_DIGEST_BYTES: usize = 32;
 const BLAKE2S_BLOCK_BYTES: usize = 64;
 const BLAKE2S_STATE_WORDS: usize = 8;
-const BLAKE2S_WORK_VECTOR_WORDS: usize = 16;
 const BLAKE2S_ROUNDS: usize = 10;
-
-const IV: [u32; BLAKE2S_STATE_WORDS] = [
-    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
-];
 
 const SIGMA: [[usize; 16]; BLAKE2S_ROUNDS] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -90,7 +81,10 @@ fn emit_blake2s_hash<'c, 'a>(
         {
             *slot = value;
         }
-        let message = emit_message_words(&mut cache, &block_bytes)?;
+        let message_vec = super::common::emit_message_words(&mut cache, &block_bytes)?;
+        let message: [Value<'c, 'a>; 16] = message_vec
+            .try_into()
+            .expect("exactly sixteen message words");
         let total_bytes = end as u64;
         let last_block = block_index + 1 == num_blocks;
         h = emit_compress(
@@ -110,32 +104,6 @@ fn emit_blake2s_hash<'c, 'a>(
     Ok(digest)
 }
 
-fn emit_message_words<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    bytes: &[Value<'c, 'a>; BLAKE2S_BLOCK_BYTES],
-) -> Result<[Value<'c, 'a>; 16], Error> {
-    let mut words = Vec::with_capacity(16);
-    for chunk in bytes.chunks_exact(4) {
-        let b0 = chunk[0];
-        let b1 = emit_shl(cache, chunk[1], 8)?;
-        let b2 = emit_shl(cache, chunk[2], 16)?;
-        let b3 = emit_shl(cache, chunk[3], 24)?;
-        let word = emit_or(
-            cache.block,
-            cache.location,
-            emit_or(
-                cache.block,
-                cache.location,
-                b0,
-                emit_or(cache.block, cache.location, b1, b2)?,
-            )?,
-            b3,
-        )?;
-        words.push(word);
-    }
-    Ok(words.try_into().expect("exactly sixteen message words"))
-}
-
 fn emit_compress<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     h: [Value<'c, 'a>; BLAKE2S_STATE_WORDS],
@@ -144,7 +112,7 @@ fn emit_compress<'c, 'a>(
     t1: u32,
     last_block: bool,
 ) -> Result<[Value<'c, 'a>; BLAKE2S_STATE_WORDS], Error> {
-    let mut v = [cache.u32(0)?; BLAKE2S_WORK_VECTOR_WORDS];
+    let mut v = [cache.u32(0)?; 16];
     v[..BLAKE2S_STATE_WORDS].copy_from_slice(&h);
     for (dst, word) in v[BLAKE2S_STATE_WORDS..].iter_mut().zip(IV) {
         *dst = cache.u32(word)?;
@@ -160,14 +128,7 @@ fn emit_compress<'c, 'a>(
     }
 
     for sigma in SIGMA {
-        emit_g(cache, &mut v, &m, sigma, (0, 4, 8, 12), 0, 1)?;
-        emit_g(cache, &mut v, &m, sigma, (1, 5, 9, 13), 2, 3)?;
-        emit_g(cache, &mut v, &m, sigma, (2, 6, 10, 14), 4, 5)?;
-        emit_g(cache, &mut v, &m, sigma, (3, 7, 11, 15), 6, 7)?;
-        emit_g(cache, &mut v, &m, sigma, (0, 5, 10, 15), 8, 9)?;
-        emit_g(cache, &mut v, &m, sigma, (1, 6, 11, 12), 10, 11)?;
-        emit_g(cache, &mut v, &m, sigma, (2, 7, 8, 13), 12, 13)?;
-        emit_g(cache, &mut v, &m, sigma, (3, 4, 9, 14), 14, 15)?;
+        emit_round(cache, &mut v, &m, &sigma)?;
     }
 
     let mut next_h = Vec::with_capacity(BLAKE2S_STATE_WORDS);
@@ -180,181 +141,6 @@ fn emit_compress<'c, 'a>(
         )?);
     }
     Ok(next_h.try_into().expect("exactly eight state words"))
-}
-
-fn emit_g<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    v: &mut [Value<'c, 'a>; BLAKE2S_WORK_VECTOR_WORDS],
-    m: &[Value<'c, 'a>; 16],
-    sigma: [usize; 16],
-    (a, b, c, d): (usize, usize, usize, usize),
-    x_index: usize,
-    y_index: usize,
-) -> Result<(), Error> {
-    v[a] = emit_wrapping_add3(cache, v[a], v[b], m[sigma[x_index]])?;
-    v[d] = emit_rotr(
-        cache,
-        emit_xor(cache.block, cache.location, v[d], v[a])?,
-        16,
-    )?;
-    v[c] = emit_wrapping_add(cache, v[c], v[d])?;
-    v[b] = emit_rotr(
-        cache,
-        emit_xor(cache.block, cache.location, v[b], v[c])?,
-        12,
-    )?;
-    v[a] = emit_wrapping_add3(cache, v[a], v[b], m[sigma[y_index]])?;
-    v[d] = emit_rotr(cache, emit_xor(cache.block, cache.location, v[d], v[a])?, 8)?;
-    v[c] = emit_wrapping_add(cache, v[c], v[d])?;
-    v[b] = emit_rotr(cache, emit_xor(cache.block, cache.location, v[b], v[c])?, 7)?;
-    Ok(())
-}
-
-fn emit_wrapping_add<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    lhs: Value<'c, 'a>,
-    rhs: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    let sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, lhs, rhs)?)?;
-    let mask = cache.word_mask()?;
-    emit_and(cache.block, cache.location, sum, mask)
-}
-
-fn emit_wrapping_add3<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    a: Value<'c, 'a>,
-    b: Value<'c, 'a>,
-    c: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    let sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, a, b)?)?;
-    let sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, sum, c)?)?;
-    let mask = cache.word_mask()?;
-    emit_and(cache.block, cache.location, sum, mask)
-}
-
-fn emit_rotr<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    value: Value<'c, 'a>,
-    amount: u32,
-) -> Result<Value<'c, 'a>, Error> {
-    let right = emit_shr(cache, value, amount)?;
-    let left = emit_shl(cache, value, 32 - amount)?;
-    let combined = emit_or(cache.block, cache.location, right, left)?;
-    let mask = cache.word_mask()?;
-    emit_and(cache.block, cache.location, combined, mask)
-}
-
-fn emit_word_to_bytes<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    word: Value<'c, 'a>,
-) -> Result<[Value<'c, 'a>; 4], Error> {
-    let mask = cache.u32(0xff)?;
-    let byte0 = emit_and(cache.block, cache.location, word, mask)?;
-    let shifted1 = emit_shr(cache, word, 8)?;
-    let byte1 = emit_and(cache.block, cache.location, shifted1, mask)?;
-    let shifted2 = emit_shr(cache, word, 16)?;
-    let byte2 = emit_and(cache.block, cache.location, shifted2, mask)?;
-    let shifted3 = emit_shr(cache, word, 24)?;
-    let byte3 = emit_and(cache.block, cache.location, shifted3, mask)?;
-    Ok([byte0, byte1, byte2, byte3])
-}
-
-fn emit_shl<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    value: Value<'c, 'a>,
-    amount: u32,
-) -> Result<Value<'c, 'a>, Error> {
-    let amount = cache.u32(amount)?;
-    append_op_with_result(
-        cache.block,
-        dialect::felt::shl(cache.location, value, amount)?,
-    )
-}
-
-fn emit_shr<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    value: Value<'c, 'a>,
-    amount: u32,
-) -> Result<Value<'c, 'a>, Error> {
-    let amount = cache.u32(amount)?;
-    append_op_with_result(
-        cache.block,
-        dialect::felt::shr(cache.location, value, amount)?,
-    )
-}
-
-fn emit_and<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    lhs: Value<'c, 'a>,
-    rhs: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    append_op_with_result(block, dialect::felt::bit_and(location, lhs, rhs)?)
-}
-
-fn emit_or<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    lhs: Value<'c, 'a>,
-    rhs: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    append_op_with_result(block, dialect::felt::bit_or(location, lhs, rhs)?)
-}
-
-fn emit_xor<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    lhs: Value<'c, 'a>,
-    rhs: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    append_op_with_result(block, dialect::felt::bit_xor(location, lhs, rhs)?)
-}
-
-fn iv_values<'c, 'a>(cache: &mut ConstantCache<'c, 'a>) -> Result<[Value<'c, 'a>; 8], Error> {
-    let mut values = Vec::with_capacity(BLAKE2S_STATE_WORDS);
-    for word in IV {
-        values.push(cache.u32(word)?);
-    }
-    Ok(values.try_into().expect("exactly eight IV words"))
-}
-
-struct ConstantCache<'c, 'a> {
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    values: HashMap<FieldElement, Value<'c, 'a>>,
-}
-
-impl<'c, 'a> ConstantCache<'c, 'a> {
-    fn new(
-        block: &'a Block<'c>,
-        context: &'c llzk::prelude::LlzkContext,
-        location: Location<'c>,
-    ) -> Self {
-        Self {
-            block,
-            context,
-            location,
-            values: HashMap::new(),
-        }
-    }
-
-    fn u32(&mut self, value: u32) -> Result<Value<'c, 'a>, Error> {
-        self.field(FieldElement::from(u128::from(value)))
-    }
-
-    fn word_mask(&mut self) -> Result<Value<'c, 'a>, Error> {
-        self.u32(u32::MAX)
-    }
-
-    fn field(&mut self, value: FieldElement) -> Result<Value<'c, 'a>, Error> {
-        if let Some(&cached) = self.values.get(&value) {
-            return Ok(cached);
-        }
-        let emitted = append_felt_constant(self.block, self.context, self.location, &value)?;
-        self.values.insert(value, emitted);
-        Ok(emitted)
-    }
 }
 
 #[cfg(test)]

@@ -1,2 +1,4 @@
 pub(crate) mod blake2s;
+pub(crate) mod blake3;
+pub(super) mod common;
 pub(crate) mod poseidon2;
