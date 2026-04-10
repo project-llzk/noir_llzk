@@ -8,7 +8,7 @@ use super::super::{
 };
 use crate::tests::count_occurrences;
 
-/// Witness rangecheck emits one mask and one equality constraint.
+/// Witness rangecheck emits one comparison and one assertion.
 #[test]
 fn rangecheck_witness_input_emits_constraint_and_verifies() {
     let context = LlzkContext::new();
@@ -21,19 +21,19 @@ fn rangecheck_witness_input_emits_constraint_and_verifies() {
     println!("rangecheck_witness_input:\n{ir}");
 
     assert_eq!(
-        count_occurrences(&ir, "felt.bit_and"),
+        count_occurrences(&ir, "bool.cmp"),
         1,
-        "expected 1 bit_and op total"
+        "expected 1 bool.cmp op total"
     );
     assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
+        count_occurrences(&ir, "bool.assert"),
         1,
-        "expected 1 constrain.eq op total"
+        "expected 1 bool.assert op total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
         1,
-        "expected 1 mask constant"
+        "expected 1 range bound constant"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
@@ -55,14 +55,14 @@ fn rangecheck_constant_input_that_fits_emits_no_constraints() {
     println!("rangecheck_constant_fit:\n{ir}");
 
     assert_eq!(
-        count_occurrences(&ir, "felt.bit_and"),
+        count_occurrences(&ir, "bool.cmp"),
         0,
-        "expected no bit_and ops"
+        "expected no bool.cmp ops"
     );
     assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
+        count_occurrences(&ir, "bool.assert"),
         0,
-        "expected no constrain.eq ops"
+        "expected no bool.assert ops"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
@@ -90,7 +90,7 @@ fn rangecheck_constant_input_that_does_not_fit_is_rejected() {
     );
 }
 
-/// Zero-bit rangecheck uses a zero mask.
+/// Zero-bit rangecheck compares against the constant one.
 #[test]
 fn rangecheck_zero_bits_verifies() {
     let context = LlzkContext::new();
@@ -103,8 +103,8 @@ fn rangecheck_zero_bits_verifies() {
     println!("rangecheck_zero_bits:\n{ir}");
 
     assert!(
-        ir.contains("felt.const  0"),
-        "zero-bit mask should be constant 0"
+        ir.contains("felt.const  1"),
+        "zero-bit upper bound should be constant 1"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }

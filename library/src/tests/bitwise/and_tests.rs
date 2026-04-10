@@ -27,21 +27,31 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         "should emit equality constraints"
     );
     // Compute: 1 AND.
-    // Constrain: 2 input masks + 1 AND + 3 equality constraints.
+    // Constrain: 2 input comparisons + 2 assertions + 1 AND + 1 equality constraint.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        4,
-        "expected 4 bit_and ops total"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        3,
-        "expected 3 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.cmp"),
+        2,
+        "expected 2 bool.cmp ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.assert"),
+        2,
+        "expected 2 bool.assert ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
         1,
-        "expected one shared mask constant"
+        "expected one shared range bound constant"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
@@ -99,21 +109,31 @@ fn and_mixed_witness_and_constant_verifies() {
 
     println!("and_mixed:\n{ir}");
 
-    // Compute: 1 AND. Constrain: 1 input mask + 1 AND + 2 equality constraints.
+    // Compute: 1 AND. Constrain: 1 input comparison + 1 assertion + 1 AND + 1 equality constraint.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
-        3,
-        "expected 3 bit_and ops total"
+        2,
+        "expected 2 bit_and ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq ops total"
+        1,
+        "expected 1 constrain.eq op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.cmp"),
+        1,
+        "expected 1 bool.cmp op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.assert"),
+        1,
+        "expected 1 bool.assert op total"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
         3,
-        "expected two data constants and one mask constant"
+        "expected two data constants and one range bound constant"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
