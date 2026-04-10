@@ -30,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up SSH for private deps
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LLZK_INTERPRETER_DEPLOY_KEY }}
       - name: Load shared env
         run: cat .github/workflows/llzk.env >> "$GITHUB_ENV"
       - name: Free Disk Space
@@ -76,8 +80,10 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy -p acir_llzk --all-targets --features e2e -- -D warnings
+          cargo clippy -p acir2llzk --all-targets -- -D warnings
       - name: Build
-        run: cargo build --all-features
+        run: cargo build
       - name: Test
-        run: cargo test --all-features
+        run: cargo test

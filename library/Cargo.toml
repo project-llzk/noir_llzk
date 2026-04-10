@@ -12,6 +12,11 @@ llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev
 llzk-sys = { git = "https://github.com/Veridise/llzk-rs", rev ="5e14101" }
 base64 = "0.22"
 serde_json = "1"
+llzk_interpreter = { git = "ssh://git@github.com/reilabs/llzk-interpreter.git", rev = "7c1419a0e06d15e4cd1b6fd94207f368b46fdf38", optional = true }
+
+[features]
+default = []
+e2e = ["dep:llzk_interpreter"]
 
 [dev-dependencies]
 toml = "0.8"

@@ -15,6 +15,8 @@ mod call_tests;
 mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
+#[cfg(all(test, feature = "e2e"))]
+mod e2e;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;
