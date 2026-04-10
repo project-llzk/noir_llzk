@@ -87,3 +87,5 @@ jobs:
         run: cargo build
       - name: Test
         run: cargo test
+      - name: E2E tests
+        run: cargo test -p acir_llzk --features e2e -- tests::e2e
