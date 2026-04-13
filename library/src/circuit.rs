@@ -62,7 +62,6 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let struct_def = dialect::r#struct::def(
             location,
             &struct_name,
-            &[],
             [] as [Result<Operation, LlzkError>; 0],
         )?;
 

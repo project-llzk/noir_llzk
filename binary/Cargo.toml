@@ -8,6 +8,6 @@ name = "acir2llzk"
 path = "src/main.rs"
 
 [dependencies]
-llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev ="5e14101"}
-llzk-sys = { git = "https://github.com/Veridise/llzk-rs", rev ="5e14101" }
+llzk = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", features = ["bigint"], branch="add-ram"}
+llzk-sys = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", branch="add-ram" }
 acir_llzk = { path = "../library" }

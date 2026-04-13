@@ -303,6 +303,41 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.memories.get(&block_id).copied()
     }
 
+    // ── RAM operations ─────────────────────────────────────────────────
+
+    /// Emits `ram.alloc size`, returning the index-typed memory handle.
+    ///
+    /// Only valid inside a function marked `allow_witness = true`.
+    pub(crate) fn insert_ram_alloc(&self, size: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::ram::alloc(self.location, size))
+    }
+
+    /// Emits `ram.load mem[addr] : result_ty`, returning the loaded value.
+    ///
+    /// `addr` must be index-typed. Only valid inside a function marked
+    /// `allow_witness = true`.
+    pub(crate) fn insert_ram_load(
+        &self,
+        mem: Value<'c, 'a>,
+        addr: Value<'c, 'a>,
+        result_ty: Type<'c>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::ram::load(self.location, result_ty, mem, addr))
+    }
+
+    /// Emits `ram.store mem[addr], val`.
+    ///
+    /// `addr` must be index-typed. Only valid inside a function marked
+    /// `allow_witness = true`.
+    pub(crate) fn insert_ram_store(
+        &self,
+        mem: Value<'c, 'a>,
+        addr: Value<'c, 'a>,
+        val: Value<'c, 'a>,
+    ) {
+        self.insert_op(dialect::ram::store(self.location, mem, addr, val));
+    }
+
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.
     pub(crate) fn call_function(
         &self,
