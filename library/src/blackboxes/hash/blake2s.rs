@@ -11,6 +11,8 @@ pub(crate) const BLAKE2S_DIGEST_BYTES: usize = 32;
 const BLAKE2S_BLOCK_BYTES: usize = 64;
 const BLAKE2S_STATE_WORDS: usize = 8;
 const BLAKE2S_ROUNDS: usize = 10;
+// Blake2s parameter block word 0: 0x01 (depth) | 0x01 (fanout) | 0x00 (key length) | digest size.
+const BLAKE2S_PARAM_BLOCK_0: u32 = 0x0101_0000 | BLAKE2S_DIGEST_BYTES as u32;
 
 const SIGMA: [[usize; 16]; BLAKE2S_ROUNDS] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -67,7 +69,7 @@ fn emit_blake2s_hash<'c, 'a>(
     let mut cache = ConstantCache::new(block, context, location);
     let zero = cache.u32(0)?;
     let mut h = iv_values(&mut cache)?;
-    let param = cache.u32(0x0101_0020)?;
+    let param = cache.u32(BLAKE2S_PARAM_BLOCK_0)?;
     h[0] = emit_xor(block, location, h[0], param)?;
 
     let num_blocks = inputs.len().max(1).div_ceil(BLAKE2S_BLOCK_BYTES);
@@ -75,12 +77,7 @@ fn emit_blake2s_hash<'c, 'a>(
         let start = block_index * BLAKE2S_BLOCK_BYTES;
         let end = (start + BLAKE2S_BLOCK_BYTES).min(inputs.len());
         let mut block_bytes = [zero; BLAKE2S_BLOCK_BYTES];
-        for (slot, value) in block_bytes
-            .iter_mut()
-            .zip(inputs[start..end].iter().copied())
-        {
-            *slot = value;
-        }
+        block_bytes[..end - start].copy_from_slice(&inputs[start..end]);
         let message_vec = super::common::emit_message_words(&mut cache, &block_bytes)?;
         let message: [Value<'c, 'a>; 16] = message_vec
             .try_into()
@@ -173,7 +170,7 @@ mod tests {
 
     fn eval_blake2s(input: &[u8]) -> [u8; 32] {
         let mut h = IV;
-        h[0] ^= 0x0101_0020;
+        h[0] ^= super::BLAKE2S_PARAM_BLOCK_0;
 
         let num_blocks = input.len().max(1).div_ceil(64);
         for block_index in 0..num_blocks {

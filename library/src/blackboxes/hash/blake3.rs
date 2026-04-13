@@ -54,7 +54,6 @@ pub(in crate::blackboxes) fn emit_blake3_helper<'c>(
     Ok(function)
 }
 
-/// An output node from Blake3 — stores the state needed for finalization.
 struct EmitOutput<'c, 'a> {
     input_cv: [Value<'c, 'a>; 8],
     block_words: [Value<'c, 'a>; 16],
@@ -75,7 +74,6 @@ fn emit_blake3_hash<'c, 'a>(
     let num_chunks = inputs.len().max(1).div_ceil(CHUNK_BYTES);
     let mut cv_stack: Vec<[Value<'c, 'a>; 8]> = Vec::new();
 
-    // Process all chunks except the last one, reducing CVs into the stack.
     for chunk_index in 0..num_chunks - 1 {
         let chunk_start = chunk_index * CHUNK_BYTES;
         let chunk_end = (chunk_start + CHUNK_BYTES).min(inputs.len());
@@ -92,7 +90,6 @@ fn emit_blake3_hash<'c, 'a>(
         cv_stack.push(new_cv);
     }
 
-    // Process the last chunk, keeping its output node for ROOT finalization.
     let last_chunk_index = num_chunks - 1;
     let last_chunk_start = last_chunk_index * CHUNK_BYTES;
     let last_chunk_end = (last_chunk_start + CHUNK_BYTES).min(inputs.len());
@@ -109,12 +106,9 @@ fn emit_blake3_hash<'c, 'a>(
     )?;
 
     if num_chunks == 1 {
-        // Single chunk: root output directly from the chunk's output node.
         return emit_root_output_bytes(&mut cache, output);
     }
 
-    // Multi-chunk finalization: merge the last chunk's output through the stack
-    // (from top to bottom), keeping it as an output node so ROOT can be applied.
     for i in (0..cv_stack.len()).rev() {
         let cv = emit_output_cv(&mut cache, &output)?;
         output = emit_parent_output(&mut cache, &key_words, &cv_stack[i], &cv)?;
@@ -155,7 +149,6 @@ fn emit_root_output_bytes<'c, 'a>(
     Ok(digest)
 }
 
-/// Processes a chunk and returns its output node (not yet finalized).
 fn emit_chunk_output<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     key_words: &[Value<'c, 'a>; 8],
@@ -170,7 +163,6 @@ fn emit_chunk_output<'c, 'a>(
         let block_start = block_index * BLOCK_BYTES;
         let block_end = (block_start + BLOCK_BYTES).min(chunk_data.len());
 
-        // Pad the block to 64 bytes.
         let mut padded_block = vec![zero; BLOCK_BYTES];
         if block_start < chunk_data.len() {
             padded_block[..block_end - block_start]
@@ -214,12 +206,8 @@ fn emit_parent_output<'c, 'a>(
 ) -> Result<EmitOutput<'c, 'a>, Error> {
     let zero = cache.u32(0)?;
     let mut block_words = [zero; 16];
-    for (i, val) in left.iter().enumerate() {
-        block_words[i] = *val;
-    }
-    for (i, val) in right.iter().enumerate() {
-        block_words[8 + i] = *val;
-    }
+    block_words[..8].copy_from_slice(left);
+    block_words[8..].copy_from_slice(right);
     Ok(EmitOutput {
         input_cv: *key_words,
         block_words,
@@ -236,12 +224,8 @@ fn emit_parent_cv<'c, 'a>(
     right: &[Value<'c, 'a>; 8],
 ) -> Result<[Value<'c, 'a>; 8], Error> {
     let mut block_words = [cache.u32(0)?; 16];
-    for (i, val) in left.iter().enumerate() {
-        block_words[i] = *val;
-    }
-    for (i, val) in right.iter().enumerate() {
-        block_words[8 + i] = *val;
-    }
+    block_words[..8].copy_from_slice(left);
+    block_words[8..].copy_from_slice(right);
     emit_compress(
         cache,
         key_words,
@@ -252,7 +236,6 @@ fn emit_parent_cv<'c, 'a>(
     )
 }
 
-/// Blake3 compression function — returns the first 8 words (chaining value).
 fn emit_compress<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     h: &[Value<'c, 'a>; 8],
@@ -269,8 +252,6 @@ fn emit_compress<'c, 'a>(
     Ok(result)
 }
 
-/// Blake3 compression function — returns the full 16-word finalized state.
-/// Output: v[i] ^= v[i+8], v[i+8] ^= h[i] for i in 0..8.
 fn emit_compress_full<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     h: &[Value<'c, 'a>; 8],
@@ -288,7 +269,6 @@ fn emit_compress_full<'c, 'a>(
     Ok(out)
 }
 
-/// Raw Blake3 compression — runs the rounds and returns the unfinalized work vector.
 fn emit_compress_raw<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     h: &[Value<'c, 'a>; 8],
@@ -328,11 +308,7 @@ fn emit_compress_raw<'c, 'a>(
 }
 
 fn permute_message<'c, 'a>(m: &[Value<'c, 'a>; 16]) -> [Value<'c, 'a>; 16] {
-    let mut out = *m;
-    for (i, &p) in MSG_PERMUTATION.iter().enumerate() {
-        out[i] = m[p];
-    }
-    out
+    std::array::from_fn(|i| m[MSG_PERMUTATION[i]])
 }
 
 #[cfg(test)]
