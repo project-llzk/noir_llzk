@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    AcirField, FieldElement,
+    FieldElement,
     circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
     native_types::Witness,
@@ -11,7 +11,10 @@ use crate::{
     blackboxes::{hash::sha256::SHA256_STATE_WORDS, registry::BlackboxFunction},
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    opcodes::{
+        OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, emit_blackbox_input,
+        validate_u32_input, write_digest_outputs,
+    },
 };
 
 pub(crate) struct Sha256Compression<'a> {
@@ -22,34 +25,20 @@ pub(crate) struct Sha256Compression<'a> {
 
 impl OpcodeEmitter for Sha256Compression<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
-        let mut witnesses = BTreeSet::new();
-        for output in self.outputs {
-            witnesses.insert(output.0);
-        }
-        for input in self.inputs.iter().chain(self.hash_values.iter()) {
-            collect_input_witness(&mut witnesses, input);
-        }
-        witnesses
+        collect_io_witnesses_iter(
+            self.inputs.iter().chain(self.hash_values.iter()),
+            self.outputs,
+        )
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let result = self.call_helper(writer)?;
-        for (index, output) in self.outputs.iter().enumerate() {
-            let value = result.result(index)?.into();
-            writer.write_member(&format!("w{}", output.0), value)?;
-            writer.mark_known(output.0, value);
-        }
-        Ok(())
+        write_digest_outputs(writer, self.outputs, result)
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let result = self.call_helper(writer)?;
-        for (index, output) in self.outputs.iter().enumerate() {
-            let expected = result.result(index)?.into();
-            let actual = writer.read_witness(output.0)?;
-            writer.insert_constrain_eq(actual, expected);
-        }
-        Ok(())
+        constrain_digest_outputs(writer, self.outputs, result)
     }
 }
 
@@ -87,19 +76,5 @@ pub(crate) fn from_opcode<'a>(
             }))
         }
         _ => Ok(None),
-    }
-}
-
-/// Validates that constant inputs fit in a u32. Witness inputs are trusted to
-/// be u32-ranged by prior constraints in Noir-generated ACIR. If this trust
-/// boundary changes, add `bool.cmp lt(val, 2^32)` + `bool.assert` for witness
-/// inputs in `emit_constrain`.
-fn validate_u32_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
-    match input {
-        FunctionInput::Constant(value) if value.num_bits() > 32 => Err(Error::ConstantOutOfRange {
-            value: *value,
-            num_bits: 32,
-        }),
-        _ => Ok(()),
     }
 }

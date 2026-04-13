@@ -3,9 +3,14 @@ use llzk::prelude::{
     Value, dialect,
 };
 
-use crate::{blackboxes::common::felt_type, error::Error};
+use crate::{
+    blackboxes::common::{block_args, felt_type},
+    error::Error,
+};
 
-use super::common::{ConstantCache, emit_and, emit_rotr, emit_shr, emit_wrapping_add, emit_xor};
+use super::common::{
+    ConstantCache, emit_and, emit_rotr, emit_shr, emit_wrapping_add, emit_wrapping_sum, emit_xor,
+};
 
 pub(crate) const SHA256_STATE_WORDS: usize = 8;
 const SHA256_MESSAGE_WORDS: usize = 16;
@@ -40,20 +45,11 @@ pub(in crate::blackboxes) fn emit_sha256_helper<'c>(
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    // First 16 args are message words, next 8 are hash state.
-    let msg: Vec<Value<'c, '_>> = (0..SHA256_MESSAGE_WORDS)
-        .map(|i| block.argument(i).map(Into::into))
-        .collect::<Result<Vec<_>, _>>()?;
-    let state: Vec<Value<'c, '_>> = (SHA256_MESSAGE_WORDS..SHA256_HELPER_INPUTS)
-        .map(|i| block.argument(i).map(Into::into))
-        .collect::<Result<Vec<_>, _>>()?;
+    let msg: [Value<'c, '_>; SHA256_MESSAGE_WORDS] = block_args(&block, 0)?;
+    let state: [Value<'c, '_>; SHA256_STATE_WORDS] = block_args(&block, SHA256_MESSAGE_WORDS)?;
 
     let mut cache = ConstantCache::new(&block, context, location);
-    let outputs = emit_sha256_compress(
-        &mut cache,
-        &msg.try_into().expect("16 message words"),
-        &state.try_into().expect("8 state words"),
-    )?;
+    let outputs = emit_sha256_compress(&mut cache, &msg, &state)?;
     block.append_operation(dialect::function::r#return(location, &outputs));
     function.region(0)?.append_block(block);
     Ok(function)
@@ -64,37 +60,25 @@ fn emit_sha256_compress<'c, 'a>(
     msg: &[Value<'c, 'a>; 16],
     state: &[Value<'c, 'a>; 8],
 ) -> Result<[Value<'c, 'a>; 8], Error> {
-    // Message schedule expansion: W[0..16] = msg, W[16..64] computed.
     let mut w = Vec::with_capacity(SHA256_SCHEDULE_WORDS);
     w.extend_from_slice(msg);
-    for i in 16..SHA256_SCHEDULE_WORDS {
+    for i in SHA256_MESSAGE_WORDS..SHA256_SCHEDULE_WORDS {
         let s0 = emit_sigma0(cache, w[i - 15])?;
         let s1 = emit_sigma1(cache, w[i - 2])?;
-        // w[i] = w[i-16] + s0 + w[i-7] + s1 (mod 2^32)
-        let sum = emit_wrapping_add(cache, w[i - 16], s0)?;
-        let sum = emit_wrapping_add(cache, sum, w[i - 7])?;
-        let wi = emit_wrapping_add(cache, sum, s1)?;
+        let wi = emit_wrapping_sum(cache, &[w[i - 16], s0, w[i - 7], s1])?;
         w.push(wi);
     }
 
-    // Initialize working variables.
     let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
 
-    // 64 compression rounds.
     for i in 0..SHA256_SCHEDULE_WORDS {
         let big_s1 = emit_big_sigma1(cache, e)?;
         let ch = emit_ch(cache, e, f, g)?;
         let ki = cache.u32(K[i])?;
-        // temp1 = h + Σ1(e) + Ch(e,f,g) + K[i] + W[i]
-        let temp1 = emit_wrapping_add(cache, h, big_s1)?;
-        let temp1 = emit_wrapping_add(cache, temp1, ch)?;
-        let temp1 = emit_wrapping_add(cache, temp1, ki)?;
-        let temp1 = emit_wrapping_add(cache, temp1, w[i])?;
+        let temp1 = emit_wrapping_sum(cache, &[h, big_s1, ch, ki, w[i]])?;
 
         let big_s0 = emit_big_sigma0(cache, a)?;
         let maj = emit_maj(cache, a, b, c)?;
-        // temp2 = Σ0(a) + Maj(a,b,c)
-        let temp2 = emit_wrapping_add(cache, big_s0, maj)?;
 
         h = g;
         g = f;
@@ -103,10 +87,10 @@ fn emit_sha256_compress<'c, 'a>(
         d = c;
         c = b;
         b = a;
-        a = emit_wrapping_add(cache, temp1, temp2)?;
+        // Fuse `temp2 = big_s0 + maj` into the final sum to save one mask per round.
+        a = emit_wrapping_sum(cache, &[temp1, big_s0, maj])?;
     }
 
-    // Add compressed chunk to current hash value.
     Ok([
         emit_wrapping_add(cache, state[0], a)?,
         emit_wrapping_add(cache, state[1], b)?,
@@ -169,22 +153,19 @@ fn emit_big_sigma1<'c, 'a>(
     emit_xor(cache.block, cache.location, xor1, r25)
 }
 
-/// Ch(e, f, g) = (e AND f) XOR (NOT e AND g)
+/// Ch(e, f, g) = (e AND f) XOR (NOT e AND g) = g XOR (e AND (f XOR g)).
 fn emit_ch<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     e: Value<'c, 'a>,
     f: Value<'c, 'a>,
     g: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let ef = emit_and(cache.block, cache.location, e, f)?;
-    // NOT e = e XOR 0xFFFFFFFF (within u32 range)
-    let mask = cache.word_mask()?;
-    let not_e = emit_xor(cache.block, cache.location, e, mask)?;
-    let neg = emit_and(cache.block, cache.location, not_e, g)?;
-    emit_xor(cache.block, cache.location, ef, neg)
+    let f_xor_g = emit_xor(cache.block, cache.location, f, g)?;
+    let e_and = emit_and(cache.block, cache.location, e, f_xor_g)?;
+    emit_xor(cache.block, cache.location, g, e_and)
 }
 
-/// Maj(a, b, c) = (a AND b) XOR (a AND c) XOR (b AND c)
+/// Maj(a, b, c) = (a AND b) XOR (a AND c) XOR (b AND c) = (a AND b) XOR (c AND (a XOR b)).
 fn emit_maj<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     a: Value<'c, 'a>,
@@ -192,10 +173,9 @@ fn emit_maj<'c, 'a>(
     c: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
     let ab = emit_and(cache.block, cache.location, a, b)?;
-    let ac = emit_and(cache.block, cache.location, a, c)?;
-    let bc = emit_and(cache.block, cache.location, b, c)?;
-    let xor1 = emit_xor(cache.block, cache.location, ab, ac)?;
-    emit_xor(cache.block, cache.location, xor1, bc)
+    let a_xor_b = emit_xor(cache.block, cache.location, a, b)?;
+    let c_and = emit_and(cache.block, cache.location, c, a_xor_b)?;
+    emit_xor(cache.block, cache.location, ab, c_and)
 }
 
 #[cfg(test)]

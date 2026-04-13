@@ -71,14 +71,27 @@ pub(crate) fn emit_blackbox_input<'c, 'b>(
     }
 }
 
-pub(crate) fn validate_byte_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
+pub(crate) fn validate_constant_fits(
+    input: &FunctionInput<FieldElement>,
+    num_bits: u32,
+) -> Result<(), Error> {
     match input {
-        FunctionInput::Constant(value) if value.num_bits() > 8 => Err(Error::ConstantOutOfRange {
-            value: *value,
-            num_bits: 8,
-        }),
+        FunctionInput::Constant(value) if value.num_bits() > num_bits => {
+            Err(Error::ConstantOutOfRange {
+                value: *value,
+                num_bits,
+            })
+        }
         _ => Ok(()),
     }
+}
+
+pub(crate) fn validate_byte_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
+    validate_constant_fits(input, 8)
+}
+
+pub(crate) fn validate_u32_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
+    validate_constant_fits(input, 32)
 }
 
 /// Collects witness indices from an ACIR [`FunctionInput`].
@@ -93,6 +106,13 @@ pub(crate) fn collect_input_witness(
 
 pub(crate) fn collect_io_witnesses(
     inputs: &[FunctionInput<FieldElement>],
+    outputs: &[Witness],
+) -> BTreeSet<u32> {
+    collect_io_witnesses_iter(inputs.iter(), outputs)
+}
+
+pub(crate) fn collect_io_witnesses_iter<'a>(
+    inputs: impl IntoIterator<Item = &'a FunctionInput<FieldElement>>,
     outputs: &[Witness],
 ) -> BTreeSet<u32> {
     let mut witnesses = BTreeSet::new();
