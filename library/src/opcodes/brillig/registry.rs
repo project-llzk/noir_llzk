@@ -122,7 +122,8 @@ pub(crate) fn emit_brillig_functions<'c>(
             .map(|ty| (*ty, location))
             .collect();
         let body_block = Block::new(&arg_sig);
-        let returns = translate_bytecode(entry.bytecode)?;
+        let returns =
+            translate_bytecode(context, &body_block, entry.bytecode, entry.output_types.len())?;
         if returns.len() != entry.output_types.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(

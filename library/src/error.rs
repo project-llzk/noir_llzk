@@ -25,6 +25,13 @@ pub enum Error {
         /// The opcode index where the error occurred.
         opcode_index: usize,
     },
+    /// A Brillig opcode referenced a register that has not been written.
+    UndefinedRegister {
+        /// The register index that was read.
+        addr: usize,
+        /// The bytecode index of the opcode that performed the read.
+        opcode_index: usize,
+    },
     /// A `Call` opcode references a circuit index that does not exist in the program.
     OutOfRangeCallTarget {
         /// The out-of-range circuit index that was requested.
@@ -58,6 +65,11 @@ impl fmt::Display for Error {
                 f,
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
+            ),
+            Error::UndefinedRegister { addr, opcode_index } => write!(
+                f,
+                "Brillig opcode at bytecode index {opcode_index} reads \
+                 undefined register {addr}"
             ),
             Error::OutOfRangeCallTarget { id, num_circuits } => write!(
                 f,
