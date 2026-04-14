@@ -9,8 +9,10 @@ use llzk::prelude::{
 };
 
 use crate::circuit::CircuitTranslator;
+use crate::opcodes::brillig::registry::BrilligRegistry;
 
 mod bitwise;
+mod brillig_tests;
 mod call_tests;
 mod circuit_tests;
 mod compute_tests;
@@ -35,6 +37,16 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
     Program {
         functions: circuits,
         unconstrained_functions: vec![],
+    }
+}
+
+fn make_program_with_brillig(
+    circuits: Vec<Circuit<FieldElement>>,
+    unconstrained_functions: Vec<acir::circuit::brillig::BrilligBytecode<FieldElement>>,
+) -> Program<FieldElement> {
+    Program {
+        functions: circuits,
+        unconstrained_functions,
     }
 }
 
@@ -71,12 +83,20 @@ fn make_circuit_with_opcodes(
 ///
 /// Creates a single-circuit [`Program`] internally so that [`CircuitTranslator`]
 /// has the program reference it needs for future `Call` opcode support.
+///
+/// Brillig-using circuits are NOT supported by this helper: `BrilligCall`
+/// sites will register against a throwaway `BrilligRegistry`, but the
+/// `@brillig_{id}` function bodies are never emitted, leaving dangling
+/// symbol references. Tests that exercise Brillig should use
+/// [`crate::program::translate_program`] directly.
 pub(super) fn translate_single_circuit<'c>(
     context: &'c LlzkContext,
     circuit: Circuit<FieldElement>,
 ) -> Result<StructDefOp<'c>, crate::Error> {
     let program = make_program(vec![circuit]);
-    CircuitTranslator::new(context, &program.functions[0], &program).translate(0)
+    let mut brillig_registry = BrilligRegistry::new();
+    CircuitTranslator::new(context, &program.functions[0], &program)
+        .translate(0, &mut brillig_registry)
 }
 
 /// Wraps a `StructDefOp` in a module, prints the IR, and asserts verification passes.

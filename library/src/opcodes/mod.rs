@@ -1,5 +1,6 @@
 pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
+pub(crate) mod brillig;
 pub(crate) mod call;
 pub(crate) mod memory_ops;
 

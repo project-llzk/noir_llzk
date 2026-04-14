@@ -2,7 +2,11 @@ use std::collections::{BTreeSet, HashSet};
 
 use acir::{
     FieldElement,
-    circuit::{Circuit, Opcode, Program, opcodes::BlockType},
+    circuit::{
+        Circuit, Opcode, Program,
+        brillig::{BrilligInputs, BrilligOutputs},
+        opcodes::BlockType,
+    },
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -15,8 +19,14 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
+    common::is_trivial_predicate,
     opcodes::{
-        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_ops,
+        TranslatedOpcode,
+        assert_zero::AssertZero,
+        bitwise,
+        brillig::{BrilligCall, registry::BrilligRegistry},
+        call::Call,
+        memory_ops,
         memory_ops::MemoryInit,
     },
 };
@@ -48,14 +58,20 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
     /// Runs the full translation pipeline and returns the completed struct.
     ///
-    /// 1. `build_handlers` — converts ACIR opcodes to [`TranslatedOpcode`]s,
-    ///    pre-computing all metadata (member names, circuit names for `Call`).
+    /// 1. `build_handlers` — converts ACIR opcodes to [`TranslatedOpcode`]s
+    ///    and, for `BrilligCall`s, registers the target function with the
+    ///    program-level [`BrilligRegistry`]. `translate_program` emits the
+    ///    Brillig function bodies once every circuit has been translated.
     /// 2. `emit_witness_members` — adds `struct.member @w{i} : !felt.type` for
     ///    each internal witness.
     /// 3. Iterate opcodes → `emit_member` (subcomponent members for `Call`).
     /// 4. Build and populate the `@compute` function.
     /// 5. Build and populate the `@constrain` function.
-    pub(crate) fn translate(self, circuit_index: usize) -> Result<StructDefOp<'c>, Error> {
+    pub(crate) fn translate(
+        self,
+        circuit_index: usize,
+        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+    ) -> Result<StructDefOp<'c>, Error> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
 
@@ -65,7 +81,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             [] as [Result<Operation, LlzkError>; 0],
         )?;
 
-        let ops = self.build_handlers()?;
+        let ops = self.build_handlers(brillig_registry)?;
         let input_witnesses = self.sorted_input_witnesses();
 
         // Collect the set of witnesses actually referenced by opcodes.
@@ -114,13 +130,18 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     }
 
     /// Converts each ACIR opcode into a [`TranslatedOpcode`], pre-computing
-    /// all metadata needed by the emission phases.
-    fn build_handlers(&self) -> Result<Vec<TranslatedOpcode<'p>>, Error> {
+    /// all metadata needed by the emission phases. Brillig calls register
+    /// themselves with `brillig_registry` here so the program-level emitter
+    /// can build one `@brillig_{id}` function per unique callee.
+    fn build_handlers(
+        &self,
+        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+    ) -> Result<Vec<TranslatedOpcode<'p>>, Error> {
         self.circuit
             .opcodes
             .iter()
             .enumerate()
-            .map(|(index, opcode)| self.build_handler(index, opcode))
+            .map(|(index, opcode)| self.build_handler(index, opcode, brillig_registry))
             .collect()
     }
 
@@ -129,6 +150,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         &self,
         index: usize,
         opcode: &'p Opcode<FieldElement>,
+        brillig_registry: &mut BrilligRegistry<'c, 'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
@@ -174,8 +196,79 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                 ))),
             },
             Opcode::MemoryOp { block_id, op } => memory_ops::from_opcode(block_id.0, op),
+            Opcode::BrilligCall {
+                id,
+                inputs,
+                outputs,
+                predicate,
+            } => self.build_brillig_handler(*id, inputs, outputs, predicate, brillig_registry),
             other => Err(Error::UnsupportedOpcode(other.to_string())),
         }
+    }
+
+    /// Validates call-site shape (predicate, marshalling), registers the
+    /// callee with `brillig_registry`, and returns a `BrilligCall` handler
+    /// that will emit the `function.call @brillig_{id}` in `@compute`.
+    fn build_brillig_handler(
+        &self,
+        id: acir::circuit::brillig::BrilligFunctionId,
+        inputs: &'p [BrilligInputs<FieldElement>],
+        outputs: &'p [BrilligOutputs],
+        predicate: &'p acir::native_types::Expression<FieldElement>,
+        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+    ) -> Result<TranslatedOpcode<'p>, Error> {
+        let bytecode = self.program.unconstrained_functions.get(id.as_usize()).ok_or(
+            Error::UnsupportedBrillig {
+                reason: format!(
+                    "brillig function id {} out of range (program has {} \
+                     unconstrained functions)",
+                    id.0,
+                    self.program.unconstrained_functions.len(),
+                ),
+            },
+        )?;
+
+        if !is_trivial_predicate(predicate) {
+            return Err(Error::UnsupportedBrillig {
+                reason: "predicate-gated brillig".into(),
+            });
+        }
+
+        let felt_ty: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
+
+        let mut input_types: Vec<Type<'c>> = Vec::with_capacity(inputs.len());
+        for (i, input) in inputs.iter().enumerate() {
+            match input {
+                BrilligInputs::Single(_) => input_types.push(felt_ty),
+                BrilligInputs::Array(_) | BrilligInputs::MemoryArray(_) => {
+                    return Err(Error::UnsupportedBrillig {
+                        reason: format!(
+                            "brillig input #{i}: Array / MemoryArray marshalling \
+                             is implemented in a later milestone-3 issue",
+                        ),
+                    });
+                }
+            }
+        }
+
+        let mut output_types: Vec<Type<'c>> = Vec::with_capacity(outputs.len());
+        for (i, output) in outputs.iter().enumerate() {
+            match output {
+                BrilligOutputs::Simple(_) => output_types.push(felt_ty),
+                BrilligOutputs::Array(_) => {
+                    return Err(Error::UnsupportedBrillig {
+                        reason: format!(
+                            "brillig output #{i}: Array marshalling \
+                             is implemented in a later milestone-3 issue",
+                        ),
+                    });
+                }
+            }
+        }
+
+        brillig_registry.register(id, input_types, output_types, bytecode)?;
+
+        Ok(Box::new(BrilligCall::new(id, inputs, outputs, predicate)))
     }
 
     /// Returns input witness indices sorted by witness index.

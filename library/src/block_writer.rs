@@ -5,9 +5,9 @@ use llzk::builder::OpBuilder;
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttribute, Type, Value, dialect,
+    BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, IntegerAttribute, LlzkContext, Location,
+    Operation, OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
+    SymbolRefAttrLike, SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -221,6 +221,24 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         StructType::from_str(self.context, name).into()
     }
 
+    /// Calls `@name(args)` (flat symbol reference) before the return terminator.
+    ///
+    /// Used to invoke module-level sibling functions. For calls into another
+    /// struct's `@compute` / `@constrain`, use [`call_function`](Self::call_function)
+    /// instead.
+    pub(crate) fn call_top_level_function(
+        &self,
+        name: &str,
+        args: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        self.insert_call(
+            FlatSymbolRefAttribute::new(self.context, name),
+            args,
+            result_types,
+        )
+    }
+
     /// Returns the canonical felt type for this circuit's field.
     pub(crate) fn felt_type(&self) -> Type<'c> {
         FeltType::with_field(self.context, FIELD_NAME).into()
@@ -346,11 +364,25 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         args: &[Value<'c, 'a>],
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
+        self.insert_call(
+            SymbolRefAttribute::new(self.context, parent, &[func]),
+            args,
+            result_types,
+        )
+    }
+
+    /// Emits `function.call` with the given symbol reference before the return terminator.
+    fn insert_call(
+        &self,
+        symbol: impl SymbolRefAttrLike<'c>,
+        args: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
         Ok(self.insert_op(
             dialect::function::call(
                 &OpBuilder::new(self.context),
                 self.location,
-                SymbolRefAttribute::new(self.context, parent, &[func]),
+                symbol,
                 args,
                 result_types,
             )?

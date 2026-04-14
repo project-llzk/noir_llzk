@@ -10,6 +10,12 @@ use llzk::prelude::{LlzkError, MeliorError};
 pub enum Error {
     /// An ACIR opcode that is not yet supported was encountered.
     UnsupportedOpcode(String),
+    /// A Brillig construct (opcode, predicate, or marshalling shape) that is
+    /// not yet supported was encountered.
+    UnsupportedBrillig {
+        /// Human-readable reason describing what is unsupported.
+        reason: String,
+    },
     /// A witness cannot be solved because there are too many unknowns.
     UnsolvableWitness {
         /// The first unknown witness index.
@@ -41,6 +47,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::UnsupportedOpcode(name) => write!(f, "unsupported ACIR opcode: {name}"),
+            Error::UnsupportedBrillig { reason } => {
+                write!(f, "unsupported Brillig: {reason}")
+            }
             Error::UnsolvableWitness {
                 witness,
                 num_unknowns,
