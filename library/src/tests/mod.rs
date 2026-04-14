@@ -12,7 +12,7 @@ use crate::circuit::CircuitTranslator;
 use crate::opcodes::brillig::registry::BrilligRegistry;
 
 mod bitwise;
-mod brillig_tests;
+mod brillig;
 mod call_tests;
 mod circuit_tests;
 mod compute_tests;

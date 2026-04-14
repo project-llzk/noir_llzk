@@ -26,6 +26,7 @@ use llzk::prelude::{
     RegionLike, Type, dialect,
 };
 
+use crate::block_writer::BlockWriter;
 use crate::error::Error;
 
 use super::translator::translate_bytecode;
@@ -122,8 +123,9 @@ pub(crate) fn emit_brillig_functions<'c>(
             .map(|ty| (*ty, location))
             .collect();
         let body_block = Block::new(&arg_sig);
+        let mut writer = BlockWriter::for_function_body(context, &body_block);
         let returns =
-            translate_bytecode(context, &body_block, entry.bytecode, entry.output_types.len())?;
+            translate_bytecode(&mut writer, entry.bytecode, entry.output_types.len())?;
         if returns.len() != entry.output_types.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(
