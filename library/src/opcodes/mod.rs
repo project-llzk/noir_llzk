@@ -4,6 +4,7 @@ pub(crate) mod blake2s;
 pub(crate) mod blake3;
 pub(crate) mod call;
 pub(crate) mod grumpkin;
+pub(crate) mod keccak;
 pub(crate) mod memory_ops;
 pub(crate) mod poseidon2;
 pub(crate) mod sha256;
@@ -92,6 +93,10 @@ pub(crate) fn validate_byte_input(input: &FunctionInput<FieldElement>) -> Result
 
 pub(crate) fn validate_u32_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
     validate_constant_fits(input, 32)
+}
+
+pub(crate) fn validate_u64_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
+    validate_constant_fits(input, 64)
 }
 
 /// Collects witness indices from an ACIR [`FunctionInput`].

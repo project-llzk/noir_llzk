@@ -17,7 +17,7 @@ use crate::{
     block_writer::BlockWriter,
     opcodes::{
         TranslatedOpcode, assert_zero::AssertZero, bitwise, blake2s, blake3, call::Call, grumpkin,
-        memory_ops, memory_ops::MemoryInit, poseidon2, sha256,
+        keccak, memory_ops, memory_ops::MemoryInit, poseidon2, sha256,
     },
 };
 
@@ -161,6 +161,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         if let Some(sha256_op) = sha256::from_opcode(opcode)? {
             return Ok(Box::new(sha256_op));
+        }
+
+        if let Some(keccak_op) = keccak::from_opcode(opcode)? {
+            return Ok(Box::new(keccak_op));
         }
 
         if let Some(poseidon2_op) = poseidon2::from_opcode(opcode)? {

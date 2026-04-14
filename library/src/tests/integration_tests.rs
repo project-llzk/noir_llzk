@@ -139,3 +139,8 @@ fn noir_blake3() {
 fn noir_sha256() {
     run_noir_test("sha256");
 }
+
+#[test]
+fn noir_keccak() {
+    run_noir_test("keccak");
+}
