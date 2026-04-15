@@ -40,13 +40,27 @@ pub(super) fn felt_u64(v: u64) -> Value {
 
 /// Runs the full pipeline: translate, compute, constrain. Returns the computed struct.
 pub(super) fn run_e2e(circuit: Circuit<FieldElement>, inputs: &[Value]) -> StructInstance {
+    run_e2e_with_nondet(circuit, inputs, &[])
+}
+
+/// Like [`run_e2e`], but supplies pre-computed values for `llzk.nondet` ops.
+/// The same nondet sequence is replayed for both compute and constrain phases.
+pub(super) fn run_e2e_with_nondet(
+    circuit: Circuit<FieldElement>,
+    inputs: &[Value],
+    nondet: &[Felt],
+) -> StructInstance {
     let program = make_program(vec![circuit]);
     let context = LlzkContext::new();
     let module = translate_program(&context, &program).expect("translation should succeed");
     let mut interpreter = Interpreter::new(&module);
+
+    interpreter.set_nondet_values(nondet.iter().cloned());
     let computed = interpreter
         .run_compute("Circuit0", inputs)
         .expect("compute should succeed");
+
+    interpreter.set_nondet_values(nondet.iter().cloned());
     interpreter
         .run_constrain("Circuit0", computed.clone(), inputs)
         .expect("constrain should succeed");

@@ -11,22 +11,10 @@ use crate::tests::e2e::{
 };
 use crate::tests::{embedded_curve_add_blackbox, make_circuit_with_opcodes, make_program};
 
-// Grumpkin point with x = 1, y = sqrt(-16) mod p.
-const TEST_POINT_X: u64 = 1;
-const TEST_POINT_Y_HEX: &str = "0x2cf135e7506a45d632d270d45f1181294833fc48d823f272c";
-
-const TWO_P_X_DECIMAL: &str =
-    "3078034153852398078128400807926804309327113743808504829582559963737223069694";
-const TWO_P_Y_DECIMAL: &str =
-    "12696890884641142049456609402511852099066095483298083855939691685001536962732";
-
-const THREE_P_X_DECIMAL: &str =
-    "18660890509582237958343981571981920822503400000196279471655180441138020044621";
-const THREE_P_Y_DECIMAL: &str =
-    "8902249110305491597038405103722863701255802573786510474664632793109847672620";
-
-const NEG_TEST_POINT_Y_DECIMAL: &str =
-    "21888242871839275204614721864072299718383108512864252727949815652902133356757";
+use super::test_vectors::{
+    NEG_TEST_POINT_Y_DECIMAL, TEST_POINT_X, TEST_POINT_Y_HEX, THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL,
+    TWO_P_X_DECIMAL, TWO_P_Y_DECIMAL,
+};
 
 /// Builds the standard EmbeddedCurveAdd circuit with witness layout:
 /// `0..2` = input1 (x, y, inf), `3..5` = input2, `6` = predicate, `7..9` = outputs.
@@ -56,7 +44,7 @@ fn doubles_test_point() {
             felt_u64(TEST_POINT_X),
             felt_from_hex(TEST_POINT_Y_HEX),
             felt_u64(0),
-            felt_u64(1), // predicate
+            felt_u64(1),
         ],
     );
 

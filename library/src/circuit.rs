@@ -135,6 +135,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             return Ok(Box::new(curve_add_op));
         }
 
+        if let Some(msm_op) = grumpkin::multi_scalar_mul::from_opcode(opcode) {
+            return Ok(Box::new(msm_op));
+        }
+
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
         }
