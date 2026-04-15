@@ -3,6 +3,7 @@ pub(crate) mod bitwise;
 pub(crate) mod call;
 pub(crate) mod grumpkin;
 pub(crate) mod memory_ops;
+pub(crate) mod poseidon2;
 
 use std::collections::BTreeSet;
 

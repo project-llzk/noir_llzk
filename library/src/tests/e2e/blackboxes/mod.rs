@@ -1,1 +1,2 @@
 mod grumpkin;
+mod hash;

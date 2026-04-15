@@ -17,7 +17,7 @@ use crate::{
     block_writer::BlockWriter,
     opcodes::{
         TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, grumpkin, memory_ops,
-        memory_ops::MemoryInit,
+        memory_ops::MemoryInit, poseidon2,
     },
 };
 
@@ -149,6 +149,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         if let Some(and_op) = bitwise::and::from_opcode(opcode) {
             return Ok(Box::new(and_op));
+        }
+
+        if let Some(poseidon2_op) = poseidon2::from_opcode(opcode)? {
+            return Ok(Box::new(poseidon2_op));
         }
 
         match opcode {

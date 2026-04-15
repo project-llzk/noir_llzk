@@ -9,11 +9,14 @@ use llzk::prelude::{
     RegionLike, Value, dialect, melior_dialects::scf,
 };
 
-use crate::{common::append_if_with_results, error::Error};
+use crate::{
+    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
+    common::append_if_with_results,
+    error::Error,
+};
 
 use super::common::{
-    EmbeddedPointValue, append_felt_constant, append_op_with_result, emit_curve_add_result,
-    emit_infinity_point, felt_type, point_to_array,
+    EmbeddedPointValue, emit_curve_add_result, emit_infinity_point, point_to_array,
 };
 
 pub(crate) const SCALAR_LOW_BITS: usize = 128;

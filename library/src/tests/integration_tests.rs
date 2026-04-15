@@ -119,3 +119,8 @@ fn noir_bitwise_blackboxes() {
 fn noir_memory_ops() {
     run_noir_test("memory_ops");
 }
+
+#[test]
+fn noir_poseidon2() {
+    run_noir_test("poseidon2");
+}

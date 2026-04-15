@@ -4,12 +4,13 @@ use llzk::prelude::{
     Value, dialect,
 };
 
-use crate::{common::append_if_with_results, error::Error};
-
-use super::common::{
-    append_felt_constant, append_op_with_result, emit_curve_add_result, emit_infinity_point,
-    felt_type, point_to_array,
+use crate::{
+    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
+    common::append_if_with_results,
+    error::Error,
 };
+
+use super::common::{emit_curve_add_result, emit_infinity_point, point_to_array};
 
 pub(in crate::blackboxes) const EMBEDDED_CURVE_ADD_HELPER_NAME: &str = "embedded_curve_add";
 
