@@ -2,10 +2,11 @@ use acir::{
     FieldElement,
     circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
-use llzk::prelude::{FeltType, FuncDefOp, LlzkContext, Type};
+use llzk::prelude::{FuncDefOp, LlzkContext, Type};
 
-use crate::{FIELD_NAME, error::Error};
+use crate::error::Error;
 
+use super::common::felt_type;
 use super::grumpkin::embedded_curve_add::{
     EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper,
 };
@@ -47,7 +48,7 @@ impl BlackboxFunction {
     }
 
     pub(crate) fn result_types<'c>(self, context: &'c LlzkContext) -> Vec<Type<'c>> {
-        let felt: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
+        let felt = felt_type(context);
         match self {
             Self::EmbeddedCurveAdd | Self::MultiScalarMul { .. } => vec![felt, felt, felt],
             Self::Poseidon2Permutation => vec![felt, felt, felt, felt],

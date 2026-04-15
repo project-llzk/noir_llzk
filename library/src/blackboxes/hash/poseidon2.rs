@@ -1,7 +1,6 @@
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
-    Value, dialect,
+    Block, BlockLike, FuncDefOp, FunctionType, Location, OperationLike, RegionLike, Value, dialect,
 };
 
 use crate::{
@@ -21,19 +20,18 @@ pub(in crate::blackboxes) fn emit_poseidon2_helper<'c>(
     let location = Location::unknown(context);
     let felt = felt_type(context);
     let inputs = vec![(felt, location); STATE_WIDTH];
-    let function = FunctionType::new(context, &[felt; STATE_WIDTH], &[felt; STATE_WIDTH]);
-    let function = dialect::function::def(location, POSEIDON2_HELPER_NAME, function, &[], None)?;
-    function.set_allow_non_native_field_ops_attr(true);
+    let function_type = FunctionType::new(context, &[felt; STATE_WIDTH], &[felt; STATE_WIDTH]);
+    let function =
+        dialect::function::def(location, POSEIDON2_HELPER_NAME, function_type, &[], None)?;
 
     let block = Block::new(&inputs);
-    let state = [
-        block.argument(0)?.into(),
-        block.argument(1)?.into(),
-        block.argument(2)?.into(),
-        block.argument(3)?.into(),
-    ];
-    let [a, b, c, d] = emit_poseidon2_permutation(&block, context, location, state)?;
-    block.append_operation(dialect::function::r#return(location, &[a, b, c, d]));
+    let state = (0..STATE_WIDTH)
+        .map(|i| block.argument(i).map(Into::into).map_err(Error::from))
+        .collect::<Result<Vec<Value<'c, '_>>, Error>>()?
+        .try_into()
+        .expect("STATE_WIDTH arguments");
+    let out = emit_poseidon2_permutation(&block, context, location, state)?;
+    block.append_operation(dialect::function::r#return(location, &out));
     function.region(0)?.append_block(block);
     Ok(function)
 }
@@ -46,24 +44,32 @@ fn emit_poseidon2_permutation<'c, 'a>(
 ) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
     let rc = round_constants();
     let diag = internal_matrix_diagonal();
+    let full_half = ROUNDS_F / 2;
+    let partial_end = full_half + ROUNDS_P;
+
+    let diag_values: [Value<'c, 'a>; STATE_WIDTH] = diag
+        .iter()
+        .map(|d| append_felt_constant(block, context, location, d))
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .expect("STATE_WIDTH diagonal constants");
 
     state = emit_external_matrix(block, location, state)?;
 
-    let rf_first = ROUNDS_F / 2;
-    for round_rc in &rc[..rf_first] {
+    for round_rc in &rc[..full_half] {
         state = emit_add_round_constants(block, context, location, state, round_rc)?;
         state = emit_full_sbox(block, location, state)?;
         state = emit_external_matrix(block, location, state)?;
     }
 
-    for round_rc in &rc[rf_first..rf_first + ROUNDS_P] {
+    for round_rc in &rc[full_half..partial_end] {
         let rc0 = append_felt_constant(block, context, location, &round_rc[0])?;
         state[0] = append_op_with_result(block, dialect::felt::add(location, state[0], rc0)?)?;
         state[0] = emit_sbox(block, location, state[0])?;
-        state = emit_internal_matrix(block, context, location, state, &diag)?;
+        state = emit_internal_matrix(block, location, state, &diag_values)?;
     }
 
-    for round_rc in &rc[rf_first + ROUNDS_P..] {
+    for round_rc in &rc[partial_end..] {
         state = emit_add_round_constants(block, context, location, state, round_rc)?;
         state = emit_full_sbox(block, location, state)?;
         state = emit_external_matrix(block, location, state)?;
@@ -134,10 +140,9 @@ fn emit_external_matrix<'c, 'a>(
 
 fn emit_internal_matrix<'c, 'a>(
     block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
     location: Location<'c>,
     state: [Value<'c, 'a>; STATE_WIDTH],
-    diag: &[FieldElement; STATE_WIDTH],
+    diag: &[Value<'c, 'a>; STATE_WIDTH],
 ) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
     let mut sum = state[0];
     for &s in &state[1..] {
@@ -145,8 +150,7 @@ fn emit_internal_matrix<'c, 'a>(
     }
 
     let mut result = state;
-    for ((r, &s), d_val) in result.iter_mut().zip(&state).zip(diag) {
-        let d = append_felt_constant(block, context, location, d_val)?;
+    for ((r, &s), &d) in result.iter_mut().zip(&state).zip(diag) {
         let scaled = append_op_with_result(block, dialect::felt::mul(location, s, d)?)?;
         *r = append_op_with_result(block, dialect::felt::add(location, scaled, sum)?)?;
     }
@@ -157,7 +161,7 @@ fn fe(hex: &str) -> FieldElement {
     FieldElement::from_hex(hex).expect("valid hex constant")
 }
 
-fn internal_matrix_diagonal() -> [FieldElement; 4] {
+fn internal_matrix_diagonal() -> [FieldElement; STATE_WIDTH] {
     [
         fe("10dc6e9c006ea38b04b1e03b4bd9490c0d03f98929ca1d7fb56821fd19d3b6e7"),
         fe("0c28145b6a44df3e0149b3d0a30b3bb599df9756d4dd9b84a86b38cfb45a740b"),
@@ -167,7 +171,7 @@ fn internal_matrix_diagonal() -> [FieldElement; 4] {
 }
 
 #[rustfmt::skip]
-fn round_constants() -> [[FieldElement; 4]; TOTAL_ROUNDS] {
+fn round_constants() -> [[FieldElement; STATE_WIDTH]; TOTAL_ROUNDS] {
     let z = || FieldElement::zero();
     [
         [fe("19b849f69450b06848da1d39bd5e4a4302bb86744edc26238b0878e269ed23e5"), fe("265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6"), fe("199750ec472f1809e0f66a545e1e51624108ac845015c2aa3dfc36bab497d8aa"), fe("157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8")],
@@ -239,17 +243,12 @@ fn round_constants() -> [[FieldElement; 4]; TOTAL_ROUNDS] {
 
 #[cfg(test)]
 mod tests {
-    use super::{internal_matrix_diagonal, round_constants};
+    use super::{fe, internal_matrix_diagonal, round_constants};
     use acir::{AcirField, FieldElement};
 
     #[test]
     fn zero_input_matches_known_vector() {
-        let state = eval_poseidon2([
-            FieldElement::zero(),
-            FieldElement::zero(),
-            FieldElement::zero(),
-            FieldElement::zero(),
-        ]);
+        let state = eval_poseidon2([FieldElement::zero(); super::STATE_WIDTH]);
 
         assert_eq!(
             state,
@@ -262,25 +261,29 @@ mod tests {
         );
     }
 
-    fn eval_poseidon2(mut state: [FieldElement; 4]) -> [FieldElement; 4] {
+    fn eval_poseidon2(
+        mut state: [FieldElement; super::STATE_WIDTH],
+    ) -> [FieldElement; super::STATE_WIDTH] {
         let rc = round_constants();
         let diag = internal_matrix_diagonal();
+        let full_half = super::ROUNDS_F / 2;
+        let partial_end = full_half + super::ROUNDS_P;
 
         state = apply_external_matrix(state);
 
-        for round in &rc[..4] {
+        for round in &rc[..full_half] {
             state = add_round_constants(state, round);
             state = state.map(sbox);
             state = apply_external_matrix(state);
         }
 
-        for round in &rc[4..60] {
+        for round in &rc[full_half..partial_end] {
             state[0] += round[0];
             state[0] = sbox(state[0]);
             state = apply_internal_matrix(state, &diag);
         }
 
-        for round in &rc[60..64] {
+        for round in &rc[partial_end..] {
             state = add_round_constants(state, round);
             state = state.map(sbox);
             state = apply_external_matrix(state);
@@ -290,9 +293,9 @@ mod tests {
     }
 
     fn add_round_constants(
-        mut state: [FieldElement; 4],
-        constants: &[FieldElement; 4],
-    ) -> [FieldElement; 4] {
+        mut state: [FieldElement; super::STATE_WIDTH],
+        constants: &[FieldElement; super::STATE_WIDTH],
+    ) -> [FieldElement; super::STATE_WIDTH] {
         for (value, constant) in state.iter_mut().zip(constants) {
             *value += *constant;
         }
@@ -305,7 +308,9 @@ mod tests {
         x4 * x
     }
 
-    fn apply_external_matrix(state: [FieldElement; 4]) -> [FieldElement; 4] {
+    fn apply_external_matrix(
+        state: [FieldElement; super::STATE_WIDTH],
+    ) -> [FieldElement; super::STATE_WIDTH] {
         let [a, b, c, d] = state;
 
         let t0 = a + b;
@@ -321,14 +326,10 @@ mod tests {
     }
 
     fn apply_internal_matrix(
-        state: [FieldElement; 4],
-        diagonal: &[FieldElement; 4],
-    ) -> [FieldElement; 4] {
+        state: [FieldElement; super::STATE_WIDTH],
+        diagonal: &[FieldElement; super::STATE_WIDTH],
+    ) -> [FieldElement; super::STATE_WIDTH] {
         let sum = state[0] + state[1] + state[2] + state[3];
         std::array::from_fn(|i| (state[i] * diagonal[i]) + sum)
-    }
-
-    fn fe(hex: &str) -> FieldElement {
-        FieldElement::from_hex(hex).expect("valid hex constant")
     }
 }
