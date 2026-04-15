@@ -51,7 +51,7 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let points = emit_points(writer, self.points)?;
         let scalar_bits = emit_scalar_decompositions(writer, num_points)?;
         let predicate = emit_blackbox_input(writer, self.predicate)?;
-        let helper_call = self.call_helper(writer, num_points, &points, &scalar_bits, predicate)?;
+        let helper_call = self.call_helper(writer, &points, &scalar_bits, predicate)?;
         let output_x = helper_call.result(0)?.into();
         let output_y = helper_call.result(1)?.into();
         let output_infinite = helper_call.result(2)?.into();
@@ -76,10 +76,11 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let output_infinite = writer.read_witness(self.outputs.2.0)?;
 
         let one = writer.emit_constant(&FieldElement::one())?;
+        let zero = writer.emit_constant(&FieldElement::zero())?;
         let (_, predicate_gate) = emit_predicate_gate(writer, predicate)?;
 
         for &(x, y, is_infinite) in &points {
-            emit_gated_boolean(writer, predicate_gate, is_infinite)?;
+            emit_gated_boolean(writer, predicate_gate, is_infinite, one, zero)?;
             let finite_gate = writer.insert_neg(is_infinite)?;
             let finite_gate = writer.insert_add(one, finite_gate)?;
             let finite_gate = writer.insert_mul(predicate_gate, finite_gate)?;
@@ -87,10 +88,10 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         }
 
         for ((lo, hi), bits) in scalar_inputs.iter().zip(&scalar_bits) {
-            emit_scalar_constraints(writer, *lo, *hi, bits, predicate_gate)?;
+            emit_scalar_constraints(writer, *lo, *hi, bits, predicate_gate, one, zero)?;
         }
 
-        let helper_call = self.call_helper(writer, num_points, &points, &scalar_bits, predicate)?;
+        let helper_call = self.call_helper(writer, &points, &scalar_bits, predicate)?;
         let expected_x = helper_call.result(0)?.into();
         let expected_y = helper_call.result(1)?.into();
         let expected_infinite = helper_call.result(2)?.into();
@@ -174,16 +175,16 @@ fn emit_scalar_constraints<'c, 'b>(
     hi: Value<'c, 'b>,
     bits: &[Value<'c, 'b>],
     gate: Value<'c, 'b>,
+    one: Value<'c, 'b>,
+    zero: Value<'c, 'b>,
 ) -> Result<(), Error> {
     debug_assert_eq!(bits.len(), SCALAR_TOTAL_BITS);
 
     let lo_bits = &bits[..SCALAR_LOW_BITS];
     let hi_bits = &bits[SCALAR_LOW_BITS..];
-    let zero = writer.emit_constant(&FieldElement::zero())?;
-    let one = writer.emit_constant(&FieldElement::one())?;
 
     for &bit in bits {
-        emit_gated_boolean(writer, gate, bit)?;
+        emit_gated_boolean(writer, gate, bit, one, zero)?;
     }
 
     let lo_value = reconstruct_scalar_limb(writer, lo_bits)?;
@@ -211,14 +212,13 @@ fn reconstruct_scalar_limb<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     bits: &[Value<'c, 'b>],
 ) -> Result<Value<'c, 'b>, Error> {
-    let mut acc = writer.emit_constant(&FieldElement::zero())?;
-    for (index, &bit) in bits.iter().enumerate() {
-        let term = if index == 0 {
-            bit
-        } else {
-            let coeff = writer.emit_constant(&pow2(index))?;
-            writer.insert_mul(bit, coeff)?
-        };
+    let mut coeff = FieldElement::one();
+    let mut acc = bits[0];
+    let two = FieldElement::from(2u128);
+    for &bit in &bits[1..] {
+        coeff = coeff * two;
+        let coeff_val = writer.emit_constant(&coeff)?;
+        let term = writer.insert_mul(bit, coeff_val)?;
         acc = writer.insert_add(acc, term)?;
     }
     Ok(acc)
@@ -228,9 +228,9 @@ fn emit_gated_boolean<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     gate: Value<'c, 'b>,
     value: Value<'c, 'b>,
+    one: Value<'c, 'b>,
+    zero: Value<'c, 'b>,
 ) -> Result<(), Error> {
-    let one = writer.emit_constant(&FieldElement::one())?;
-    let zero = writer.emit_constant(&FieldElement::zero())?;
     let neg_value = writer.insert_neg(value)?;
     let one_minus_value = writer.insert_add(one, neg_value)?;
     let product = writer.insert_mul(value, one_minus_value)?;
@@ -264,18 +264,12 @@ fn validate_multi_scalar_mul_inputs(
         ));
     }
 
-    debug_assert!(scalars.len().is_multiple_of(2));
-
     for chunk in scalars.chunks_exact(2) {
         validate_scalar_limb(&chunk[0], SCALAR_LOW_BITS as u32)?;
         validate_scalar_limb(&chunk[1], SCALAR_HIGH_BITS as u32)?;
     }
 
     Ok(num_points)
-}
-
-fn pow2(exponent: usize) -> FieldElement {
-    FieldElement::from(2u128).pow(&FieldElement::from(exponent as u128))
 }
 
 fn grumpkin_scalar_modulus_bits_le() -> [bool; SCALAR_TOTAL_BITS] {
@@ -291,11 +285,11 @@ impl MultiScalarMul<'_> {
     fn call_helper<'c, 'b>(
         &self,
         writer: &mut BlockWriter<'c, 'b>,
-        num_points: usize,
         points: &[EmbeddedPointValue<'c, 'b>],
         scalar_bits: &[Vec<Value<'c, 'b>>],
         predicate: Value<'c, 'b>,
     ) -> Result<llzk::prelude::OperationRef<'c, 'b>, Error> {
+        let num_points = points.len();
         let mut args = Vec::with_capacity(num_points * (3 + SCALAR_TOTAL_BITS) + 1);
         for &(x, y, infinite) in points {
             args.extend([x, y, infinite]);

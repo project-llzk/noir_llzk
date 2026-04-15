@@ -1,12 +1,9 @@
-//! Shared Grumpkin fixed point and hardcoded MSM reference values for e2e tests.
-
-/// Fixed affine point P: x = 1, y = sqrt(-16) mod p.
+// Fixed affine point P: x = 1, y = sqrt(-16) mod p.
 pub(super) const TEST_POINT_X: u64 = 1;
 pub(super) const TEST_POINT_Y_HEX: &str = "0x2cf135e7506a45d632d270d45f1181294833fc48d823f272c";
 pub(super) const TEST_POINT_Y_DECIMAL: &str =
     "17631683881184975370165255887551781615748388533673675138860";
 
-/// y-coordinate of −P.
 pub(super) const NEG_TEST_POINT_Y_DECIMAL: &str =
     "21888242871839275204614721864072299718383108512864252727949815652902133356757";
 
@@ -25,7 +22,6 @@ pub(super) const FIVE_P_X_DECIMAL: &str =
 pub(super) const FIVE_P_Y_DECIMAL: &str =
     "12096995292699515952722386974733884667125946823386040531322131902193094989869";
 
-/// 2^128 · P, used to exercise the high scalar limb.
 pub(super) const TWO_POW_128_P_X_DECIMAL: &str =
     "15476314808301153468744958803190714559192263484857164741420741964129202671253";
 pub(super) const TWO_POW_128_P_Y_DECIMAL: &str =

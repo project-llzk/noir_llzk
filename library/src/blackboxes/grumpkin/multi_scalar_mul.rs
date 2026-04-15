@@ -118,20 +118,20 @@ fn emit_scalar_mul_result<'c, 'a, 'v>(
     point: EmbeddedPointValue<'c, 'v>,
     scalar_bits: &[Value<'c, 'v>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
-    let result_types = [felt_type(context), felt_type(context), felt_type(context)];
+    let felt = felt_type(context);
+    let result_types = [felt, felt, felt];
+    let one = append_felt_constant(block, context, location, &FieldElement::one())?;
     let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(block, context, location)?;
 
     for &bit in scalar_bits.iter().rev() {
         acc = emit_curve_add_result(block, context, location, acc, acc)?;
-        let bit_is_one = append_is_one(block, context, location, bit)?;
-        let current_acc: EmbeddedPointValue<'c, 'a> = acc;
+        let bit_is_one = append_op_with_result(block, dialect::bool::eq(location, bit, one)?)?;
+        let current_acc = acc;
+
         let then_region = Region::new();
         let then_block = Block::new(&[]);
-        let then_point = emit_curve_add_result(&then_block, context, location, current_acc, point)?;
-        then_block.append_operation(scf::r#yield(
-            &[then_point.0, then_point.1, then_point.2],
-            location,
-        ));
+        let added = emit_curve_add_result(&then_block, context, location, current_acc, point)?;
+        then_block.append_operation(scf::r#yield(&[added.0, added.1, added.2], location));
         then_region.append_block(then_block);
 
         let else_region = Region::new();
@@ -157,16 +157,6 @@ fn emit_scalar_mul_result<'c, 'a, 'v>(
     }
 
     Ok(acc)
-}
-
-fn append_is_one<'c, 'a, 'v>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    value: Value<'c, 'v>,
-) -> Result<Value<'c, 'a>, Error> {
-    let one = append_felt_constant(block, context, location, &FieldElement::one())?;
-    append_op_with_result(block, dialect::bool::eq(location, value, one)?)
 }
 
 fn multi_scalar_mul_arity(opcode: &Opcode<FieldElement>) -> Option<usize> {

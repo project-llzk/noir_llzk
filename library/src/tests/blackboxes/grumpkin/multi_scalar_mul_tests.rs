@@ -5,7 +5,7 @@ use acir::{AcirField, FieldElement};
 use llzk::prelude::{LlzkContext, Module, OperationLike, WalkOrder, WalkResult};
 
 use crate::{
-    blackboxes::registry::BlackboxFunction,
+    blackboxes::{grumpkin::multi_scalar_mul::SCALAR_TOTAL_BITS, registry::BlackboxFunction},
     opcodes::{OpcodeEmitter, grumpkin::multi_scalar_mul},
     tests::{
         count_occurrences, make_circuit_with_opcodes, multi_scalar_mul_blackbox,
@@ -90,8 +90,8 @@ fn multi_scalar_mul_uses_nondet_scalar_decomposition() {
 
     assert_eq!(
         count_ops_by_name(&module, "llzk.nondet"),
-        2 * 254,
-        "compute and constrain should each materialize a full 254-bit scalar decomposition"
+        2 * SCALAR_TOTAL_BITS,
+        "compute and constrain should each materialize a full scalar decomposition"
     );
 }
 
@@ -179,23 +179,14 @@ fn multi_scalar_mul_emits_shared_helper_and_calls_it_from_wrappers() {
     );
 }
 
-/// Grumpkin generator point: G = (1, sqrt(-16)).
 fn grumpkin_generator() -> (FieldElement, FieldElement) {
     let x = FieldElement::one();
     let y = FieldElement::from_hex("0x2cf135e7506a45d632d270d45f1181294833fc48d823f272c")
         .expect("valid hex for Grumpkin generator y");
-    // Sanity: y² == x³ + (-17) on Grumpkin
     assert_eq!(y * y, x * x * x + FieldElement::from(-17i128));
     (x, y)
 }
 
-/// Structural test with constant Grumpkin generator inputs: 1 * G.
-///
-/// Uses constant inputs (point = G, scalar lo = 1, hi = 0, predicate = 1)
-/// baked into the IR. This verifies that the lowered IR is well-formed with
-/// real curve coordinates, but does NOT prove constraint satisfiability —
-/// `.verify()` is structural only. For semantic 1*G=G coverage, see the
-/// `noir_multi_scalar_mul` integration test which runs `nargo execute`.
 #[test]
 fn multi_scalar_mul_one_times_generator_equals_generator() {
     let context = LlzkContext::new();
