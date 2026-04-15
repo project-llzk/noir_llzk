@@ -16,7 +16,7 @@ use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
     opcodes::{
-        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, memory_ops,
+        TranslatedOpcode, assert_zero::AssertZero, bitwise, call::Call, grumpkin, memory_ops,
         memory_ops::MemoryInit,
     },
 };
@@ -131,6 +131,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         index: usize,
         opcode: &'p Opcode<FieldElement>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
+        if let Some(curve_add_op) = grumpkin::embedded_curve_add::from_opcode(opcode) {
+            return Ok(Box::new(curve_add_op));
+        }
+
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
         }

@@ -3,10 +3,10 @@ use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use llzk::prelude::{LlzkContext, OperationLike};
 
-use super::super::{
-    make_circuit_with_opcodes, range_blackbox, translate_single_circuit, wrap_struct_in_module,
+use crate::tests::{
+    count_occurrences, make_circuit_with_opcodes, range_blackbox, translate_single_circuit,
+    wrap_struct_in_module,
 };
-use crate::tests::count_occurrences;
 
 /// Witness rangecheck emits one comparison and one assertion.
 #[test]

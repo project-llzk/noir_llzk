@@ -8,13 +8,15 @@ use llzk::prelude::{
     StructDefOpRef, llzk_module,
 };
 
-use crate::circuit::CircuitTranslator;
+use crate::{circuit::CircuitTranslator, program::translate_program};
 
-mod bitwise;
+mod blackboxes;
 mod call_tests;
 mod circuit_tests;
 mod compute_tests;
 mod constrain_tests;
+#[cfg(all(test, feature = "e2e"))]
+mod e2e;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;
@@ -78,6 +80,16 @@ pub(super) fn translate_single_circuit<'c>(
     CircuitTranslator::new(context, &program.functions[0], &program).translate(0)
 }
 
+/// Convenience wrapper used by tests that need the full module translation,
+/// including any top-level helper functions emitted alongside circuits.
+pub(super) fn translate_single_circuit_module<'c>(
+    context: &'c LlzkContext,
+    circuit: Circuit<FieldElement>,
+) -> Result<Module<'c>, crate::Error> {
+    let program = make_program(vec![circuit]);
+    translate_program(context, &program)
+}
+
 /// Wraps a `StructDefOp` in a module, prints the IR, and asserts verification passes.
 fn verify_struct_in_module(context: &LlzkContext, struct_def: StructDefOp, label: &str) {
     let module = wrap_struct_in_module(context, struct_def);
@@ -129,13 +141,26 @@ pub(super) fn range_blackbox(input: u32, num_bits: u32) -> Opcode<FieldElement> 
     })
 }
 
+/// Builds a black-box `EmbeddedCurveAdd` opcode over witnesses.
+pub(super) fn embedded_curve_add_blackbox(
+    input1: [u32; 3],
+    input2: [u32; 3],
+    predicate: u32,
+    outputs: (u32, u32, u32),
+) -> Opcode<FieldElement> {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EmbeddedCurveAdd {
+        input1: Box::new(input1.map(|w| FunctionInput::Witness(Witness(w)))),
+        input2: Box::new(input2.map(|w| FunctionInput::Witness(Witness(w)))),
+        predicate: FunctionInput::Witness(Witness(predicate)),
+        outputs: (Witness(outputs.0), Witness(outputs.1), Witness(outputs.2)),
+    })
+}
+
 /// Returns the first `StructDefOp` in the module body.
 pub(super) fn first_struct_def<'c, 'a>(module: &'a Module<'c>) -> StructDefOpRef<'c, 'a> {
-    let op = module
-        .body()
-        .first_operation()
-        .expect("module should have a first op");
-    StructDefOpRef::try_from(op).expect("first op should be a struct def")
+    iter_block_ops(module.body())
+        .find_map(|op| StructDefOpRef::try_from(op).ok())
+        .expect("module should contain a struct def")
 }
 
 /// Iterates over all operations in a block in order.

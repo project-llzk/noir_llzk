@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
 use llzk::dialect::felt::FeltConstAttribute;
-use llzk::prelude::{LlzkContext, Value};
+use llzk::prelude::{
+    Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
+    melior_dialects::scf,
+};
 use num_bigint::BigUint;
 
 use crate::FIELD_NAME;
@@ -134,6 +137,79 @@ pub(crate) fn emit_gated_eq<'c, 'b>(
     let zero = writer.emit_constant(&FieldElement::zero())?;
     writer.insert_constrain_eq(gated, zero);
     Ok(())
+}
+
+pub(crate) fn build_yielding_region<'c, const N: usize, F>(
+    location: Location<'c>,
+    build: F,
+) -> Result<Region<'c>, Error>
+where
+    F: for<'a> FnOnce(&'a Block<'c>) -> Result<[Value<'c, 'a>; N], Error>,
+{
+    let region = Region::new();
+    let block = Block::new(&[]);
+    let values = build(&block)?;
+    block.append_operation(scf::r#yield(&values, location));
+    region.append_block(block);
+    Ok(region)
+}
+
+pub(crate) fn append_if_with_results<'c, 'a, const N: usize, Then, Else>(
+    block: &'a Block<'c>,
+    location: Location<'c>,
+    condition: Value<'c, 'a>,
+    result_types: &[Type<'c>; N],
+    then_build: Then,
+    else_build: Else,
+) -> Result<[Value<'c, 'a>; N], Error>
+where
+    Then: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+    Else: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+{
+    let then_region = build_yielding_region(location, then_build)?;
+    let else_region = build_yielding_region(location, else_build)?;
+    let result_op = block.append_operation(scf::r#if(
+        condition,
+        result_types,
+        then_region,
+        else_region,
+        location,
+    ));
+    collect_results(result_op)
+}
+
+pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else>(
+    writer: &BlockWriter<'c, 'a>,
+    condition: Value<'c, 'a>,
+    result_types: &[Type<'c>; N],
+    then_build: Then,
+    else_build: Else,
+) -> Result<[Value<'c, 'a>; N], Error>
+where
+    Then: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+    Else: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+{
+    let location = writer.location();
+    let then_region = build_yielding_region(location, then_build)?;
+    let else_region = build_yielding_region(location, else_build)?;
+    let result_op = writer.insert_op(scf::r#if(
+        condition,
+        result_types,
+        then_region,
+        else_region,
+        location,
+    ));
+    collect_results(result_op)
+}
+
+fn collect_results<'c, 'a, const N: usize>(
+    op: OperationRef<'c, 'a>,
+) -> Result<[Value<'c, 'a>; N], Error> {
+    let mut values = Vec::with_capacity(N);
+    for index in 0..N {
+        values.push(op.result(index)?.into());
+    }
+    Ok(values.try_into().unwrap_or_else(|_| unreachable!()))
 }
 
 /// Collects all unique witness indices referenced in an expression.
