@@ -192,6 +192,15 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::sub(self.location, lhs, rhs)?)
     }
 
+    /// Emits `felt.uintdiv lhs, rhs` (unsigned integer division over felt).
+    pub(crate) fn insert_uintdiv(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
+    }
+
     /// Emits `felt.neg value`.
     pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::felt::neg(self.location, value)?)

@@ -75,7 +75,7 @@ pub(crate) fn translate_bytecode<'c, 'b>(
             } => {
                 let lhs_v = regmap.get(*lhs, i)?;
                 let rhs_v = regmap.get(*rhs, i)?;
-                let result = emit_binary_field_op(writer, op, lhs_v, rhs_v, i)?;
+                let result = emit_binary_field_op(writer, op, lhs_v, rhs_v)?;
                 regmap.set(*destination, result);
             }
             BrilligOpcode::BinaryIntOp {
@@ -153,6 +153,35 @@ pub(crate) fn translate_bytecode<'c, 'b>(
                     let idx = writer.insert_integer(dst_base as usize + j)?;
                     writer.insert_ram_store(idx, val);
                 }
+            }
+            BrilligOpcode::Not {
+                destination,
+                source,
+                bit_size,
+            } => {
+                let src = regmap.get(*source, i)?;
+                let num_bits = u32::from(*bit_size);
+                // Bitwise NOT = XOR with all-ones mask of the same width.
+                let mask = if num_bits >= 128 {
+                    u128::MAX
+                } else {
+                    (1u128 << num_bits) - 1
+                };
+                let all_ones = writer.insert_arith_int_constant(num_bits, mask)?;
+                let result = writer.insert_arith_xori(src, all_ones)?;
+                regmap.set(*destination, result);
+            }
+            BrilligOpcode::IndirectConst {
+                destination_pointer,
+                bit_size,
+                value,
+            } => {
+                // Read the pointer register to get the target address,
+                // emit the constant, and store it into RAM.
+                let ptr = regmap.get(*destination_pointer, i)?;
+                let ptr_idx = cast_to_index(writer, ptr)?;
+                let ssa = emit_const(writer, bit_size, value)?;
+                writer.insert_ram_store(ptr_idx, ssa);
             }
             BrilligOpcode::ConditionalMov { .. } => {
                 return Err(Error::UnsupportedBrillig {
@@ -302,7 +331,6 @@ fn emit_binary_field_op<'c, 'b>(
     op: &BinaryFieldOp,
     lhs: Value<'c, 'b>,
     rhs: Value<'c, 'b>,
-    opcode_index: usize,
 ) -> Result<Value<'c, 'b>, Error> {
     match op {
         BinaryFieldOp::Add => writer.insert_add(lhs, rhs),
@@ -312,13 +340,7 @@ fn emit_binary_field_op<'c, 'b>(
         BinaryFieldOp::Equals => writer.insert_bool_eq(lhs, rhs),
         BinaryFieldOp::LessThan => writer.insert_bool_lt(lhs, rhs),
         BinaryFieldOp::LessThanEquals => writer.insert_bool_le(lhs, rhs),
-        BinaryFieldOp::IntegerDiv => Err(Error::UnsupportedBrillig {
-            reason: format!(
-                "BinaryFieldOp::IntegerDiv at bytecode index {opcode_index} is not \
-                 yet supported — field floor-division requires a range-checked \
-                 hint-style witness solve"
-            ),
-        }),
+        BinaryFieldOp::IntegerDiv => writer.insert_uintdiv(lhs, rhs),
     }
 }
 

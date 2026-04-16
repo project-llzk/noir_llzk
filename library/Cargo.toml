@@ -8,8 +8,8 @@ acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", feat
 num-bigint = "0.4"
 
 # LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
-llzk = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", features = ["bigint"], branch="add-ram"}
-llzk-sys = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", branch="add-ram" }
+llzk = { git = "ssh://git@github.com/reilabs/llzk-rs.git", features = ["bigint"]}
+llzk-sys = { git = "ssh://git@github.com/reilabs/llzk-rs.git"}
 base64 = "0.22"
 serde_json = "1"
 

@@ -50,13 +50,11 @@ fn brillig_binary_field_op_emits_expected_op() {
     }
 }
 
-/// `BinaryFieldOp::IntegerDiv` is rejected with a clear error; field
-/// floor-division requires a hint-style witness solve that lands in a
-/// later issue.
+/// `BinaryFieldOp::IntegerDiv` emits `felt.uintdiv`.
 #[test]
-fn brillig_binary_field_integer_div_is_rejected() {
+fn brillig_binary_field_integer_div_emits_uintdiv() {
     let context = LlzkContext::new();
-    let err = translate_body(
+    let module = translate_body(
         &context,
         vec![
             const_field(0, 10),
@@ -65,16 +63,12 @@ fn brillig_binary_field_integer_div_is_rejected() {
             brillig_stop(),
         ],
     )
-    .expect_err("IntegerDiv should not be supported");
-    let msg = format!("{err}");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
-    );
-    assert!(
-        msg.contains("IntegerDiv"),
-        "error should name IntegerDiv, got {msg:?}"
-    );
+    .expect("IntegerDiv should translate successfully");
+    let count = count_brillig_body_ops(&module, 0, |op| {
+        op.name().as_string_ref().as_str() == Ok("felt.uintdiv")
+    });
+    assert_eq!(count, 1, "expected one felt.uintdiv op");
+    print_and_verify_module(&module, "brillig_binary_field_integer_div_emits_uintdiv");
 }
 
 /// Each `BinaryIntOp` arithmetic/bitwise variant emits its `arith.*` op for
