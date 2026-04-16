@@ -250,13 +250,19 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                         input_types.push(felt_ty);
                     }
                 }
-                BrilligInputs::MemoryArray(_) => {
-                    return Err(Error::UnsupportedBrillig {
-                        reason: format!(
-                            "brillig input #{i}: MemoryArray marshalling \
-                             not yet supported",
-                        ),
-                    });
+                BrilligInputs::MemoryArray(block_id) => {
+                    let len = self.memory_block_len(block_id.0).ok_or_else(|| {
+                        Error::UnsupportedBrillig {
+                            reason: format!(
+                                "brillig input #{i}: MemoryArray references block {} \
+                                 which has no MemoryInit in this circuit",
+                                block_id.0
+                            ),
+                        }
+                    })?;
+                    for _ in 0..len {
+                        input_types.push(felt_ty);
+                    }
                 }
             }
         }
@@ -276,6 +282,19 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         brillig_registry.register(id, input_types, output_types, bytecode)?;
 
         Ok(Box::new(BrilligCall::new(id, inputs, outputs, predicate)))
+    }
+
+    /// Returns the length of the `MemoryInit` for `block_id`, or `None` if
+    /// no matching `MemoryInit` exists in the circuit's opcode list.
+    fn memory_block_len(&self, block_id: u32) -> Option<usize> {
+        self.circuit.opcodes.iter().find_map(|op| match op {
+            Opcode::MemoryInit {
+                block_id: bid,
+                init,
+                ..
+            } if bid.0 == block_id => Some(init.len()),
+            _ => None,
+        })
     }
 
     /// Returns input witness indices sorted by witness index.

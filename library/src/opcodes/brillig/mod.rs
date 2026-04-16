@@ -21,7 +21,7 @@ use acir::{
     circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
     native_types::Expression,
 };
-use llzk::prelude::{Type, Value};
+use llzk::prelude::{Type, Value, ValueLike};
 
 use crate::{
     block_writer::BlockWriter,
@@ -115,8 +115,38 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
                         input_args.push(emit_expression(writer, expr)?);
                     }
                 }
-                BrilligInputs::MemoryArray(_) => {
-                    unreachable!("MemoryArray brillig input survived validation");
+                BrilligInputs::MemoryArray(block_id) => {
+                    let arr = writer.get_memory(block_id.0).ok_or_else(|| {
+                        Error::UnsupportedBrillig {
+                            reason: format!(
+                                "MemoryArray input references block {} which has \
+                                 not been initialised by a prior MemoryInit",
+                                block_id.0
+                            ),
+                        }
+                    })?;
+                    let arr_ty =
+                        llzk::dialect::array::ArrayType::try_from(arr.r#type()).map_err(
+                            |_| Error::UnsupportedBrillig {
+                                reason: format!(
+                                    "MemoryArray block {} has non-array type",
+                                    block_id.0
+                                ),
+                            },
+                        )?;
+                    let len = llzk::prelude::IntegerAttribute::try_from(arr_ty.dim(0))
+                        .map_err(|_| Error::UnsupportedBrillig {
+                            reason: format!(
+                                "MemoryArray block {} has non-integer dimension",
+                                block_id.0
+                            ),
+                        })?
+                        .value() as usize;
+                    for i in 0..len {
+                        let idx = writer.insert_integer(i)?;
+                        let elem = writer.insert_array_read(arr, idx)?;
+                        input_args.push(elem);
+                    }
                 }
             }
         }
