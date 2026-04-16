@@ -124,3 +124,13 @@ fn noir_memory_ops() {
 fn noir_poseidon2() {
     run_noir_test("poseidon2");
 }
+
+#[test]
+fn noir_blake2s() {
+    run_noir_test("blake2s");
+}
+
+#[test]
+fn noir_blake3() {
+    run_noir_test("blake3");
+}

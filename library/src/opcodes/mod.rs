@@ -1,5 +1,7 @@
 pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
+pub(crate) mod blake2s;
+pub(crate) mod blake3;
 pub(crate) mod call;
 pub(crate) mod grumpkin;
 pub(crate) mod memory_ops;
@@ -7,8 +9,8 @@ pub(crate) mod poseidon2;
 
 use std::collections::BTreeSet;
 
-use acir::{FieldElement, circuit::opcodes::FunctionInput};
-use llzk::prelude::{LlzkContext, StructDefOp, Value};
+use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput, native_types::Witness};
+use llzk::prelude::{LlzkContext, OperationRef, StructDefOp, Value};
 
 use crate::{block_writer::BlockWriter, error::Error};
 
@@ -68,6 +70,16 @@ pub(crate) fn emit_blackbox_input<'c, 'b>(
     }
 }
 
+pub(crate) fn validate_byte_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
+    match input {
+        FunctionInput::Constant(value) if value.num_bits() > 8 => Err(Error::ConstantOutOfRange {
+            value: *value,
+            num_bits: 8,
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// Collects witness indices from an ACIR [`FunctionInput`].
 pub(crate) fn collect_input_witness(
     witnesses: &mut BTreeSet<u32>,
@@ -76,4 +88,58 @@ pub(crate) fn collect_input_witness(
     if let FunctionInput::Witness(w) = input {
         witnesses.insert(w.0);
     }
+}
+
+pub(crate) fn collect_io_witnesses(
+    inputs: &[FunctionInput<FieldElement>],
+    outputs: &[Witness],
+) -> BTreeSet<u32> {
+    let mut witnesses = BTreeSet::new();
+    for output in outputs {
+        witnesses.insert(output.0);
+    }
+    for input in inputs {
+        collect_input_witness(&mut witnesses, input);
+    }
+    witnesses
+}
+
+pub(crate) fn write_digest_outputs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    outputs: &[Witness],
+    result: OperationRef<'c, 'b>,
+) -> Result<(), Error> {
+    for (index, output) in outputs.iter().enumerate() {
+        let value = result.result(index)?.into();
+        writer.write_member(&format!("w{}", output.0), value)?;
+        writer.mark_known(output.0, value);
+    }
+    Ok(())
+}
+
+pub(crate) fn constrain_digest_outputs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    outputs: &[Witness],
+    result: OperationRef<'c, 'b>,
+) -> Result<(), Error> {
+    for (index, output) in outputs.iter().enumerate() {
+        let expected = result.result(index)?.into();
+        let actual = writer.read_witness(output.0)?;
+        writer.insert_constrain_eq(actual, expected);
+    }
+    Ok(())
+}
+
+pub(crate) fn emit_padded_byte_inputs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    inputs: &[FunctionInput<FieldElement>],
+    capacity: usize,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    let mut values = inputs
+        .iter()
+        .map(|input| emit_blackbox_input(writer, input))
+        .collect::<Result<Vec<_>, _>>()?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    values.resize(capacity, zero);
+    Ok(values)
 }
