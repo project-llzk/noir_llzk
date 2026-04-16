@@ -9,7 +9,7 @@ use acir::{AcirField, FieldElement};
 use llzk::prelude::melior_dialects::arith::CmpiPredicate;
 use llzk::prelude::{Type, Value, ValueLike};
 
-use crate::block_writer::BlockWriter;
+use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::regmap::RegMap;
@@ -24,7 +24,7 @@ use super::regmap::RegMap;
 /// the flattened `BrilligInputs`. `CalldataCopy` opcodes in the bytecode read
 /// from this slice to seed the register map.
 pub(crate) fn translate_bytecode<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
+    writer: &mut BrilligWriter<'c, 'b>,
     bytecode: &BrilligBytecode<FieldElement>,
     calldata: &[Value<'c, 'b>],
     expected_output_count: usize,
@@ -227,7 +227,7 @@ pub(crate) fn translate_bytecode<'c, 'b>(
 /// address. Already-`index` values pass through; felt values go through
 /// `cast.toindex`; integer-typed values go through `arith.index_cast`.
 fn cast_to_index<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
+    writer: &mut BrilligWriter<'c, 'b>,
     val: Value<'c, 'b>,
 ) -> Result<Value<'c, 'b>, Error> {
     let ty = val.r#type();
@@ -245,7 +245,7 @@ fn cast_to_index<'c, 'b>(
 /// register map. Field constants become `felt.const`; integer constants become
 /// `arith.constant` with an `iN` integer type matching the declared bit size.
 fn emit_const<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
+    writer: &mut BrilligWriter<'c, 'b>,
     bit_size: &BitSize,
     value: &FieldElement,
 ) -> Result<Value<'c, 'b>, Error> {
@@ -280,7 +280,7 @@ fn emit_const<'c, 'b>(
 /// integer width changes use `arith.trunci` / `arith.extui` (Brillig integers
 /// are unsigned, so zero-extension is always correct).
 fn emit_cast<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
+    writer: &mut BrilligWriter<'c, 'b>,
     src: Value<'c, 'b>,
     target_bit_size: &BitSize,
 ) -> Result<Value<'c, 'b>, Error> {
@@ -327,7 +327,7 @@ fn emit_cast<'c, 'b>(
 /// Emits the LLZK op sequence for a Brillig `BinaryFieldOp`, returning the SSA
 /// value bound to the destination register.
 fn emit_binary_field_op<'c, 'b>(
-    writer: &BlockWriter<'c, 'b>,
+    writer: &BrilligWriter<'c, 'b>,
     op: &BinaryFieldOp,
     lhs: Value<'c, 'b>,
     rhs: Value<'c, 'b>,
@@ -351,7 +351,7 @@ fn emit_binary_field_op<'c, 'b>(
 /// already carry the width (as `iN`) and the result type is inferred from
 /// those operands. `arith.cmpi` always returns `i1` regardless.
 fn emit_binary_int_op<'c, 'b>(
-    writer: &BlockWriter<'c, 'b>,
+    writer: &BrilligWriter<'c, 'b>,
     op: &BinaryIntOp,
     lhs: Value<'c, 'b>,
     rhs: Value<'c, 'b>,
@@ -379,7 +379,7 @@ fn emit_binary_int_op<'c, 'b>(
 /// The HeapVector's `pointer` and `size` registers must have been set by
 /// prior `Const` opcodes so their values are available in `known_constants`.
 fn emit_return_data<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
+    writer: &mut BrilligWriter<'c, 'b>,
     known_constants: &HashMap<MemoryAddress, usize>,
     return_data: &acir::brillig::HeapVector,
     expected_output_count: usize,

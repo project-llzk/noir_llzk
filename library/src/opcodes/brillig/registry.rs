@@ -22,7 +22,7 @@ use llzk::prelude::{
     RegionLike, Type, Value, dialect,
 };
 
-use crate::block_writer::BlockWriter;
+use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::translator::translate_bytecode;
@@ -119,7 +119,7 @@ pub(crate) fn emit_brillig_functions<'c>(
         let calldata: Vec<Value<'c, '_>> = (0..entry.input_types.len())
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
-        let mut writer = BlockWriter::for_function_body(context, &body_block);
+        let mut writer = BrilligWriter::new(context, &body_block);
         let returns = translate_bytecode(
             &mut writer,
             entry.bytecode,

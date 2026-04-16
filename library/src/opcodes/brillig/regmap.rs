@@ -1,9 +1,4 @@
 //! Brillig register file.
-//!
-//! Brillig is a register machine, but with no control flow
-//! the register file collapses to a flat `MemoryAddress → Value`
-//! map — each write just replaces the current SSA value for that register.
-//! No phi-nodes, no spilling, no aliasing beyond what `Mov` produces.
 
 use std::collections::HashMap;
 
