@@ -10,8 +10,8 @@
 //! happens at handler construction in [`crate::circuit::CircuitTranslator`]
 //! so that the registry only ever sees well-formed entries.
 
-pub(crate) mod regmap;
 pub(crate) mod registry;
+pub(crate) mod regmap;
 pub(crate) mod translator;
 
 use std::collections::BTreeSet;

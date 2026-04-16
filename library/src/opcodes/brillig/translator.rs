@@ -77,6 +77,25 @@ pub(crate) fn translate_bytecode<'c, 'b>(
                 let result = emit_binary_int_op(writer, op, lhs_v, rhs_v)?;
                 regmap.set(*destination, result);
             }
+            BrilligOpcode::Load {
+                destination,
+                source_pointer,
+            } => {
+                let ptr = regmap.get(*source_pointer, i)?;
+                let ptr_idx = cast_to_index(writer, ptr)?;
+                let felt_ty = writer.felt_type();
+                let val = writer.insert_ram_load(ptr_idx, felt_ty)?;
+                regmap.set(*destination, val);
+            }
+            BrilligOpcode::Store {
+                destination_pointer,
+                source,
+            } => {
+                let ptr = regmap.get(*destination_pointer, i)?;
+                let ptr_idx = cast_to_index(writer, ptr)?;
+                let val = regmap.get(*source, i)?;
+                writer.insert_ram_store(ptr_idx, val);
+            }
             BrilligOpcode::ConditionalMov { .. } => {
                 return Err(Error::UnsupportedBrillig {
                     reason: format!(
@@ -101,6 +120,24 @@ pub(crate) fn translate_bytecode<'c, 'b>(
 
     // End-of-bytecode without an explicit `Stop` is treated the same way.
     finish(expected_output_count)
+}
+
+/// Converts `val` to an `index`-typed value suitable as a `ram.load`/`ram.store`
+/// address. Already-`index` values pass through; felt values go through
+/// `cast.toindex`; integer-typed values go through `arith.index_cast`.
+fn cast_to_index<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    val: Value<'c, 'b>,
+) -> Result<Value<'c, 'b>, Error> {
+    let ty = val.r#type();
+    if ty == writer.index_type() {
+        return Ok(val);
+    }
+    if is_felt_type(ty) {
+        return writer.insert_cast_to_index(val);
+    }
+    let index_ty = writer.index_type();
+    writer.insert_arith_index_cast(val, index_ty)
 }
 
 /// Emits the constant op for `Const`, returning the SSA value to bind in the

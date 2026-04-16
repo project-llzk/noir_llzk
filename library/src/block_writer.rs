@@ -72,14 +72,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// appended to the block; there is no `%self` and no witness cache.
     pub(crate) fn for_function_body(context: &'c LlzkContext, block: &'a Block<'c>) -> Self {
         let block_ref = unsafe { BlockRef::from_raw(block.to_raw()) };
-        Self::new(
-            context,
-            block_ref,
-            None,
-            None,
-            HashMap::new(),
-            None,
-        )
+        Self::new(context, block_ref, None, None, HashMap::new(), None)
     }
 
     /// Builds a `BlockWriter` from an already-resolved `block` and `self_value`.
@@ -388,38 +381,28 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     }
 
     // ── RAM operations ─────────────────────────────────────────────────
+    //
+    // The `ram` dialect models a single flat, anonymous memory region —
+    // there is no `alloc` op and no memory-handle operand. Loads and stores
+    // index that region directly. Both ops are `WitnessGen` and are only
+    // valid inside a function marked `allow_witness = true`.
 
-    /// Emits `ram.alloc size`, returning the index-typed memory handle.
+    /// Emits `ram.load %addr : result_ty`, returning the loaded value.
     ///
-    /// Only valid inside a function marked `allow_witness = true`.
-    pub(crate) fn insert_ram_alloc(&self, size: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::ram::alloc(self.location, size))
-    }
-
-    /// Emits `ram.load mem[addr] : result_ty`, returning the loaded value.
-    ///
-    /// `addr` must be index-typed. Only valid inside a function marked
-    /// `allow_witness = true`.
+    /// `addr` must be index-typed.
     pub(crate) fn insert_ram_load(
         &self,
-        mem: Value<'c, 'a>,
         addr: Value<'c, 'a>,
         result_ty: Type<'c>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::ram::load(self.location, result_ty, mem, addr))
+        self.insert_op_with_result(dialect::ram::load(self.location, result_ty, addr))
     }
 
-    /// Emits `ram.store mem[addr], val`.
+    /// Emits `ram.store %addr, %val : type(val)`.
     ///
-    /// `addr` must be index-typed. Only valid inside a function marked
-    /// `allow_witness = true`.
-    pub(crate) fn insert_ram_store(
-        &self,
-        mem: Value<'c, 'a>,
-        addr: Value<'c, 'a>,
-        val: Value<'c, 'a>,
-    ) {
-        self.insert_op(dialect::ram::store(self.location, mem, addr, val));
+    /// `addr` must be index-typed.
+    pub(crate) fn insert_ram_store(&self, addr: Value<'c, 'a>, val: Value<'c, 'a>) {
+        self.insert_op(dialect::ram::store(self.location, addr, val));
     }
 
     // ── Integer arithmetic (arith dialect) ─────────────────────────────

@@ -26,6 +26,7 @@ use crate::program::translate_program;
 
 mod binary_op_tests;
 mod dispatch_tests;
+mod heap_tests;
 mod register_tests;
 
 // ── Bytecode / opcode constructors ─────────────────────────────────────
@@ -131,6 +132,20 @@ pub(super) fn binary_int_op(
         bit_size,
         lhs: addr(lhs),
         rhs: addr(rhs),
+    }
+}
+
+pub(super) fn load(dst: u32, ptr: u32) -> BrilligOpcode<FieldElement> {
+    BrilligOpcode::Load {
+        destination: addr(dst),
+        source_pointer: addr(ptr),
+    }
+}
+
+pub(super) fn store(ptr: u32, src: u32) -> BrilligOpcode<FieldElement> {
+    BrilligOpcode::Store {
+        destination_pointer: addr(ptr),
+        source: addr(src),
     }
 }
 

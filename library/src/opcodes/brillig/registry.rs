@@ -117,15 +117,11 @@ pub(crate) fn emit_brillig_functions<'c>(
         func.set_allow_witness_attr(true);
         func.set_allow_non_native_field_ops_attr(true);
 
-        let arg_sig: Vec<(Type<'c>, Location<'c>)> = entry
-            .input_types
-            .iter()
-            .map(|ty| (*ty, location))
-            .collect();
+        let arg_sig: Vec<(Type<'c>, Location<'c>)> =
+            entry.input_types.iter().map(|ty| (*ty, location)).collect();
         let body_block = Block::new(&arg_sig);
         let mut writer = BlockWriter::for_function_body(context, &body_block);
-        let returns =
-            translate_bytecode(&mut writer, entry.bytecode, entry.output_types.len())?;
+        let returns = translate_bytecode(&mut writer, entry.bytecode, entry.output_types.len())?;
         if returns.len() != entry.output_types.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(

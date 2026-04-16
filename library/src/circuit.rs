@@ -4,9 +4,10 @@ use acir::{
     FieldElement,
     circuit::{
         Circuit, Opcode, Program,
-        brillig::{BrilligInputs, BrilligOutputs},
+        brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
         opcodes::BlockType,
     },
+    native_types::Expression,
 };
 use llzk::{
     attributes::NamedAttribute,
@@ -211,22 +212,24 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// that will emit the `function.call @brillig_{id}` in `@compute`.
     fn build_brillig_handler(
         &self,
-        id: acir::circuit::brillig::BrilligFunctionId,
+        id: BrilligFunctionId,
         inputs: &'p [BrilligInputs<FieldElement>],
         outputs: &'p [BrilligOutputs],
-        predicate: &'p acir::native_types::Expression<FieldElement>,
+        predicate: &'p Expression<FieldElement>,
         brillig_registry: &mut BrilligRegistry<'c, 'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
-        let bytecode = self.program.unconstrained_functions.get(id.as_usize()).ok_or(
-            Error::UnsupportedBrillig {
+        let bytecode = self
+            .program
+            .unconstrained_functions
+            .get(id.as_usize())
+            .ok_or(Error::UnsupportedBrillig {
                 reason: format!(
                     "brillig function id {} out of range (program has {} \
                      unconstrained functions)",
                     id.0,
                     self.program.unconstrained_functions.len(),
                 ),
-            },
-        )?;
+            })?;
 
         if !is_trivial_predicate(predicate) {
             return Err(Error::UnsupportedBrillig {
@@ -244,7 +247,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     return Err(Error::UnsupportedBrillig {
                         reason: format!(
                             "brillig input #{i}: Array / MemoryArray marshalling \
-                             is implemented in a later milestone-3 issue",
+                             not yet supported",
                         ),
                     });
                 }
@@ -259,7 +262,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     return Err(Error::UnsupportedBrillig {
                         reason: format!(
                             "brillig output #{i}: Array marshalling \
-                             is implemented in a later milestone-3 issue",
+                             not yet supported",
                         ),
                     });
                 }
