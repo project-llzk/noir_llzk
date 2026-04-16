@@ -389,24 +389,26 @@ fn emit_return_data<'c, 'b>(
         return Ok(Vec::new());
     }
 
-    let size = *known_constants
-        .get(&return_data.size)
-        .ok_or_else(|| Error::UnsupportedBrillig {
-            reason: format!(
-                "Stop at bytecode index {opcode_index}: return_data size register {} \
+    let size =
+        *known_constants
+            .get(&return_data.size)
+            .ok_or_else(|| Error::UnsupportedBrillig {
+                reason: format!(
+                    "Stop at bytecode index {opcode_index}: return_data size register {} \
                  is not a known integer constant",
-                return_data.size.to_u32()
-            ),
-        })?;
-    let pointer = *known_constants
-        .get(&return_data.pointer)
-        .ok_or_else(|| Error::UnsupportedBrillig {
-            reason: format!(
-                "Stop at bytecode index {opcode_index}: return_data pointer register {} \
+                    return_data.size.to_u32()
+                ),
+            })?;
+    let pointer =
+        *known_constants
+            .get(&return_data.pointer)
+            .ok_or_else(|| Error::UnsupportedBrillig {
+                reason: format!(
+                    "Stop at bytecode index {opcode_index}: return_data pointer register {} \
                  is not a known integer constant",
-                return_data.pointer.to_u32()
-            ),
-        })?;
+                    return_data.pointer.to_u32()
+                ),
+            })?;
 
     if size != expected_output_count {
         return Err(Error::UnsupportedBrillig {

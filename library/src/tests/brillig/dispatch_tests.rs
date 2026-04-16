@@ -256,8 +256,7 @@ fn brillig_array_input_is_accepted() {
     );
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
-    let module = translate_program(&context, &program)
-        .expect("array inputs should be accepted");
+    let module = translate_program(&context, &program).expect("array inputs should be accepted");
     print_and_verify_module(&module, "brillig_array_input_is_accepted");
 }
 

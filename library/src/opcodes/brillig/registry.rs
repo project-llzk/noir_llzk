@@ -1,9 +1,5 @@
 //! Program-level collector for `BrilligCall` sites.
 //!
-//! Brillig function bodies live at module scope (LLZK's `struct.def` only
-//! permits `@compute` / `@constrain` inside it), so the registry decouples
-//! construction from emission:
-//!
 //! 1. While translating circuits, each `BrilligCall::emit_compute` emits a
 //!    call site against `@brillig_{id}` and registers the shape + bytecode
 //!    here.
@@ -124,8 +120,12 @@ pub(crate) fn emit_brillig_functions<'c>(
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
         let mut writer = BlockWriter::for_function_body(context, &body_block);
-        let returns =
-            translate_bytecode(&mut writer, entry.bytecode, &calldata, entry.output_types.len())?;
+        let returns = translate_bytecode(
+            &mut writer,
+            entry.bytecode,
+            &calldata,
+            entry.output_types.len(),
+        )?;
         if returns.len() != entry.output_types.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(

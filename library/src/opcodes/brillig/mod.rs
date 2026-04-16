@@ -116,24 +116,25 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
                     }
                 }
                 BrilligInputs::MemoryArray(block_id) => {
-                    let arr = writer.get_memory(block_id.0).ok_or_else(|| {
-                        Error::UnsupportedBrillig {
-                            reason: format!(
-                                "MemoryArray input references block {} which has \
+                    let arr =
+                        writer
+                            .get_memory(block_id.0)
+                            .ok_or_else(|| Error::UnsupportedBrillig {
+                                reason: format!(
+                                    "MemoryArray input references block {} which has \
                                  not been initialised by a prior MemoryInit",
-                                block_id.0
-                            ),
-                        }
-                    })?;
+                                    block_id.0
+                                ),
+                            })?;
                     let arr_ty =
-                        llzk::dialect::array::ArrayType::try_from(arr.r#type()).map_err(
-                            |_| Error::UnsupportedBrillig {
+                        llzk::dialect::array::ArrayType::try_from(arr.r#type()).map_err(|_| {
+                            Error::UnsupportedBrillig {
                                 reason: format!(
                                     "MemoryArray block {} has non-array type",
                                     block_id.0
                                 ),
-                            },
-                        )?;
+                            }
+                        })?;
                     let len = llzk::prelude::IntegerAttribute::try_from(arr_ty.dim(0))
                         .map_err(|_| Error::UnsupportedBrillig {
                             reason: format!(
