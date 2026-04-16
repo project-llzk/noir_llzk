@@ -129,3 +129,17 @@ pub(crate) fn constrain_digest_outputs<'c, 'b>(
     }
     Ok(())
 }
+
+pub(crate) fn emit_padded_byte_inputs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    inputs: &[FunctionInput<FieldElement>],
+    capacity: usize,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    let mut values = inputs
+        .iter()
+        .map(|input| emit_blackbox_input(writer, input))
+        .collect::<Result<Vec<_>, _>>()?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    values.resize(capacity, zero);
+    Ok(values)
+}

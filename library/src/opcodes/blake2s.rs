@@ -8,11 +8,14 @@ use acir::{
 };
 
 use crate::{
-    blackboxes::{hash::blake2s::BLAKE2S_DIGEST_BYTES, registry::BlackboxFunction},
+    blackboxes::{
+        hash::blake2s::{BLAKE2S_DIGEST_BYTES, blake2s_num_blocks_for_len},
+        registry::BlackboxFunction,
+    },
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_blackbox_input,
+        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_padded_byte_inputs,
         validate_byte_input, write_digest_outputs,
     },
 };
@@ -43,17 +46,15 @@ impl Blake2s<'_> {
         &self,
         writer: &mut BlockWriter<'c, 'b>,
     ) -> Result<llzk::prelude::OperationRef<'c, 'b>, Error> {
-        let inputs = self
-            .inputs
-            .iter()
-            .map(|input| emit_blackbox_input(writer, input))
-            .collect::<Result<Vec<_>, _>>()?;
-        writer.call_blackbox_function(
-            BlackboxFunction::Blake2s {
-                num_inputs: self.inputs.len(),
-            },
-            &inputs,
-        )
+        let num_blocks = blake2s_num_blocks_for_len(self.inputs.len());
+        let mut inputs = emit_padded_byte_inputs(writer, self.inputs, num_blocks * 64)?;
+        let len = self.inputs.len() as u64;
+        let real_length_lo =
+            writer.emit_constant(&FieldElement::from((len & 0xFFFF_FFFF) as u128))?;
+        let real_length_hi = writer.emit_constant(&FieldElement::from((len >> 32) as u128))?;
+        inputs.push(real_length_lo);
+        inputs.push(real_length_hi);
+        writer.call_blackbox_function(BlackboxFunction::Blake2s { num_blocks }, &inputs)
     }
 }
 

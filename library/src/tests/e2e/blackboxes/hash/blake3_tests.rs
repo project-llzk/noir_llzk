@@ -20,6 +20,12 @@ const BLAKE3_EMPTY: [u64; 32] = [
     0x9b, 0xcb, 0x25, 0xc9, 0xad, 0xc1, 0x12, 0xb7, 0xcc, 0x9a, 0x93, 0xca, 0xe4, 0x1f, 0x32, 0x62,
 ];
 
+// Blake3(bytes(range(80))) — verified with a standalone reference implementation.
+const BLAKE3_0_TO_79: [u64; 32] = [
+    0x4a, 0x68, 0x47, 0xef, 0x66, 0xbc, 0xe6, 0xc1, 0x4c, 0xa0, 0x5e, 0xc8, 0xf8, 0xad, 0x73, 0x83,
+    0xbf, 0x29, 0x31, 0xf4, 0xbc, 0xfd, 0x03, 0x73, 0xc1, 0x8e, 0x05, 0x9e, 0x93, 0xf9, 0xde, 0xf6,
+];
+
 fn blake3_blackbox(inputs: &[u32], outputs: [u32; 32]) -> Opcode<FieldElement> {
     Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake3 {
         inputs: inputs
@@ -71,6 +77,30 @@ fn empty_input_matches_known_vector() {
 
     for (i, &expected) in BLAKE3_EMPTY.iter().enumerate() {
         assert_witness_eq(&computed.members, &format!("w{i}"), &expected.to_string());
+    }
+}
+
+#[test]
+fn long_input_matches_known_vector() {
+    let inputs: Vec<u32> = (0..80).collect();
+    let outputs: [u32; 32] = std::array::from_fn(|i| 80 + i as u32);
+    let circuit = make_circuit_with_opcodes(
+        111,
+        &inputs,
+        &[],
+        &outputs,
+        vec![blake3_blackbox(&inputs, outputs)],
+    );
+    let witness_values: Vec<_> = (0..80).map(felt_u64).collect();
+
+    let computed = run_e2e(circuit, &witness_values);
+
+    for (i, &expected) in BLAKE3_0_TO_79.iter().enumerate() {
+        assert_witness_eq(
+            &computed.members,
+            &format!("w{}", 80 + i),
+            &expected.to_string(),
+        );
     }
 }
 

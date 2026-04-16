@@ -16,8 +16,12 @@ use super::grumpkin::multi_scalar_mul::{
     emit_multi_scalar_mul_helper, multi_scalar_mul_helper_name, used_arities,
 };
 use super::hash::{
-    blake2s::{BLAKE2S_DIGEST_BYTES, blake2s_helper_name, emit_blake2s_helper},
-    blake3::{BLAKE3_DIGEST_BYTES, blake3_helper_name, emit_blake3_helper},
+    blake2s::{
+        BLAKE2S_DIGEST_BYTES, blake2s_helper_name, blake2s_num_blocks_for_len, emit_blake2s_helper,
+    },
+    blake3::{
+        BLAKE3_DIGEST_BYTES, blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper,
+    },
     poseidon2::{POSEIDON2_HELPER_NAME, emit_poseidon2_helper},
 };
 
@@ -26,8 +30,8 @@ pub(crate) enum BlackboxFunction {
     EmbeddedCurveAdd,
     MultiScalarMul { num_points: usize },
     Poseidon2Permutation,
-    Blake2s { num_inputs: usize },
-    Blake3 { num_inputs: usize },
+    Blake2s { num_blocks: usize },
+    Blake3 { num_blocks: usize },
 }
 
 impl BlackboxFunction {
@@ -42,8 +46,8 @@ impl BlackboxFunction {
             Self::EmbeddedCurveAdd => EMBEDDED_CURVE_ADD_HELPER_NAME.to_string(),
             Self::MultiScalarMul { num_points } => multi_scalar_mul_helper_name(num_points),
             Self::Poseidon2Permutation => POSEIDON2_HELPER_NAME.to_string(),
-            Self::Blake2s { num_inputs } => blake2s_helper_name(num_inputs),
-            Self::Blake3 { num_inputs } => blake3_helper_name(num_inputs),
+            Self::Blake2s { num_blocks } => blake2s_helper_name(num_blocks),
+            Self::Blake3 { num_blocks } => blake3_helper_name(num_blocks),
         }
     }
 
@@ -54,8 +58,8 @@ impl BlackboxFunction {
                 emit_multi_scalar_mul_helper(context, num_points)
             }
             Self::Poseidon2Permutation => emit_poseidon2_helper(context),
-            Self::Blake2s { num_inputs } => emit_blake2s_helper(context, num_inputs),
-            Self::Blake3 { num_inputs } => emit_blake3_helper(context, num_inputs),
+            Self::Blake2s { num_blocks } => emit_blake2s_helper(context, num_blocks),
+            Self::Blake3 { num_blocks } => emit_blake3_helper(context, num_blocks),
         }
     }
 
@@ -103,10 +107,10 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
         for opcode in &circuit.opcodes {
             match opcode {
                 Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake2s { inputs, .. }) => {
-                    blake2s_input_lengths.insert(inputs.len());
+                    blake2s_input_lengths.insert(blake2s_num_blocks_for_len(inputs.len()));
                 }
                 Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake3 { inputs, .. }) => {
-                    blake3_input_lengths.insert(inputs.len());
+                    blake3_input_lengths.insert(blake3_num_blocks_for_len(inputs.len()));
                 }
                 _ => {}
             }
@@ -115,12 +119,12 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
     helpers.extend(
         blake2s_input_lengths
             .into_iter()
-            .map(|num_inputs| BlackboxFunction::Blake2s { num_inputs }),
+            .map(|num_blocks| BlackboxFunction::Blake2s { num_blocks }),
     );
     helpers.extend(
         blake3_input_lengths
             .into_iter()
-            .map(|num_inputs| BlackboxFunction::Blake3 { num_inputs }),
+            .map(|num_blocks| BlackboxFunction::Blake3 { num_blocks }),
     );
 
     helpers

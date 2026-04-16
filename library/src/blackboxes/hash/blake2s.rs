@@ -27,23 +27,32 @@ const SIGMA: [[usize; 16]; BLAKE2S_ROUNDS] = [
     [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
 ];
 
-pub(in crate::blackboxes) fn blake2s_helper_name(num_inputs: usize) -> String {
-    format!("blake2s_{num_inputs}")
+pub(crate) fn blake2s_num_blocks_for_len(num_inputs: usize) -> usize {
+    num_inputs.max(1).div_ceil(BLAKE2S_BLOCK_BYTES)
+}
+
+fn blake2s_capacity_bytes(num_blocks: usize) -> usize {
+    num_blocks * BLAKE2S_BLOCK_BYTES
+}
+
+pub(in crate::blackboxes) fn blake2s_helper_name(num_blocks: usize) -> String {
+    format!("blake2s_blocks_{num_blocks}")
 }
 
 pub(in crate::blackboxes) fn emit_blake2s_helper<'c>(
     context: &'c llzk::prelude::LlzkContext,
-    num_inputs: usize,
+    num_blocks: usize,
 ) -> Result<FuncDefOp<'c>, Error> {
     let location = Location::unknown(context);
     let felt = felt_type(context);
-    let inputs = vec![(felt, location); num_inputs];
-    let input_types = vec![felt; num_inputs];
+    let num_inputs = blake2s_capacity_bytes(num_blocks);
+    let inputs = vec![(felt, location); num_inputs + 2];
+    let input_types = vec![felt; num_inputs + 2];
     let output_types = vec![felt; BLAKE2S_DIGEST_BYTES];
     let function_type = FunctionType::new(context, &input_types, &output_types);
     let function = dialect::function::def(
         location,
-        &blake2s_helper_name(num_inputs),
+        &blake2s_helper_name(num_blocks),
         function_type,
         &[],
         None,
@@ -54,7 +63,16 @@ pub(in crate::blackboxes) fn emit_blake2s_helper<'c>(
     let input_values = (0..num_inputs)
         .map(|i| block.argument(i).map(Into::into))
         .collect::<Result<Vec<Value<'c, '_>>, _>>()?;
-    let outputs = emit_blake2s_hash(&block, context, location, &input_values)?;
+    let real_length_lo = block.argument(num_inputs)?.into();
+    let real_length_hi = block.argument(num_inputs + 1)?.into();
+    let outputs = emit_blake2s_hash(
+        &block,
+        context,
+        location,
+        &input_values,
+        real_length_lo,
+        real_length_hi,
+    )?;
     block.append_operation(dialect::function::r#return(location, &outputs));
     function.region(0)?.append_block(block);
     Ok(function)
@@ -65,6 +83,8 @@ fn emit_blake2s_hash<'c, 'a>(
     context: &'c llzk::prelude::LlzkContext,
     location: Location<'c>,
     inputs: &[Value<'c, 'a>],
+    real_length_lo: Value<'c, 'a>,
+    real_length_hi: Value<'c, 'a>,
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
     let mut cache = ConstantCache::new(block, context, location);
     let zero = cache.u32(0)?;
@@ -72,26 +92,27 @@ fn emit_blake2s_hash<'c, 'a>(
     let param = cache.u32(BLAKE2S_PARAM_BLOCK_0)?;
     h[0] = emit_xor(block, location, h[0], param)?;
 
-    let num_blocks = inputs.len().max(1).div_ceil(BLAKE2S_BLOCK_BYTES);
+    let num_blocks = inputs.len() / BLAKE2S_BLOCK_BYTES;
     for block_index in 0..num_blocks {
         let start = block_index * BLAKE2S_BLOCK_BYTES;
-        let end = (start + BLAKE2S_BLOCK_BYTES).min(inputs.len());
+        let end = start + BLAKE2S_BLOCK_BYTES;
         let mut block_bytes = [zero; BLAKE2S_BLOCK_BYTES];
         block_bytes[..end - start].copy_from_slice(&inputs[start..end]);
         let message_vec = super::common::emit_message_words(&mut cache, &block_bytes)?;
         let message: [Value<'c, 'a>; 16] = message_vec
             .try_into()
             .expect("exactly sixteen message words");
-        let total_bytes = end as u64;
         let last_block = block_index + 1 == num_blocks;
-        h = emit_compress(
-            &mut cache,
-            h,
-            message,
-            total_bytes as u32,
-            (total_bytes >> 32) as u32,
-            last_block,
-        )?;
+        let (t0, t1) = if last_block {
+            (real_length_lo, real_length_hi)
+        } else {
+            let total_bytes = end as u64;
+            (
+                cache.u32(total_bytes as u32)?,
+                cache.u32((total_bytes >> 32) as u32)?,
+            )
+        };
+        h = emit_compress(&mut cache, h, message, t0, t1, last_block)?;
     }
 
     let mut digest = Vec::with_capacity(BLAKE2S_DIGEST_BYTES);
@@ -105,8 +126,8 @@ fn emit_compress<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
     h: [Value<'c, 'a>; BLAKE2S_STATE_WORDS],
     m: [Value<'c, 'a>; 16],
-    t0: u32,
-    t1: u32,
+    t0: Value<'c, 'a>,
+    t1: Value<'c, 'a>,
     last_block: bool,
 ) -> Result<[Value<'c, 'a>; BLAKE2S_STATE_WORDS], Error> {
     let mut v = [cache.u32(0)?; 16];
@@ -115,10 +136,8 @@ fn emit_compress<'c, 'a>(
         *dst = cache.u32(word)?;
     }
 
-    let t0_value = cache.u32(t0)?;
-    let t1_value = cache.u32(t1)?;
-    v[12] = emit_xor(cache.block, cache.location, v[12], t0_value)?;
-    v[13] = emit_xor(cache.block, cache.location, v[13], t1_value)?;
+    v[12] = emit_xor(cache.block, cache.location, v[12], t0)?;
+    v[13] = emit_xor(cache.block, cache.location, v[13], t1)?;
     if last_block {
         let final_mask = cache.word_mask()?;
         v[14] = emit_xor(cache.block, cache.location, v[14], final_mask)?;
@@ -164,6 +183,19 @@ mod tests {
                 0x50, 0x8c, 0x5e, 0x8c, 0x32, 0x7c, 0x14, 0xe2, 0xe1, 0xa7, 0x2b, 0xa3, 0x4e, 0xeb,
                 0x45, 0x2f, 0x37, 0x45, 0x8b, 0x20, 0x9e, 0xd6, 0x3a, 0x29, 0x4d, 0x99, 0x9b, 0x4c,
                 0x86, 0x67, 0x59, 0x82,
+            ]
+        );
+    }
+
+    #[test]
+    fn eighty_bytes_match_known_vector() {
+        let input: Vec<u8> = (0..80).collect();
+        assert_eq!(
+            eval_blake2s(&input),
+            [
+                0xaf, 0xf3, 0xb7, 0x5f, 0x3f, 0x58, 0x12, 0x64, 0xd7, 0x66, 0x16, 0x62, 0xb9, 0x2f,
+                0x5a, 0xd3, 0x7c, 0x1d, 0x32, 0xbd, 0x45, 0xff, 0x81, 0xa4, 0xed, 0x8a, 0xdc, 0x9e,
+                0xf3, 0x0d, 0xd9, 0x89,
             ]
         );
     }

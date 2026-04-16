@@ -66,26 +66,26 @@ fn blake2s_emits_shared_helper_and_calls_it_from_wrappers() {
     let ir = format!("{}", module.as_operation());
 
     assert!(module.as_operation().verify(), "Module should verify");
-    assert_eq!(count_occurrences(&ir, "function.def @blake2s_3"), 1);
-    assert_eq!(count_occurrences(&ir, "function.call @blake2s_3"), 4);
+    assert_eq!(count_occurrences(&ir, "function.def @blake2s_blocks_1"), 1);
+    assert_eq!(count_occurrences(&ir, "function.call @blake2s_blocks_1"), 4);
     assert!(count_occurrences(&ir, "felt.bit_xor") > 0);
     assert!(count_occurrences(&ir, "felt.shr") > 0);
     assert!(count_occurrences(&ir, "felt.shl") > 0);
 }
 
 #[test]
-fn blake2s_emits_distinct_helpers_for_distinct_input_lengths() {
+fn blake2s_reuses_helper_within_same_block_bucket() {
     let context = LlzkContext::new();
-    let outputs1 = std::array::from_fn(|i| 8 + i as u32);
-    let outputs2 = std::array::from_fn(|i| 45 + i as u32);
+    let outputs1 = std::array::from_fn(|i| 10 + i as u32);
+    let outputs2 = std::array::from_fn(|i| 78 + i as u32);
     let circuit = make_circuit_with_opcodes(
-        76,
-        &[0, 1, 2, 3, 4, 5, 6, 7],
+        109,
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
         &[],
         &outputs2,
         vec![
             blake2s_blackbox(&[0, 1, 2], outputs1),
-            blake2s_blackbox(&[3, 4, 5, 6, 7], outputs2),
+            blake2s_blackbox(&[3, 4, 5, 6, 7, 8, 9], outputs2),
         ],
     );
 
@@ -94,10 +94,39 @@ fn blake2s_emits_distinct_helpers_for_distinct_input_lengths() {
     let ir = format!("{}", module.as_operation());
 
     assert!(module.as_operation().verify(), "Module should verify");
-    assert_eq!(count_occurrences(&ir, "function.def @blake2s_3"), 1);
-    assert_eq!(count_occurrences(&ir, "function.def @blake2s_5"), 1);
-    assert_eq!(count_occurrences(&ir, "function.call @blake2s_3"), 2);
-    assert_eq!(count_occurrences(&ir, "function.call @blake2s_5"), 2);
+    assert_eq!(count_occurrences(&ir, "function.def @blake2s_blocks_1"), 1);
+    assert_eq!(count_occurrences(&ir, "function.call @blake2s_blocks_1"), 4);
+}
+
+#[test]
+fn blake2s_emits_distinct_helpers_for_distinct_block_buckets() {
+    let context = LlzkContext::new();
+    let outputs1 = std::array::from_fn(|i| 68 + i as u32);
+    let outputs2 = std::array::from_fn(|i| 100 + i as u32);
+    let short_inputs = [0u32, 1, 2];
+    let long_inputs: Vec<u32> = (3..68).collect();
+    let mut private_inputs = short_inputs.to_vec();
+    private_inputs.extend(long_inputs.iter().copied());
+    let circuit = make_circuit_with_opcodes(
+        131,
+        &private_inputs,
+        &[],
+        &outputs2,
+        vec![
+            blake2s_blackbox(&short_inputs, outputs1),
+            blake2s_blackbox(&long_inputs, outputs2),
+        ],
+    );
+
+    let module =
+        translate_single_circuit_module(&context, circuit).expect("translation should pass");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(count_occurrences(&ir, "function.def @blake2s_blocks_1"), 1);
+    assert_eq!(count_occurrences(&ir, "function.def @blake2s_blocks_2"), 1);
+    assert_eq!(count_occurrences(&ir, "function.call @blake2s_blocks_1"), 2);
+    assert_eq!(count_occurrences(&ir, "function.call @blake2s_blocks_2"), 2);
 }
 
 #[test]
@@ -116,8 +145,8 @@ fn blake2s_does_not_emit_helper_when_unused() {
     let ir = format!("{}", module.as_operation());
 
     assert!(module.as_operation().verify(), "Module should verify");
-    assert_eq!(count_occurrences(&ir, "function.def @blake2s_"), 0);
-    assert_eq!(count_occurrences(&ir, "function.call @blake2s_"), 0);
+    assert_eq!(count_occurrences(&ir, "function.def @blake2s_blocks_"), 0);
+    assert_eq!(count_occurrences(&ir, "function.call @blake2s_blocks_"), 0);
 }
 
 #[test]

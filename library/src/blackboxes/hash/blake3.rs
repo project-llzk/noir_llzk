@@ -21,23 +21,32 @@ const ROOT: u32 = 1 << 3;
 
 const MSG_PERMUTATION: [usize; 16] = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8];
 
-pub(in crate::blackboxes) fn blake3_helper_name(num_inputs: usize) -> String {
-    format!("blake3_{num_inputs}")
+pub(crate) fn blake3_num_blocks_for_len(num_inputs: usize) -> usize {
+    num_inputs.max(1).div_ceil(BLOCK_BYTES)
+}
+
+fn blake3_capacity_bytes(num_blocks: usize) -> usize {
+    num_blocks * BLOCK_BYTES
+}
+
+pub(in crate::blackboxes) fn blake3_helper_name(num_blocks: usize) -> String {
+    format!("blake3_blocks_{num_blocks}")
 }
 
 pub(in crate::blackboxes) fn emit_blake3_helper<'c>(
     context: &'c llzk::prelude::LlzkContext,
-    num_inputs: usize,
+    num_blocks: usize,
 ) -> Result<FuncDefOp<'c>, Error> {
     let location = Location::unknown(context);
     let felt = felt_type(context);
-    let inputs = vec![(felt, location); num_inputs];
-    let input_types = vec![felt; num_inputs];
+    let num_inputs = blake3_capacity_bytes(num_blocks);
+    let inputs = vec![(felt, location); num_inputs + 1];
+    let input_types = vec![felt; num_inputs + 1];
     let output_types = vec![felt; BLAKE3_DIGEST_BYTES];
     let function_type = FunctionType::new(context, &input_types, &output_types);
     let function = dialect::function::def(
         location,
-        &blake3_helper_name(num_inputs),
+        &blake3_helper_name(num_blocks),
         function_type,
         &[],
         None,
@@ -48,7 +57,8 @@ pub(in crate::blackboxes) fn emit_blake3_helper<'c>(
     let input_values = (0..num_inputs)
         .map(|i| block.argument(i).map(Into::into))
         .collect::<Result<Vec<Value<'c, '_>>, _>>()?;
-    let outputs = emit_blake3_hash(&block, context, location, &input_values)?;
+    let final_block_len = block.argument(num_inputs)?.into();
+    let outputs = emit_blake3_hash(&block, context, location, &input_values, final_block_len)?;
     block.append_operation(dialect::function::r#return(location, &outputs));
     function.region(0)?.append_block(block);
     Ok(function)
@@ -58,7 +68,7 @@ struct EmitOutput<'c, 'a> {
     input_cv: [Value<'c, 'a>; 8],
     block_words: [Value<'c, 'a>; 16],
     counter: u64,
-    block_len: u32,
+    block_len: Value<'c, 'a>,
     flags: u32,
 }
 
@@ -67,19 +77,22 @@ fn emit_blake3_hash<'c, 'a>(
     context: &'c llzk::prelude::LlzkContext,
     location: Location<'c>,
     inputs: &[Value<'c, 'a>],
+    final_block_len: Value<'c, 'a>,
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
     let mut cache = ConstantCache::new(block, context, location);
     let key_words = iv_values(&mut cache)?;
 
-    let num_chunks = inputs.len().max(1).div_ceil(CHUNK_BYTES);
+    let num_blocks = inputs.len() / BLOCK_BYTES;
+    let num_chunks = num_blocks.div_ceil(CHUNK_BYTES / BLOCK_BYTES);
     let mut cv_stack: Vec<[Value<'c, 'a>; 8]> = Vec::new();
 
     for chunk_index in 0..num_chunks - 1 {
         let chunk_start = chunk_index * CHUNK_BYTES;
-        let chunk_end = (chunk_start + CHUNK_BYTES).min(inputs.len());
+        let chunk_end = chunk_start + CHUNK_BYTES;
         let chunk_data = &inputs[chunk_start..chunk_end];
 
-        let output = emit_chunk_output(&mut cache, &key_words, chunk_data, chunk_index as u64)?;
+        let output =
+            emit_chunk_output(&mut cache, &key_words, chunk_data, chunk_index as u64, None)?;
         let mut new_cv = emit_output_cv(&mut cache, &output)?;
         let mut total = chunk_index + 1;
         while total & 1 == 0 {
@@ -92,17 +105,13 @@ fn emit_blake3_hash<'c, 'a>(
 
     let last_chunk_index = num_chunks - 1;
     let last_chunk_start = last_chunk_index * CHUNK_BYTES;
-    let last_chunk_end = (last_chunk_start + CHUNK_BYTES).min(inputs.len());
-    let last_chunk_data = if last_chunk_start < inputs.len() {
-        &inputs[last_chunk_start..last_chunk_end]
-    } else {
-        &[]
-    };
+    let last_chunk_data = &inputs[last_chunk_start..];
     let mut output = emit_chunk_output(
         &mut cache,
         &key_words,
         last_chunk_data,
         last_chunk_index as u64,
+        Some(final_block_len),
     )?;
 
     if num_chunks == 1 {
@@ -154,34 +163,32 @@ fn emit_chunk_output<'c, 'a>(
     key_words: &[Value<'c, 'a>; 8],
     chunk_data: &[Value<'c, 'a>],
     chunk_counter: u64,
+    final_block_len: Option<Value<'c, 'a>>,
 ) -> Result<EmitOutput<'c, 'a>, Error> {
     let zero = cache.u32(0)?;
-    let num_blocks = chunk_data.len().max(1).div_ceil(BLOCK_BYTES);
+    let num_blocks = chunk_data.len() / BLOCK_BYTES;
     let mut cv = *key_words;
 
     for block_index in 0..num_blocks {
         let block_start = block_index * BLOCK_BYTES;
-        let block_end = (block_start + BLOCK_BYTES).min(chunk_data.len());
+        let block_end = block_start + BLOCK_BYTES;
 
         let mut padded_block = vec![zero; BLOCK_BYTES];
-        if block_start < chunk_data.len() {
-            padded_block[..block_end - block_start]
-                .copy_from_slice(&chunk_data[block_start..block_end]);
-        }
+        padded_block[..block_end - block_start]
+            .copy_from_slice(&chunk_data[block_start..block_end]);
         let words_vec = emit_message_words(cache, &padded_block)?;
         let block_words: [Value<'c, 'a>; 16] = words_vec.try_into().expect("exactly sixteen words");
-
-        let block_len = if block_start < chunk_data.len() {
-            (block_end - block_start) as u32
-        } else {
-            0
-        };
 
         let mut flags = 0u32;
         if block_index == 0 {
             flags |= CHUNK_START;
         }
         let is_last = block_index == num_blocks - 1;
+        let block_len = if is_last {
+            final_block_len.unwrap_or(cache.u32(BLOCK_BYTES as u32)?)
+        } else {
+            cache.u32(BLOCK_BYTES as u32)?
+        };
         if is_last {
             flags |= CHUNK_END;
             return Ok(EmitOutput {
@@ -212,7 +219,7 @@ fn emit_parent_output<'c, 'a>(
         input_cv: *key_words,
         block_words,
         counter: 0,
-        block_len: BLOCK_BYTES as u32,
+        block_len: cache.u32(BLOCK_BYTES as u32)?,
         flags: PARENT,
     })
 }
@@ -226,14 +233,8 @@ fn emit_parent_cv<'c, 'a>(
     let mut block_words = [cache.u32(0)?; 16];
     block_words[..8].copy_from_slice(left);
     block_words[8..].copy_from_slice(right);
-    emit_compress(
-        cache,
-        key_words,
-        &block_words,
-        0,
-        BLOCK_BYTES as u32,
-        PARENT,
-    )
+    let block_len = cache.u32(BLOCK_BYTES as u32)?;
+    emit_compress(cache, key_words, &block_words, 0, block_len, PARENT)
 }
 
 fn emit_compress<'c, 'a>(
@@ -241,7 +242,7 @@ fn emit_compress<'c, 'a>(
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
-    block_len: u32,
+    block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 8], Error> {
     let v = emit_compress_raw(cache, h, m, counter, block_len, flags)?;
@@ -257,7 +258,7 @@ fn emit_compress_full<'c, 'a>(
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
-    block_len: u32,
+    block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 16], Error> {
     let v = emit_compress_raw(cache, h, m, counter, block_len, flags)?;
@@ -274,7 +275,7 @@ fn emit_compress_raw<'c, 'a>(
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
-    block_len: u32,
+    block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 16], Error> {
     let mut v = [cache.u32(0)?; 16];
@@ -286,7 +287,7 @@ fn emit_compress_raw<'c, 'a>(
     let counter_hi = (counter >> 32) as u32;
     v[12] = cache.u32(counter_lo)?;
     v[13] = cache.u32(counter_hi)?;
-    v[14] = cache.u32(block_len)?;
+    v[14] = block_len;
     v[15] = cache.u32(flags)?;
 
     let mut msg = *m;
@@ -341,6 +342,20 @@ mod tests {
                 0x64, 0x37, 0xb3, 0xac, 0x38, 0x46, 0x51, 0x33, 0xff, 0xb6, 0x3b, 0x75, 0x27, 0x3a,
                 0x8d, 0xb5, 0x48, 0xc5, 0x58, 0x46, 0x5d, 0x79, 0xdb, 0x03, 0xfd, 0x35, 0x9c, 0x6c,
                 0xd5, 0xbd, 0x9d, 0x85,
+            ]
+        );
+    }
+
+    #[test]
+    fn eighty_bytes_match_known_vector() {
+        let input: Vec<u8> = (0..80).collect();
+        let digest = eval_blake3(&input);
+        assert_eq!(
+            digest,
+            [
+                0x4a, 0x68, 0x47, 0xef, 0x66, 0xbc, 0xe6, 0xc1, 0x4c, 0xa0, 0x5e, 0xc8, 0xf8, 0xad,
+                0x73, 0x83, 0xbf, 0x29, 0x31, 0xf4, 0xbc, 0xfd, 0x03, 0x73, 0xc1, 0x8e, 0x05, 0x9e,
+                0x93, 0xf9, 0xde, 0xf6,
             ]
         );
     }

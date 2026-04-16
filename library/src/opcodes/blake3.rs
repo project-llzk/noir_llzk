@@ -8,11 +8,14 @@ use acir::{
 };
 
 use crate::{
-    blackboxes::{hash::blake3::BLAKE3_DIGEST_BYTES, registry::BlackboxFunction},
+    blackboxes::{
+        hash::blake3::{BLAKE3_DIGEST_BYTES, blake3_num_blocks_for_len},
+        registry::BlackboxFunction,
+    },
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_blackbox_input,
+        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_padded_byte_inputs,
         validate_byte_input, write_digest_outputs,
     },
 };
@@ -43,17 +46,12 @@ impl Blake3<'_> {
         &self,
         writer: &mut BlockWriter<'c, 'b>,
     ) -> Result<llzk::prelude::OperationRef<'c, 'b>, Error> {
-        let inputs = self
-            .inputs
-            .iter()
-            .map(|input| emit_blackbox_input(writer, input))
-            .collect::<Result<Vec<_>, _>>()?;
-        writer.call_blackbox_function(
-            BlackboxFunction::Blake3 {
-                num_inputs: self.inputs.len(),
-            },
-            &inputs,
-        )
+        let num_blocks = blake3_num_blocks_for_len(self.inputs.len());
+        let mut inputs = emit_padded_byte_inputs(writer, self.inputs, num_blocks * 64)?;
+        let final_block_len = self.inputs.len() - (num_blocks - 1) * 64;
+        let final_block_len = writer.emit_constant(&FieldElement::from(final_block_len as u128))?;
+        inputs.push(final_block_len);
+        writer.call_blackbox_function(BlackboxFunction::Blake3 { num_blocks }, &inputs)
     }
 }
 
