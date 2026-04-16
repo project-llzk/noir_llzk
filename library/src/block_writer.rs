@@ -381,11 +381,6 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     }
 
     // ── RAM operations ─────────────────────────────────────────────────
-    //
-    // The `ram` dialect models a single flat, anonymous memory region —
-    // there is no `alloc` op and no memory-handle operand. Loads and stores
-    // index that region directly. Both ops are `WitnessGen` and are only
-    // valid inside a function marked `allow_witness = true`.
 
     /// Emits `ram.load %addr : result_ty`, returning the loaded value.
     ///
@@ -564,7 +559,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
         self.insert_call(
-            SymbolRefAttribute::new(self.context, parent, &[func]),
+            SymbolRefAttribute::new_from_str(self.context, parent, &[func]),
             args,
             result_types,
         )

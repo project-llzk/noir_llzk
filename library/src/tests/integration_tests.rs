@@ -90,6 +90,7 @@ fn run_noir_test(name: &str) {
         panic!("Translation failed for {name}: {e}");
     });
 
+    println!("LLZK: \n{}", module.as_operation());
     // Verify
     assert!(
         module.as_operation().verify(),

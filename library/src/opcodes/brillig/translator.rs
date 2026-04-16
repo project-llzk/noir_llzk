@@ -1,7 +1,9 @@
 //! Brillig bytecode → LLZK body translator.
 //!
 
-use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, Opcode as BrilligOpcode};
+use std::collections::HashMap;
+
+use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, MemoryAddress, Opcode as BrilligOpcode};
 use acir::circuit::brillig::BrilligBytecode;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::melior_dialects::arith::CmpiPredicate;
@@ -18,15 +20,19 @@ use super::regmap::RegMap;
 /// the translator returns the SSA values the caller should pass to
 /// `function.return`. The caller is responsible for appending the terminator.
 ///
-/// Input registers are **not yet populated** — Issue 6 wires `CalldataCopy`
-/// up to this layer. For the current milestone the only reachable registers
-/// are those written by register-machine ops in the bytecode itself.
+/// `calldata` carries the function's block arguments in the order dictated by
+/// the flattened `BrilligInputs`. `CalldataCopy` opcodes in the bytecode read
+/// from this slice to seed the register map.
 pub(crate) fn translate_bytecode<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     bytecode: &BrilligBytecode<FieldElement>,
+    calldata: &[Value<'c, 'b>],
     expected_output_count: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
     let mut regmap: RegMap<'c, 'b> = RegMap::new();
+    // Track literal integer constants so `CalldataCopy` can resolve its
+    // `size_address` / `offset_address` registers at translation time.
+    let mut known_constants: HashMap<MemoryAddress, usize> = HashMap::new();
 
     for (i, op) in bytecode.bytecode.iter().enumerate() {
         match op {
@@ -35,6 +41,13 @@ pub(crate) fn translate_bytecode<'c, 'b>(
                 bit_size,
                 value,
             } => {
+                // Track literal integer values so CalldataCopy can read
+                // size/offset at translation time.
+                if let BitSize::Integer(_) = bit_size {
+                    if let Some(v) = value.try_into_u128() {
+                        known_constants.insert(*destination, v as usize);
+                    }
+                }
                 let ssa = emit_const(writer, bit_size, value)?;
                 regmap.set(*destination, ssa);
             }
@@ -96,6 +109,51 @@ pub(crate) fn translate_bytecode<'c, 'b>(
                 let val = regmap.get(*source, i)?;
                 writer.insert_ram_store(ptr_idx, val);
             }
+            BrilligOpcode::CalldataCopy {
+                destination_address,
+                size_address,
+                offset_address,
+            } => {
+                let size = *known_constants.get(size_address).ok_or_else(|| {
+                    Error::UnsupportedBrillig {
+                        reason: format!(
+                            "CalldataCopy at bytecode index {i}: size register {} \
+                             is not a known integer constant",
+                            size_address.to_u32()
+                        ),
+                    }
+                })?;
+                let offset = *known_constants.get(offset_address).ok_or_else(|| {
+                    Error::UnsupportedBrillig {
+                        reason: format!(
+                            "CalldataCopy at bytecode index {i}: offset register {} \
+                             is not a known integer constant",
+                            offset_address.to_u32()
+                        ),
+                    }
+                })?;
+                if offset + size > calldata.len() {
+                    return Err(Error::UnsupportedBrillig {
+                        reason: format!(
+                            "CalldataCopy at bytecode index {i}: calldata range \
+                             [{offset}..{}] exceeds calldata length {}",
+                            offset + size,
+                            calldata.len()
+                        ),
+                    });
+                }
+                let dst_base = destination_address.to_u32();
+                for j in 0..size {
+                    let addr = MemoryAddress::Direct(dst_base + j as u32);
+                    let val = calldata[offset + j];
+                    regmap.set(addr, val);
+                    // Also store into RAM so that subsequent Load ops
+                    // (which use ram.load) can find values that were
+                    // placed in memory by CalldataCopy.
+                    let idx = writer.insert_integer(dst_base as usize + j)?;
+                    writer.insert_ram_store(idx, val);
+                }
+            }
             BrilligOpcode::ConditionalMov { .. } => {
                 return Err(Error::UnsupportedBrillig {
                     reason: format!(
@@ -104,8 +162,14 @@ pub(crate) fn translate_bytecode<'c, 'b>(
                     ),
                 });
             }
-            BrilligOpcode::Stop { .. } => {
-                return finish(expected_output_count);
+            BrilligOpcode::Stop { return_data } => {
+                return emit_return_data(
+                    writer,
+                    &known_constants,
+                    return_data,
+                    expected_output_count,
+                    i,
+                );
             }
             other => {
                 return Err(Error::UnsupportedBrillig {
@@ -118,8 +182,16 @@ pub(crate) fn translate_bytecode<'c, 'b>(
         }
     }
 
-    // End-of-bytecode without an explicit `Stop` is treated the same way.
-    finish(expected_output_count)
+    // End-of-bytecode without an explicit `Stop` — no return data.
+    if expected_output_count != 0 {
+        return Err(Error::UnsupportedBrillig {
+            reason: format!(
+                "brillig function declares {expected_output_count} output(s) but \
+                 bytecode ended without a Stop opcode"
+            ),
+        });
+    }
+    Ok(Vec::new())
 }
 
 /// Converts `val` to an `index`-typed value suitable as a `ram.load`/`ram.store`
@@ -278,19 +350,59 @@ fn emit_binary_int_op<'c, 'b>(
     }
 }
 
-fn finish<'c, 'b>(expected_output_count: usize) -> Result<Vec<Value<'c, 'b>>, Error> {
-    // Output marshalling (reading registers / heap into the return tuple)
-    // arrives in Issue 7. Until then, only zero-output brillig functions are
-    // supported end-to-end.
-    if expected_output_count != 0 {
+/// Reads the `Stop` opcode's `return_data` HeapVector and emits `ram.load`
+/// ops for each return slot, producing the SSA values to be passed to
+/// `function.return`.
+///
+/// The HeapVector's `pointer` and `size` registers must have been set by
+/// prior `Const` opcodes so their values are available in `known_constants`.
+fn emit_return_data<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    known_constants: &HashMap<MemoryAddress, usize>,
+    return_data: &acir::brillig::HeapVector,
+    expected_output_count: usize,
+    opcode_index: usize,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    if expected_output_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let size = *known_constants
+        .get(&return_data.size)
+        .ok_or_else(|| Error::UnsupportedBrillig {
+            reason: format!(
+                "Stop at bytecode index {opcode_index}: return_data size register {} \
+                 is not a known integer constant",
+                return_data.size.to_u32()
+            ),
+        })?;
+    let pointer = *known_constants
+        .get(&return_data.pointer)
+        .ok_or_else(|| Error::UnsupportedBrillig {
+            reason: format!(
+                "Stop at bytecode index {opcode_index}: return_data pointer register {} \
+                 is not a known integer constant",
+                return_data.pointer.to_u32()
+            ),
+        })?;
+
+    if size != expected_output_count {
         return Err(Error::UnsupportedBrillig {
             reason: format!(
-                "brillig function declares {expected_output_count} output(s); \
-                 output marshalling is implemented in a later milestone-3 issue"
+                "Stop at bytecode index {opcode_index}: return_data size is {size} \
+                 but expected {expected_output_count} output(s)"
             ),
         });
     }
-    Ok(Vec::new())
+
+    let felt_ty = writer.felt_type();
+    let mut returns = Vec::with_capacity(size);
+    for j in 0..size {
+        let addr = writer.insert_integer(pointer + j)?;
+        let val = writer.insert_ram_load(addr, felt_ty)?;
+        returns.push(val);
+    }
+    Ok(returns)
 }
 
 /// Treats any type whose textual form starts with `!felt.` as a felt type.

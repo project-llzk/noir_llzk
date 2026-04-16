@@ -237,10 +237,10 @@ fn brillig_with_out_of_range_id_errors() {
     );
 }
 
-/// Array inputs are explicitly deferred to a later milestone-3 issue; the
-/// skeleton rejects them with an actionable message.
+/// Array inputs are accepted and flattened into individual felt-typed
+/// function arguments (one per array element).
 #[test]
-fn brillig_array_input_is_rejected_for_now() {
+fn brillig_array_input_is_accepted() {
     let context = LlzkContext::new();
 
     let array_in = BrilligInputs::Array(vec![
@@ -256,12 +256,9 @@ fn brillig_array_input_is_rejected_for_now() {
     );
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
-    let err = translate_program(&context, &program)
-        .expect_err("array inputs should be rejected in the skeleton");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
-    );
+    let module = translate_program(&context, &program)
+        .expect("array inputs should be accepted");
+    print_and_verify_module(&module, "brillig_array_input_is_accepted");
 }
 
 /// A `Simple` output paired with bytecode that produces no return values

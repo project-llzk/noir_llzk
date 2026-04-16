@@ -243,10 +243,17 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         for (i, input) in inputs.iter().enumerate() {
             match input {
                 BrilligInputs::Single(_) => input_types.push(felt_ty),
-                BrilligInputs::Array(_) | BrilligInputs::MemoryArray(_) => {
+                BrilligInputs::Array(exprs) => {
+                    // Each array element becomes a separate felt-typed function argument
+                    // (flat calldata convention).
+                    for _ in exprs {
+                        input_types.push(felt_ty);
+                    }
+                }
+                BrilligInputs::MemoryArray(_) => {
                     return Err(Error::UnsupportedBrillig {
                         reason: format!(
-                            "brillig input #{i}: Array / MemoryArray marshalling \
+                            "brillig input #{i}: MemoryArray marshalling \
                              not yet supported",
                         ),
                     });
@@ -255,16 +262,13 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         }
 
         let mut output_types: Vec<Type<'c>> = Vec::with_capacity(outputs.len());
-        for (i, output) in outputs.iter().enumerate() {
+        for output in outputs.iter() {
             match output {
                 BrilligOutputs::Simple(_) => output_types.push(felt_ty),
-                BrilligOutputs::Array(_) => {
-                    return Err(Error::UnsupportedBrillig {
-                        reason: format!(
-                            "brillig output #{i}: Array marshalling \
-                             not yet supported",
-                        ),
-                    });
+                BrilligOutputs::Array(ws) => {
+                    for _ in ws {
+                        output_types.push(felt_ty);
+                    }
                 }
             }
         }

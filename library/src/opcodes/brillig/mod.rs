@@ -104,29 +104,36 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let felt_ty = writer.felt_type();
 
-        let mut input_args: Vec<Value<'c, 'b>> = Vec::with_capacity(self.inputs.len());
+        let mut input_args: Vec<Value<'c, 'b>> = Vec::new();
         for input in self.inputs {
             match input {
                 BrilligInputs::Single(expr) => {
                     input_args.push(emit_expression(writer, expr)?);
                 }
-                BrilligInputs::Array(_) | BrilligInputs::MemoryArray(_) => {
-                    // Validated out at handler construction.
-                    unreachable!("non-Single brillig input survived validation");
+                BrilligInputs::Array(exprs) => {
+                    for expr in exprs {
+                        input_args.push(emit_expression(writer, expr)?);
+                    }
+                }
+                BrilligInputs::MemoryArray(_) => {
+                    unreachable!("MemoryArray brillig input survived validation");
                 }
             }
         }
 
-        let mut output_types: Vec<Type<'c>> = Vec::with_capacity(self.outputs.len());
-        let mut output_witnesses: Vec<u32> = Vec::with_capacity(self.outputs.len());
+        let mut output_types: Vec<Type<'c>> = Vec::new();
+        let mut output_witnesses: Vec<u32> = Vec::new();
         for output in self.outputs {
             match output {
                 BrilligOutputs::Simple(w) => {
                     output_types.push(felt_ty);
                     output_witnesses.push(w.0);
                 }
-                BrilligOutputs::Array(_) => {
-                    unreachable!("non-Simple brillig output survived validation");
+                BrilligOutputs::Array(ws) => {
+                    for w in ws {
+                        output_types.push(felt_ty);
+                        output_witnesses.push(w.0);
+                    }
                 }
             }
         }

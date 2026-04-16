@@ -8,6 +8,6 @@ name = "acir2llzk"
 path = "src/main.rs"
 
 [dependencies]
-llzk = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", features = ["bigint"], branch="add-ram"}
-llzk-sys = { git = "ssh://git@github.com/reilabs/llzk-rs-private.git", branch="add-ram" }
+llzk = { git = "ssh://git@github.com/reilabs/llzk-rs.git", features = ["bigint"]}
+llzk-sys = { git = "ssh://git@github.com/reilabs/llzk-rs.git"}
 acir_llzk = { path = "../library" }

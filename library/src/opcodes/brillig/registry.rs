@@ -23,7 +23,7 @@ use acir::{
 };
 use llzk::prelude::{
     Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
-    RegionLike, Type, dialect,
+    RegionLike, Type, Value, dialect,
 };
 
 use crate::block_writer::BlockWriter;
@@ -120,8 +120,12 @@ pub(crate) fn emit_brillig_functions<'c>(
         let arg_sig: Vec<(Type<'c>, Location<'c>)> =
             entry.input_types.iter().map(|ty| (*ty, location)).collect();
         let body_block = Block::new(&arg_sig);
+        let calldata: Vec<Value<'c, '_>> = (0..entry.input_types.len())
+            .map(|i| body_block.argument(i).unwrap().into())
+            .collect();
         let mut writer = BlockWriter::for_function_body(context, &body_block);
-        let returns = translate_bytecode(&mut writer, entry.bytecode, entry.output_types.len())?;
+        let returns =
+            translate_bytecode(&mut writer, entry.bytecode, &calldata, entry.output_types.len())?;
         if returns.len() != entry.output_types.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(
