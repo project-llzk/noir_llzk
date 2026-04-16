@@ -5,7 +5,6 @@ use acir::{
     circuit::{
         Circuit, Opcode, Program,
         brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
-        opcodes::BlockType,
     },
     native_types::Expression,
 };
@@ -186,16 +185,11 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             Opcode::MemoryInit {
                 block_id,
                 init,
-                block_type,
-            } => match block_type {
-                BlockType::Memory => Ok(Box::new(MemoryInit {
-                    block_id: block_id.0,
-                    init,
-                })),
-                _ => Err(Error::UnsupportedOpcode(format!(
-                    "MemoryInit with block_type {block_type:?}"
-                ))),
-            },
+                block_type: _,
+            } => Ok(Box::new(MemoryInit {
+                block_id: block_id.0,
+                init,
+            })),
             Opcode::MemoryOp { block_id, op } => memory_ops::from_opcode(block_id.0, op),
             Opcode::BrilligCall {
                 id,

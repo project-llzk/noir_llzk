@@ -67,28 +67,36 @@ fn memory_init_empty_init_vector() {
     verify_struct_in_module(&context, struct_def, "memory_init_empty_init_vector");
 }
 
-/// `BlockType::CallData` → returns `UnsupportedOpcode` error.
+/// `BlockType::CallData` → treated identically to `Memory`.
 #[test]
-fn memory_init_call_data_unsupported() {
+fn memory_init_call_data() {
     let context = LlzkContext::new();
-    let opcodes = vec![memory_init(0, &[0], BlockType::CallData(0))];
-    let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], opcodes);
-    let result = translate_single_circuit(&context, circuit);
-    assert!(
-        matches!(result, Err(crate::Error::UnsupportedOpcode(_))),
-        "expected UnsupportedOpcode for CallData, got {result:?}"
-    );
+    let opcodes = vec![memory_init(0, &[0, 1, 2], BlockType::CallData(0))];
+    let circuit = make_circuit_with_opcodes(2, &[0, 1, 2], &[], &[], opcodes);
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    verify_struct_in_module(&context, struct_def, "memory_init_call_data");
 }
 
-/// `BlockType::ReturnData` → returns `UnsupportedOpcode` error.
+/// `BlockType::ReturnData` → treated identically to `Memory`.
 #[test]
-fn memory_init_return_data_unsupported() {
+fn memory_init_return_data() {
     let context = LlzkContext::new();
-    let opcodes = vec![memory_init(0, &[0], BlockType::ReturnData)];
-    let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], opcodes);
-    let result = translate_single_circuit(&context, circuit);
-    assert!(
-        matches!(result, Err(crate::Error::UnsupportedOpcode(_))),
-        "expected UnsupportedOpcode for ReturnData, got {result:?}"
-    );
+    let opcodes = vec![memory_init(0, &[0, 1, 2], BlockType::ReturnData)];
+    let circuit = make_circuit_with_opcodes(2, &[0, 1, 2], &[], &[], opcodes);
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    verify_struct_in_module(&context, struct_def, "memory_init_return_data");
+}
+
+/// Mixed block types coexist — each gets its own `@mem{id}` member.
+#[test]
+fn memory_init_mixed_block_types() {
+    let context = LlzkContext::new();
+    let opcodes = vec![
+        memory_init(0, &[0, 1], BlockType::CallData(0)),
+        memory_init(1, &[2, 3, 4], BlockType::Memory),
+        memory_init(2, &[5, 6], BlockType::ReturnData),
+    ];
+    let circuit = make_circuit_with_opcodes(6, &[0, 1, 2, 3, 4, 5, 6], &[], &[], opcodes);
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    verify_struct_in_module(&context, struct_def, "memory_init_mixed_block_types");
 }
