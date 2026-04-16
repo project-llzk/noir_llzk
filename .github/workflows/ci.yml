@@ -47,8 +47,8 @@ jobs:
       - name: Install LLZK
         uses: ./.github/actions/install-llzk
         with:
-          # Pinned to the llzk-lib commit used by the llzk-rs v1 release (rev 5e14101)
-          ref: 2f11a3cda959a44cde9a98c0efa3e76e110fa6f9
+          # Latest commit on reilabs/llzk-lib main (includes ram dialect)
+          ref: main
           type: Debug
           mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
       - name: Install PCL MLIR
