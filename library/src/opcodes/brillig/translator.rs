@@ -5,9 +5,7 @@
 //! opcode via [`build_handler`](super::opcodes::build_handler) and executes
 //! it against the shared [`TranslationCtx`].
 
-use std::collections::HashMap;
-
-use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, MemoryAddress};
+use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize};
 use acir::circuit::brillig::BrilligBytecode;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::melior_dialects::arith::CmpiPredicate;
@@ -16,8 +14,8 @@ use llzk::prelude::{Type, Value, ValueLike};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
+use super::memory::Memory;
 use super::opcodes::build_handler;
-use super::regmap::RegMap;
 
 // ── Core types ─────────────────────────────────────────────────────────
 
@@ -32,11 +30,11 @@ pub(crate) enum OpcodeAction<'c, 'b> {
 /// Shared translation state passed to each opcode handler.
 ///
 /// Bundles the mutable state that every handler needs: the LLZK writer, the
-/// SSA register map, tracked integer constants, and the function's calldata.
+/// Brillig memory model (register file + tracked integer constants), and
+/// the function's calldata.
 pub(crate) struct TranslationCtx<'c, 'b, 'r> {
     pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) regmap: RegMap<'c, 'b>,
-    pub(crate) known_constants: HashMap<MemoryAddress, usize>,
+    pub(crate) memory: Memory<'c, 'b>,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
 }
@@ -218,7 +216,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             return Ok(Vec::new());
         }
 
-        let size = *self.known_constants.get(&return_data.size).ok_or_else(|| {
+        let size = self.memory.get_const(return_data.size).ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "Stop at bytecode index {opcode_index}: return_data size register {} \
@@ -227,16 +225,15 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
                 ),
             }
         })?;
-        let pointer = *self
-            .known_constants
-            .get(&return_data.pointer)
-            .ok_or_else(|| Error::UnsupportedBrillig {
+        let pointer = self.memory.get_const(return_data.pointer).ok_or_else(|| {
+            Error::UnsupportedBrillig {
                 reason: format!(
                     "Stop at bytecode index {opcode_index}: return_data pointer register {} \
                      is not a known integer constant",
                     return_data.pointer.to_u32()
                 ),
-            })?;
+            }
+        })?;
 
         if size != self.expected_output_count {
             return Err(Error::UnsupportedBrillig {
@@ -280,8 +277,7 @@ pub(crate) fn translate_bytecode<'c, 'b>(
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
     let mut ctx = TranslationCtx {
         writer,
-        regmap: RegMap::new(),
-        known_constants: HashMap::new(),
+        memory: Memory::new(),
         calldata,
         expected_output_count,
     };

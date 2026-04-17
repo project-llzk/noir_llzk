@@ -16,8 +16,8 @@ impl BrilligHandler<'_> for MovHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let src = ctx.regmap.get(self.source, opcode_index)?;
-        ctx.regmap.set(self.destination, src);
+        let src = ctx.memory.read(self.source, opcode_index)?;
+        ctx.memory.write(self.destination, src);
         Ok(OpcodeAction::Continue)
     }
 }

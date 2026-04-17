@@ -17,7 +17,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         i: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let size = *ctx.known_constants.get(&self.size_address).ok_or_else(|| {
+        let size = ctx.memory.get_const(self.size_address).ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "CalldataCopy at bytecode index {i}: size register {} \
@@ -26,16 +26,15 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
                 ),
             }
         })?;
-        let offset = *ctx
-            .known_constants
-            .get(&self.offset_address)
-            .ok_or_else(|| Error::UnsupportedBrillig {
+        let offset = ctx.memory.get_const(self.offset_address).ok_or_else(|| {
+            Error::UnsupportedBrillig {
                 reason: format!(
                     "CalldataCopy at bytecode index {i}: offset register {} \
                          is not a known integer constant",
                     self.offset_address.to_u32()
                 ),
-            })?;
+            }
+        })?;
         if offset + size > ctx.calldata.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(
@@ -50,7 +49,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         for j in 0..size {
             let addr = MemoryAddress::Direct(dst_base + j as u32);
             let val = ctx.calldata[offset + j];
-            ctx.regmap.set(addr, val);
+            ctx.memory.write(addr, val);
             let idx = ctx.writer.insert_integer(dst_base as usize + j)?;
             ctx.writer.insert_ram_store(idx, val);
         }

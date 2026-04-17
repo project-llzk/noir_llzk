@@ -21,10 +21,10 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         if let BitSize::Integer(_) = self.bit_size
             && let Some(v) = self.value.try_into_u128()
         {
-            ctx.known_constants.insert(self.destination, v as usize);
+            ctx.memory.record_const(self.destination, v as usize);
         }
         let ssa = ctx.emit_const(self.bit_size, self.value)?;
-        ctx.regmap.set(self.destination, ssa);
+        ctx.memory.write(self.destination, ssa);
         Ok(OpcodeAction::Continue)
     }
 }
