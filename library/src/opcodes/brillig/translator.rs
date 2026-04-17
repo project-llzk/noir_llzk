@@ -1,8 +1,8 @@
 //! Brillig bytecode → LLZK body translator.
 //!
 //! The main entry point is [`translate_bytecode`], which builds a
-//! [`BrilligHandler`](super::handlers::BrilligHandler) trait object for each
-//! opcode via [`build_handler`](super::handlers::build_handler) and executes
+//! [`BrilligHandler`](super::opcodes::BrilligHandler) trait object for each
+//! opcode via [`build_handler`](super::opcodes::build_handler) and executes
 //! it against the shared [`TranslationCtx`].
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use llzk::prelude::{Type, Value, ValueLike};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-use super::handlers::build_handler;
+use super::opcodes::build_handler;
 use super::regmap::RegMap;
 
 // ── Core types ─────────────────────────────────────────────────────────
@@ -272,8 +272,8 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
 
 /// Translates `bytecode` into the body of a Brillig sibling function.
 ///
-/// Each opcode is converted to a [`BrilligHandler`](super::handlers::BrilligHandler)
-/// trait object via [`build_handler`](super::handlers::build_handler), then
+/// Each opcode is converted to a [`BrilligHandler`](super::opcodes::BrilligHandler)
+/// trait object via [`build_handler`](super::opcodes::build_handler), then
 /// executed against the shared [`TranslationCtx`]. On `Stop` (or
 /// end-of-bytecode) the translator returns the SSA values the caller
 /// should pass to `function.return`.

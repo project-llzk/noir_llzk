@@ -18,7 +18,7 @@ const MAIN_STRUCT_NAME: &str = "Circuit0";
 /// Translates an ACIR `Program` into an LLZK `Module`.
 ///
 /// Creates the root `module attributes {llzk.lang = "ACIR"}`, translates
-/// every circuit in `program.functions`, and finally emits one
+/// every circuit in `program.functions`, and emits one
 /// module-level `@brillig_{id}` function per unique `BrilligFunctionId`
 /// referenced across those circuits.
 pub fn translate_program<'c>(
