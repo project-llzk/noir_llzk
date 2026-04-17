@@ -1,7 +1,7 @@
 //! Tests for Milestone 3 Brillig translation, split by issue:
 //!
 //! - [`dispatch_tests`] — Issue 2 (BrilligCall handler skeleton, dispatch,
-//!   predicate rejection, input-marshalling stubs, module-level dedup).
+//!   predicate gating, input-marshalling stubs, module-level dedup).
 //! - [`register_tests`] — Issue 3 (register-machine opcodes: Const / Mov /
 //!   Cast / CMov).
 //! - [`binary_op_tests`] — Issue 4 (BinaryFieldOp and BinaryIntOp).

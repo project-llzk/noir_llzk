@@ -19,7 +19,6 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
-    common::is_trivial_predicate,
     opcodes::{
         TranslatedOpcode,
         assert_zero::AssertZero,
@@ -224,12 +223,6 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     self.program.unconstrained_functions.len(),
                 ),
             })?;
-
-        if !is_trivial_predicate(predicate) {
-            return Err(Error::UnsupportedBrillig {
-                reason: "predicate-gated brillig".into(),
-            });
-        }
 
         let felt_ty: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
 

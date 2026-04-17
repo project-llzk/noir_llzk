@@ -6,9 +6,9 @@
 //! `BrilligFunctionId` after all circuits have been translated — see
 //! [`registry::emit_brillig_functions`].
 //!
-//! Call-site validation (predicate trivial, marshalling shapes supported)
-//! happens at handler construction in [`crate::circuit::CircuitTranslator`]
-//! so that the registry only ever sees well-formed entries.
+//! Call-site validation (marshalling shapes supported) happens at handler
+//! construction in [`crate::circuit::CircuitTranslator`] so that the
+//! registry only ever sees well-formed entries.
 
 pub(crate) mod handlers;
 pub(crate) mod registry;
@@ -26,7 +26,7 @@ use llzk::prelude::{ArrayType, IntegerAttribute, Type, Value, ValueLike};
 
 use crate::{
     block_writer::BlockWriter,
-    common::{collect_witnesses, emit_expression},
+    common::{collect_witnesses, emit_expression, is_trivial_predicate},
     error::Error,
     opcodes::OpcodeEmitter,
 };
@@ -35,9 +35,9 @@ use self::registry::BrilligRegistry;
 
 /// Translator for a single `Opcode::BrilligCall`.
 ///
-/// Shape validation (predicate, input/output marshalling) is performed at
-/// construction time by [`crate::circuit::CircuitTranslator::build_handler`],
-/// so `emit_compute` can emit without re-checking.
+/// Shape validation (input/output marshalling) is performed at construction
+/// time by [`crate::circuit::CircuitTranslator::build_handler`], so
+/// `emit_compute` can emit without re-checking.
 pub(crate) struct BrilligCall<'p> {
     id: BrilligFunctionId,
     inputs: &'p [BrilligInputs<FieldElement>],
@@ -97,13 +97,24 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
     /// 1. Each `Single` input expression evaluated to an SSA value.
     /// 2. `function.call @brillig_{id}(args)` — the callee body is built
     ///    later by [`registry::emit_brillig_functions`].
-    /// 3. For each `Simple` output, writes the returned value into `%self`
+    /// 3. For each `Simple` output, gates the returned value by the
+    ///    predicate (`predicate * result`) when the predicate is
+    ///    non-trivial, then writes the (possibly gated) value into `%self`
     ///    and marks the witness known.
     ///
-    /// Inputs/outputs must be `Single`/`Simple`; the predicate must be
-    /// trivial. Those are enforced at handler construction.
+    /// When the predicate is trivially `1`, outputs are written directly
+    /// (no multiplication overhead). When the predicate evaluates to `0`,
+    /// all outputs become zero — matching the ACVM's skip-and-zero
+    /// semantics for predicate-gated Brillig calls.
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let felt_ty = writer.felt_type();
+
+        // Evaluate the predicate once (only when non-trivial).
+        let pred_val = if is_trivial_predicate(self.predicate) {
+            None
+        } else {
+            Some(emit_expression(writer, self.predicate)?)
+        };
 
         let mut input_args: Vec<Value<'c, 'b>> = Vec::new();
         for input in self.inputs {
@@ -171,8 +182,12 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
 
         for (i, w_idx) in output_witnesses.iter().enumerate() {
             let ret: Value<'c, 'b> = call.result(i)?.into();
-            writer.write_member(&format!("w{w_idx}"), ret)?;
-            writer.mark_known(*w_idx, ret);
+            let gated = match pred_val {
+                None => ret,
+                Some(p) => writer.insert_mul(p, ret)?,
+            };
+            writer.write_member(&format!("w{w_idx}"), gated)?;
+            writer.mark_known(*w_idx, gated);
         }
 
         Ok(())

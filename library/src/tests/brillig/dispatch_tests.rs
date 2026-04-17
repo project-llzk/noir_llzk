@@ -2,7 +2,7 @@
 //!
 //! These cover the shell of the translator — the sibling function exists on
 //! the struct with `allow_witness = true`, the call site shows up in
-//! `@compute`, and every unsupported Brillig construct (opcodes, predicates,
+//! `@compute`, and every unsupported Brillig construct (opcodes,
 //! marshalling shapes) returns an actionable `UnsupportedBrillig` error.
 
 use acir::brillig::Opcode as BrilligOpcode;
@@ -19,7 +19,8 @@ use super::super::{
     make_program_with_brillig, print_and_verify_module,
 };
 use super::{
-    brillig_call_opcode, brillig_stop, bytecode, count_brillig_fns, find_brillig_fn, single_witness,
+    brillig_call_opcode, brillig_stop, bytecode, const_field, const_int, count_brillig_fns,
+    find_brillig_fn, single_witness, store,
 };
 use crate::Error;
 use crate::program::translate_program;
@@ -90,9 +91,11 @@ fn brillig_dispatch_routes_to_handler() {
     );
 }
 
-/// A non-trivial predicate on `BrilligCall` is rejected with a clear error.
+/// A non-trivial predicate on `BrilligCall` with no outputs succeeds —
+/// the predicate is accepted and evaluated, but no gating multiplication
+/// is needed because there are no output witnesses to gate.
 #[test]
-fn brillig_with_nontrivial_predicate_errors() {
+fn brillig_with_nontrivial_predicate_no_outputs() {
     let context = LlzkContext::new();
 
     let nontrivial = Expression {
@@ -109,17 +112,74 @@ fn brillig_with_nontrivial_predicate_errors() {
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![opcode]);
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
-    let err =
-        translate_program(&context, &program).expect_err("should reject non-trivial predicate");
-    let msg = format!("{err}");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
+    let module = translate_program(&context, &program)
+        .expect("non-trivial predicate with no outputs should succeed");
+    print_and_verify_module(&module, "brillig_nontrivial_predicate_no_outputs");
+}
+
+/// A non-trivial predicate on `BrilligCall` with an output gates the
+/// returned value via `predicate * brillig_result` in `@compute`, emitting
+/// a `felt.mul` for each output witness.
+#[test]
+fn brillig_with_nontrivial_predicate_gates_outputs() {
+    use acir::brillig::IntegerBitSize;
+
+    let context = LlzkContext::new();
+
+    // Predicate: w0 (a single witness, non-trivial).
+    let nontrivial = Expression {
+        mul_terms: vec![],
+        linear_combinations: vec![(FieldElement::one(), Witness(0))],
+        q_c: FieldElement::zero(),
+    };
+
+    // Brillig bytecode that stores a value into RAM and returns it:
+    //   r0 = 100 (pointer for return_data)
+    //   r1 = 1   (size for return_data)
+    //   r2 = 42  (the return value)
+    //   mem[100] = r2
+    //   Stop { return_data: { pointer: r0, size: r1 } }
+    let body = vec![
+        const_int(0, IntegerBitSize::U32, 100), // r0 = pointer
+        const_int(1, IntegerBitSize::U32, 1),   // r1 = size
+        const_field(2, 42),                      // r2 = return value
+        store(0, 2),                             // mem[r0] = r2
+        BrilligOpcode::Stop {
+            return_data: acir::brillig::HeapVector {
+                pointer: acir::brillig::MemoryAddress::Direct(0),
+                size: acir::brillig::MemoryAddress::Direct(1),
+            },
+        },
+    ];
+
+    let opcode = Opcode::BrilligCall {
+        id: BrilligFunctionId(0),
+        inputs: vec![],
+        outputs: vec![BrilligOutputs::Simple(Witness(1))],
+        predicate: nontrivial,
+    };
+    // w0 is the predicate witness (public input); w1 is the output.
+    let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
+    let program = make_program_with_brillig(vec![circuit], vec![bytecode(body)]);
+
+    let module = translate_program(&context, &program)
+        .expect("non-trivial predicate with outputs should succeed");
+
+    // Verify that @compute contains a `felt.mul` for the predicate gating.
+    let struct0 = first_struct_def(&module);
+    let compute_fn = struct0
+        .get_compute_func()
+        .expect("Circuit0 should have @compute");
+    let compute_block = compute_fn.region(0).unwrap().first_block().unwrap();
+    let felt_mul_count = iter_block_ops(compute_block)
+        .filter(|op| op.name().as_string_ref().as_str() == Ok("felt.mul"))
+        .count();
+    assert_eq!(
+        felt_mul_count, 1,
+        "@compute should contain exactly one felt.mul (the predicate gating)"
     );
-    assert!(
-        msg.contains("predicate"),
-        "error message should mention predicates, got {msg:?}"
-    );
+
+    print_and_verify_module(&module, "brillig_nontrivial_predicate_gates_outputs");
 }
 
 /// An unsupported Brillig opcode surfaces an `UnsupportedBrillig` error that
