@@ -10,6 +10,7 @@
 //! happens at handler construction in [`crate::circuit::CircuitTranslator`]
 //! so that the registry only ever sees well-formed entries.
 
+pub(crate) mod handlers;
 pub(crate) mod registry;
 pub(crate) mod regmap;
 pub(crate) mod translator;
@@ -21,7 +22,7 @@ use acir::{
     circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
     native_types::Expression,
 };
-use llzk::prelude::{Type, Value, ValueLike};
+use llzk::prelude::{ArrayType, IntegerAttribute, Type, Value, ValueLike};
 
 use crate::{
     block_writer::BlockWriter,
@@ -126,16 +127,12 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
                                     block_id.0
                                 ),
                             })?;
-                    let arr_ty =
-                        llzk::dialect::array::ArrayType::try_from(arr.r#type()).map_err(|_| {
-                            Error::UnsupportedBrillig {
-                                reason: format!(
-                                    "MemoryArray block {} has non-array type",
-                                    block_id.0
-                                ),
-                            }
-                        })?;
-                    let len = llzk::prelude::IntegerAttribute::try_from(arr_ty.dim(0))
+                    let arr_ty = ArrayType::try_from(arr.r#type()).map_err(|_| {
+                        Error::UnsupportedBrillig {
+                            reason: format!("MemoryArray block {} has non-array type", block_id.0),
+                        }
+                    })?;
+                    let len = IntegerAttribute::try_from(arr_ty.dim(0))
                         .map_err(|_| Error::UnsupportedBrillig {
                             reason: format!(
                                 "MemoryArray block {} has non-integer dimension",
