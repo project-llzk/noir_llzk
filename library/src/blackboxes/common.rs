@@ -23,3 +23,18 @@ pub(in crate::blackboxes) fn append_op_with_result<'c, 'a>(
 pub(in crate::blackboxes) fn felt_type<'c>(context: &'c llzk::prelude::LlzkContext) -> Type<'c> {
     FeltType::with_field(context, FIELD_NAME).into()
 }
+
+pub(in crate::blackboxes) fn block_args<'c, 'a, const N: usize>(
+    block: &'a Block<'c>,
+    offset: usize,
+) -> Result<[Value<'c, 'a>; N], Error> {
+    let vec: Vec<Value<'c, 'a>> = (0..N)
+        .map(|i| {
+            block
+                .argument(offset + i)
+                .map(Into::into)
+                .map_err(Error::from)
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(vec.try_into().unwrap_or_else(|_: Vec<_>| unreachable!()))
+}

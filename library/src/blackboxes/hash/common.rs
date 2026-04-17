@@ -114,14 +114,17 @@ pub(super) fn emit_wrapping_add<'c, 'a>(
     emit_and(cache.block, cache.location, sum, mask)
 }
 
-pub(super) fn emit_wrapping_add3<'c, 'a>(
+// Sum of N u32-ranged operands stays under N * 2^32, well within BN254's ~2^254
+// field, so the final `& word_mask` is the only truncation needed.
+pub(super) fn emit_wrapping_sum<'c, 'a>(
     cache: &mut ConstantCache<'c, 'a>,
-    a: Value<'c, 'a>,
-    b: Value<'c, 'a>,
-    c: Value<'c, 'a>,
+    operands: &[Value<'c, 'a>],
 ) -> Result<Value<'c, 'a>, Error> {
-    let sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, a, b)?)?;
-    let sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, sum, c)?)?;
+    let (first, rest) = operands.split_first().expect("at least one operand");
+    let mut sum = *first;
+    for &op in rest {
+        sum = append_op_with_result(cache.block, dialect::felt::add(cache.location, sum, op)?)?;
+    }
     let mask = cache.word_mask()?;
     emit_and(cache.block, cache.location, sum, mask)
 }
@@ -190,7 +193,7 @@ pub(super) fn emit_g<'c, 'a>(
     x: Value<'c, 'a>,
     y: Value<'c, 'a>,
 ) -> Result<(), Error> {
-    v[a] = emit_wrapping_add3(cache, v[a], v[b], x)?;
+    v[a] = emit_wrapping_sum(cache, &[v[a], v[b], x])?;
     v[d] = emit_rotr(
         cache,
         emit_xor(cache.block, cache.location, v[d], v[a])?,
@@ -202,7 +205,7 @@ pub(super) fn emit_g<'c, 'a>(
         emit_xor(cache.block, cache.location, v[b], v[c])?,
         12,
     )?;
-    v[a] = emit_wrapping_add3(cache, v[a], v[b], y)?;
+    v[a] = emit_wrapping_sum(cache, &[v[a], v[b], y])?;
     v[d] = emit_rotr(cache, emit_xor(cache.block, cache.location, v[d], v[a])?, 8)?;
     v[c] = emit_wrapping_add(cache, v[c], v[d])?;
     v[b] = emit_rotr(cache, emit_xor(cache.block, cache.location, v[b], v[c])?, 7)?;

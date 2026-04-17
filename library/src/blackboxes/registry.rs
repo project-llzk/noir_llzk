@@ -23,6 +23,7 @@ use super::hash::{
         BLAKE3_DIGEST_BYTES, blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper,
     },
     poseidon2::{POSEIDON2_HELPER_NAME, emit_poseidon2_helper},
+    sha256::{SHA256_HELPER_NAME, SHA256_STATE_WORDS, emit_sha256_helper},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,6 +33,7 @@ pub(crate) enum BlackboxFunction {
     Poseidon2Permutation,
     Blake2s { num_blocks: usize },
     Blake3 { num_blocks: usize },
+    Sha256Compression,
 }
 
 impl BlackboxFunction {
@@ -48,6 +50,7 @@ impl BlackboxFunction {
             Self::Poseidon2Permutation => POSEIDON2_HELPER_NAME.to_string(),
             Self::Blake2s { num_blocks } => blake2s_helper_name(num_blocks),
             Self::Blake3 { num_blocks } => blake3_helper_name(num_blocks),
+            Self::Sha256Compression => SHA256_HELPER_NAME.to_string(),
         }
     }
 
@@ -60,6 +63,7 @@ impl BlackboxFunction {
             Self::Poseidon2Permutation => emit_poseidon2_helper(context),
             Self::Blake2s { num_blocks } => emit_blake2s_helper(context, num_blocks),
             Self::Blake3 { num_blocks } => emit_blake3_helper(context, num_blocks),
+            Self::Sha256Compression => emit_sha256_helper(context),
         }
     }
 
@@ -70,6 +74,7 @@ impl BlackboxFunction {
             Self::Poseidon2Permutation => vec![felt; 4],
             Self::Blake2s { .. } => vec![felt; BLAKE2S_DIGEST_BYTES],
             Self::Blake3 { .. } => vec![felt; BLAKE3_DIGEST_BYTES],
+            Self::Sha256Compression => vec![felt; SHA256_STATE_WORDS],
         }
     }
 }
@@ -91,6 +96,14 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
         )
     }) {
         helpers.push(BlackboxFunction::Poseidon2Permutation);
+    }
+    if uses_blackbox(program, |op| {
+        matches!(
+            op,
+            Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Sha256Compression { .. })
+        )
+    }) {
+        helpers.push(BlackboxFunction::Sha256Compression);
     }
     helpers
 }

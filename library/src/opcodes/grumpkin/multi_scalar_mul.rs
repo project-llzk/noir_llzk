@@ -19,7 +19,7 @@ use crate::{
     block_writer::BlockWriter,
     common::emit_gated_eq,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input, validate_constant_fits},
 };
 
 const GRUMPKIN_SCALAR_MODULUS_BE: [u8; 32] = [
@@ -237,16 +237,6 @@ fn emit_gated_boolean<'c, 'b>(
     emit_gated_eq(writer, gate, product, zero)
 }
 
-fn validate_scalar_limb(input: &FunctionInput<FieldElement>, num_bits: u32) -> Result<(), Error> {
-    match input {
-        FunctionInput::Constant(c) if c.num_bits() > num_bits => Err(Error::ConstantOutOfRange {
-            value: *c,
-            num_bits,
-        }),
-        _ => Ok(()),
-    }
-}
-
 fn validate_multi_scalar_mul_inputs(
     points: &[FunctionInput<FieldElement>],
     scalars: &[FunctionInput<FieldElement>],
@@ -265,8 +255,8 @@ fn validate_multi_scalar_mul_inputs(
     }
 
     for chunk in scalars.chunks_exact(2) {
-        validate_scalar_limb(&chunk[0], SCALAR_LOW_BITS as u32)?;
-        validate_scalar_limb(&chunk[1], SCALAR_HIGH_BITS as u32)?;
+        validate_constant_fits(&chunk[0], SCALAR_LOW_BITS as u32)?;
+        validate_constant_fits(&chunk[1], SCALAR_HIGH_BITS as u32)?;
     }
 
     Ok(num_points)
