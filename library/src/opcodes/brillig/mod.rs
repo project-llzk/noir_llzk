@@ -10,10 +10,10 @@
 //! construction in [`crate::circuit::CircuitTranslator`] so that the
 //! registry only ever sees well-formed entries.
 
-pub(crate) mod memory;
-pub(crate) mod opcodes;
+mod memory;
+mod opcodes;
 pub(crate) mod registry;
-pub(crate) mod translator;
+mod translator;
 
 use std::collections::BTreeSet;
 

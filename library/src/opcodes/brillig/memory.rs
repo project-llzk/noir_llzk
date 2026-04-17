@@ -1,85 +1,92 @@
-//! Brillig memory model.
-//!
-//! Single chokepoint for every register and constant-tracker access —
-//! handlers go through this API instead of touching the underlying maps.
-//!
-//! `Relative(off)` resolves to `Direct(mem[0] + off)` at every access,
-//! where `mem[0]` is the Brillig stack pointer. SP must have been written
-//! as a known integer constant (via a `Const` to slot 0) before any
-//! `Relative` use; otherwise access fails with
-//! [`Error::UnresolvedStackPointer`].
+//! Brillig memory model backed by LLZK RAM.
 
 use std::collections::HashMap;
 
 use acir::brillig::MemoryAddress;
-use llzk::prelude::Value;
+use llzk::prelude::{Type, Value, ValueLike};
 
+use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-/// Slot 0: the Brillig stack pointer.
 const STACK_POINTER_ADDRESS: MemoryAddress = MemoryAddress::Direct(0);
 
-/// Brillig memory: register file + tracked integer constants.
-pub(crate) struct Memory<'c, 'b> {
-    regs: HashMap<MemoryAddress, Value<'c, 'b>>,
+pub(super) struct Memory<'c> {
+    /// LLZK type last written at each resolved slot; absent means undefined.
+    types: HashMap<MemoryAddress, Type<'c>>,
+    /// Translation-time integer constants (SP, calldata sizes, return-data metadata).
     known_constants: HashMap<MemoryAddress, usize>,
 }
 
-impl<'c, 'b> Memory<'c, 'b> {
-    pub(crate) fn new() -> Self {
+impl<'c> Memory<'c> {
+    pub(super) fn new() -> Self {
         Self {
-            regs: HashMap::new(),
+            types: HashMap::new(),
             known_constants: HashMap::new(),
         }
     }
 
-    /// Records `value` as the current SSA binding for `addr`.
-    pub(crate) fn write(
+    /// Emits a `ram.store` at the resolved slot and records the value's
+    /// type for later consistency checks.
+    pub(super) fn write<'b>(
         &mut self,
+        writer: &mut BrilligWriter<'c, 'b>,
         addr: MemoryAddress,
         value: Value<'c, 'b>,
     ) -> Result<(), Error> {
         let resolved = self.resolve(addr)?;
-        self.regs.insert(resolved, value);
+        self.types.insert(resolved, value.r#type());
+        emit_store(writer, direct_slot(resolved), value)?;
         Ok(())
     }
 
-    /// Returns the current SSA binding for `addr`, or
-    /// [`Error::UndefinedRegister`] if nothing has been written yet.
-    pub(crate) fn read(
-        &self,
+    /// Emits a `ram.load` at the resolved slot with the caller-specified
+    /// `expected` type.
+    ///
+    /// In debug builds, asserts that `expected` matches the type the slot
+    /// was last written as. Noir is expected to preserve type consistency
+    /// at every slot; a mismatch indicates a translator or upstream bug.
+    pub(super) fn read<'b>(
+        &mut self,
+        writer: &mut BrilligWriter<'c, 'b>,
+        addr: MemoryAddress,
+        expected: Type<'c>,
+        opcode_index: usize,
+    ) -> Result<Value<'c, 'b>, Error> {
+        let resolved = self.resolve(addr)?;
+        let stored = self.lookup_type(resolved, opcode_index)?;
+        debug_assert!(
+            stored == expected,
+            "Brillig type consistency violated at {resolved:?}: stored {stored:?}, read as {expected:?}"
+        );
+        emit_load(writer, direct_slot(resolved), expected)
+    }
+
+    /// Emits a `ram.load` using whatever type was last stored at the slot.
+    ///
+    /// For opcodes that shuttle values without knowing their type
+    pub(super) fn read_inferred<'b>(
+        &mut self,
+        writer: &mut BrilligWriter<'c, 'b>,
         addr: MemoryAddress,
         opcode_index: usize,
     ) -> Result<Value<'c, 'b>, Error> {
         let resolved = self.resolve(addr)?;
-        self.regs
-            .get(&resolved)
-            .copied()
-            .ok_or(Error::UndefinedRegister {
-                addr: resolved.to_u32() as usize,
-                opcode_index,
-            })
+        let ty = self.lookup_type(resolved, opcode_index)?;
+        emit_load(writer, direct_slot(resolved), ty)
     }
 
     /// Records a translation-time integer constant for `addr`.
     ///
-    /// Used by handlers that emit a constant write (`Const`) to remember
-    /// the integer value, so that later opcodes which need a compile-time
-    /// integer (e.g. `CalldataCopy` size/offset, `Stop` return_data
-    /// pointer/size, `Relative` resolution) can look it back up via
-    /// [`Self::get_const`].
-    pub(crate) fn record_const(
-        &mut self,
-        addr: MemoryAddress,
-        value: usize,
-    ) -> Result<(), Error> {
+    /// Independent of the SSA / RAM state: used for slots whose value is
+    /// known at compile time and needed for IR emission.
+    pub(super) fn record_const(&mut self, addr: MemoryAddress, value: usize) -> Result<(), Error> {
         let resolved = self.resolve(addr)?;
         self.known_constants.insert(resolved, value);
         Ok(())
     }
 
     /// Returns the translation-time integer constant for `addr`, if any.
-    pub(crate) fn get_const(&self, addr: MemoryAddress) -> Result<Option<usize>, Error> {
+    pub(super) fn get_const(&self, addr: MemoryAddress) -> Result<Option<usize>, Error> {
         let resolved = self.resolve(addr)?;
         Ok(self.known_constants.get(&resolved).copied())
     }
@@ -102,4 +109,40 @@ impl<'c, 'b> Memory<'c, 'b> {
             }
         }
     }
+
+    fn lookup_type(&self, resolved: MemoryAddress, opcode_index: usize) -> Result<Type<'c>, Error> {
+        self.types
+            .get(&resolved)
+            .copied()
+            .ok_or(Error::UndefinedRegister {
+                addr: resolved.to_u32() as usize,
+                opcode_index,
+            })
+    }
+}
+
+fn direct_slot(addr: MemoryAddress) -> usize {
+    let MemoryAddress::Direct(slot) = addr else {
+        unreachable!("resolve() only returns Direct");
+    };
+    slot as usize
+}
+
+fn emit_load<'c, 'b>(
+    writer: &mut BrilligWriter<'c, 'b>,
+    slot: usize,
+    ty: Type<'c>,
+) -> Result<Value<'c, 'b>, Error> {
+    let idx = writer.insert_integer(slot)?;
+    writer.insert_ram_load(idx, ty)
+}
+
+fn emit_store<'c, 'b>(
+    writer: &mut BrilligWriter<'c, 'b>,
+    slot: usize,
+    value: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let idx = writer.insert_integer(slot)?;
+    writer.insert_ram_store(idx, value);
+    Ok(())
 }

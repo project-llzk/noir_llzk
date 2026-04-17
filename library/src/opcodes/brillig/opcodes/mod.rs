@@ -41,7 +41,7 @@ use self::store::StoreHandler;
 ///
 /// Handlers receive the shared [`TranslationCtx`] which provides helper
 /// methods for common operations (constant emission, type casts, etc.).
-pub(crate) trait BrilligHandler<'a> {
+pub(super) trait BrilligHandler<'a> {
     fn execute<'c, 'b>(
         &self,
         ctx: &mut TranslationCtx<'c, 'b, '_>,
@@ -50,10 +50,10 @@ pub(crate) trait BrilligHandler<'a> {
 }
 
 /// Boxed trait object so the translate loop stays uniform.
-pub(crate) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
+pub(super) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
 
 /// Converts a single `BrilligOpcode` into a boxed handler.
-pub(crate) fn build_handler<'a>(
+pub(super) fn build_handler<'a>(
     index: usize,
     op: &'a acir::brillig::Opcode<FieldElement>,
 ) -> Result<TranslatedBrilligOp<'a>, Error> {

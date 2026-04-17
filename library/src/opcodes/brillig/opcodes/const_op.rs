@@ -6,7 +6,7 @@ use crate::error::Error;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
-pub(crate) struct ConstHandler<'a> {
+pub(super) struct ConstHandler<'a> {
     pub destination: MemoryAddress,
     pub bit_size: &'a BitSize,
     pub value: &'a FieldElement,
@@ -24,7 +24,7 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
             ctx.memory.record_const(self.destination, v as usize)?;
         }
         let ssa = ctx.emit_const(self.bit_size, self.value)?;
-        ctx.memory.write(self.destination, ssa)?;
+        ctx.memory.write(ctx.writer, self.destination, ssa)?;
         Ok(OpcodeAction::Continue)
     }
 }

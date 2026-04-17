@@ -3,7 +3,7 @@ use crate::error::Error;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
-pub(crate) struct StopHandler<'a> {
+pub(super) struct StopHandler<'a> {
     pub return_data: &'a acir::brillig::HeapVector,
 }
 

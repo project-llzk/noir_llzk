@@ -5,7 +5,7 @@ use crate::error::Error;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
-pub(crate) struct CalldataCopyHandler {
+pub(super) struct CalldataCopyHandler {
     pub destination_address: MemoryAddress,
     pub size_address: MemoryAddress,
     pub offset_address: MemoryAddress,
@@ -52,9 +52,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         for j in 0..size {
             let addr = MemoryAddress::Direct((dst_base + j) as u32);
             let val = ctx.calldata[offset + j];
-            ctx.memory.write(addr, val)?;
-            let idx = ctx.writer.insert_integer(dst_base + j)?;
-            ctx.writer.insert_ram_store(idx, val);
+            ctx.memory.write(ctx.writer, addr, val)?;
         }
         Ok(OpcodeAction::Continue)
     }

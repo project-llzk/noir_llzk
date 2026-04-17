@@ -5,7 +5,7 @@
 //! opcode via [`build_handler`](super::opcodes::build_handler) and executes
 //! it against the shared [`TranslationCtx`].
 
-use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize};
+use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, MemoryAddress};
 use acir::circuit::brillig::BrilligBytecode;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::melior_dialects::arith::CmpiPredicate;
@@ -34,7 +34,7 @@ pub(crate) enum OpcodeAction<'c, 'b> {
 /// the function's calldata.
 pub(crate) struct TranslationCtx<'c, 'b, 'r> {
     pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) memory: Memory<'c, 'b>,
+    pub(crate) memory: Memory<'c>,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
 }
@@ -44,7 +44,7 @@ pub(crate) struct TranslationCtx<'c, 'b, 'r> {
 impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     /// Emits a constant op. Field constants become `felt.const`; integer
     /// constants become `arith.constant` with the matching `iN` type.
-    pub(crate) fn emit_const(
+    pub(super) fn emit_const(
         &mut self,
         bit_size: &BitSize,
         value: &FieldElement,
@@ -77,7 +77,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     ///
     /// Supports the full matrix of felt ↔ `iN` conversions and integer
     /// width changes (`arith.trunci` / `arith.extui`).
-    pub(crate) fn emit_cast(
+    pub(super) fn emit_cast(
         &mut self,
         src: Value<'c, 'b>,
         target_bit_size: &BitSize,
@@ -121,7 +121,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     }
 
     /// Emits the LLZK op for a `BinaryFieldOp`.
-    pub(crate) fn emit_binary_field_op(
+    pub(super) fn emit_binary_field_op(
         &self,
         op: &BinaryFieldOp,
         lhs: Value<'c, 'b>,
@@ -140,7 +140,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     }
 
     /// Emits the LLZK op for a `BinaryIntOp`.
-    pub(crate) fn emit_binary_int_op(
+    pub(super) fn emit_binary_int_op(
         &self,
         op: &BinaryIntOp,
         lhs: Value<'c, 'b>,
@@ -168,7 +168,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     /// Returns an `UnsupportedBrillig` error on mismatch so that
     /// width disagreements between the opcode and the register map are
     /// caught early rather than surfacing as opaque LLZK verification failures.
-    pub(crate) fn check_int_width(
+    pub(super) fn check_int_width(
         &self,
         val: Value<'c, 'b>,
         expected_bits: u32,
@@ -193,7 +193,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     }
 
     /// Converts `val` to `index` type for `ram.load`/`ram.store` addresses.
-    pub(crate) fn cast_to_index(&mut self, val: Value<'c, 'b>) -> Result<Value<'c, 'b>, Error> {
+    pub(super) fn cast_to_index(&mut self, val: Value<'c, 'b>) -> Result<Value<'c, 'b>, Error> {
         let ty = val.r#type();
         if ty == self.writer.index_type() {
             return Ok(val);
@@ -207,24 +207,25 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
 
     /// Reads the `Stop` opcode's `return_data` HeapVector and emits
     /// `ram.load` ops for each return slot.
-    pub(crate) fn emit_return_data(
+    pub(super) fn emit_return_data(
         &mut self,
-        return_data: &acir::brillig::HeapVector,
+        return_data: &HeapVector,
         opcode_index: usize,
     ) -> Result<Vec<Value<'c, 'b>>, Error> {
         if self.expected_output_count == 0 {
             return Ok(Vec::new());
         }
 
-        let size = self.memory.get_const(return_data.size)?.ok_or_else(|| {
-            Error::UnsupportedBrillig {
-                reason: format!(
-                    "Stop at bytecode index {opcode_index}: return_data size register {} \
+        let size =
+            self.memory
+                .get_const(return_data.size)?
+                .ok_or_else(|| Error::UnsupportedBrillig {
+                    reason: format!(
+                        "Stop at bytecode index {opcode_index}: return_data size register {} \
                      is not a known integer constant",
-                    return_data.size.to_u32()
-                ),
-            }
-        })?;
+                        return_data.size.to_u32()
+                    ),
+                })?;
         let pointer = self.memory.get_const(return_data.pointer)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
@@ -248,8 +249,8 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         let felt_ty = self.writer.felt_type();
         let mut returns = Vec::with_capacity(size);
         for j in 0..size {
-            let addr = self.writer.insert_integer(pointer + j)?;
-            let val = self.writer.insert_ram_load(addr, felt_ty)?;
+            let addr = MemoryAddress::Direct((pointer + j) as u32);
+            let val = self.memory.read(self.writer, addr, felt_ty, opcode_index)?;
             returns.push(val);
         }
         Ok(returns)
@@ -269,7 +270,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
 /// `calldata` carries the function's block arguments in the order dictated by
 /// the flattened `BrilligInputs`. `CalldataCopy` opcodes in the bytecode read
 /// from this slice to seed the register map.
-pub(crate) fn translate_bytecode<'c, 'b>(
+pub(super) fn translate_bytecode<'c, 'b>(
     writer: &mut BrilligWriter<'c, 'b>,
     bytecode: &BrilligBytecode<FieldElement>,
     calldata: &[Value<'c, 'b>],

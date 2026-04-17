@@ -5,7 +5,7 @@ use crate::error::Error;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
-pub(crate) struct BinaryIntOpHandler<'a> {
+pub(super) struct BinaryIntOpHandler<'a> {
     pub destination: MemoryAddress,
     pub op: &'a BinaryIntOp,
     pub bit_size: IntegerBitSize,
@@ -19,13 +19,18 @@ impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let lhs_v = ctx.memory.read(self.lhs, opcode_index)?;
-        let rhs_v = ctx.memory.read(self.rhs, opcode_index)?;
         let expected_bits = u32::from(self.bit_size);
+        let int_ty = ctx.writer.integer_type(expected_bits);
+        let lhs_v = ctx
+            .memory
+            .read(ctx.writer, self.lhs, int_ty, opcode_index)?;
+        let rhs_v = ctx
+            .memory
+            .read(ctx.writer, self.rhs, int_ty, opcode_index)?;
         ctx.check_int_width(lhs_v, expected_bits, opcode_index)?;
         ctx.check_int_width(rhs_v, expected_bits, opcode_index)?;
         let result = ctx.emit_binary_int_op(self.op, lhs_v, rhs_v)?;
-        ctx.memory.write(self.destination, result)?;
+        ctx.memory.write(ctx.writer, self.destination, result)?;
         Ok(OpcodeAction::Continue)
     }
 }
