@@ -20,7 +20,7 @@ impl BrilligHandler<'_> for LoadHandler {
         let ptr_idx = ctx.cast_to_index(ptr)?;
         let felt_ty = ctx.writer.felt_type();
         let val = ctx.writer.insert_ram_load(ptr_idx, felt_ty)?;
-        ctx.memory.write(self.destination, val);
+        ctx.memory.write(self.destination, val)?;
         Ok(OpcodeAction::Continue)
     }
 }

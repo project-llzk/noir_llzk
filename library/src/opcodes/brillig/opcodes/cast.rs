@@ -19,7 +19,7 @@ impl<'a> BrilligHandler<'a> for CastHandler<'a> {
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
         let src = ctx.memory.read(self.source, opcode_index)?;
         let casted = ctx.emit_cast(src, self.bit_size)?;
-        ctx.memory.write(self.destination, casted);
+        ctx.memory.write(self.destination, casted)?;
         Ok(OpcodeAction::Continue)
     }
 }

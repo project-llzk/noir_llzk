@@ -216,7 +216,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             return Ok(Vec::new());
         }
 
-        let size = self.memory.get_const(return_data.size).ok_or_else(|| {
+        let size = self.memory.get_const(return_data.size)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "Stop at bytecode index {opcode_index}: return_data size register {} \
@@ -225,7 +225,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
                 ),
             }
         })?;
-        let pointer = self.memory.get_const(return_data.pointer).ok_or_else(|| {
+        let pointer = self.memory.get_const(return_data.pointer)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "Stop at bytecode index {opcode_index}: return_data pointer register {} \

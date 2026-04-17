@@ -17,7 +17,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         i: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let size = ctx.memory.get_const(self.size_address).ok_or_else(|| {
+        let size = ctx.memory.get_const(self.size_address)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "CalldataCopy at bytecode index {i}: size register {} \
@@ -26,7 +26,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
                 ),
             }
         })?;
-        let offset = ctx.memory.get_const(self.offset_address).ok_or_else(|| {
+        let offset = ctx.memory.get_const(self.offset_address)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
                     "CalldataCopy at bytecode index {i}: offset register {} \
@@ -45,12 +45,15 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
                 ),
             });
         }
-        let dst_base = self.destination_address.to_u32();
+        let MemoryAddress::Direct(dst_base) = ctx.memory.resolve(self.destination_address)? else {
+            unreachable!("Memory::resolve only returns Direct");
+        };
+        let dst_base = dst_base as usize;
         for j in 0..size {
-            let addr = MemoryAddress::Direct(dst_base + j as u32);
+            let addr = MemoryAddress::Direct((dst_base + j) as u32);
             let val = ctx.calldata[offset + j];
-            ctx.memory.write(addr, val);
-            let idx = ctx.writer.insert_integer(dst_base as usize + j)?;
+            ctx.memory.write(addr, val)?;
+            let idx = ctx.writer.insert_integer(dst_base + j)?;
             ctx.writer.insert_ram_store(idx, val);
         }
         Ok(OpcodeAction::Continue)

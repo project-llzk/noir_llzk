@@ -28,6 +28,7 @@ mod binary_op_tests;
 mod dispatch_tests;
 mod heap_tests;
 mod register_tests;
+mod relative_addressing_tests;
 
 // ── Bytecode / opcode constructors ─────────────────────────────────────
 
@@ -68,6 +69,10 @@ pub(super) fn single_witness(w: u32) -> BrilligInputs<FieldElement> {
 
 pub(super) fn addr(i: u32) -> MemoryAddress {
     MemoryAddress::Direct(i)
+}
+
+pub(super) fn rel(offset: u32) -> MemoryAddress {
+    MemoryAddress::Relative(offset)
 }
 
 pub(super) fn const_field(dst: u32, value: u128) -> BrilligOpcode<FieldElement> {

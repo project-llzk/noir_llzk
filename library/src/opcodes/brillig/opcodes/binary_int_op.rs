@@ -25,7 +25,7 @@ impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
         ctx.check_int_width(lhs_v, expected_bits, opcode_index)?;
         ctx.check_int_width(rhs_v, expected_bits, opcode_index)?;
         let result = ctx.emit_binary_int_op(self.op, lhs_v, rhs_v)?;
-        ctx.memory.write(self.destination, result);
+        ctx.memory.write(self.destination, result)?;
         Ok(OpcodeAction::Continue)
     }
 }

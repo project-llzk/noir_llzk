@@ -17,7 +17,7 @@ impl BrilligHandler<'_> for MovHandler {
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
         let src = ctx.memory.read(self.source, opcode_index)?;
-        ctx.memory.write(self.destination, src);
+        ctx.memory.write(self.destination, src)?;
         Ok(OpcodeAction::Continue)
     }
 }

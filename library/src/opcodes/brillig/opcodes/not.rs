@@ -26,7 +26,7 @@ impl BrilligHandler<'_> for NotHandler {
         };
         let all_ones = ctx.writer.insert_arith_int_constant(num_bits, mask)?;
         let result = ctx.writer.insert_arith_xori(src, all_ones)?;
-        ctx.memory.write(self.destination, result);
+        ctx.memory.write(self.destination, result)?;
         Ok(OpcodeAction::Continue)
     }
 }

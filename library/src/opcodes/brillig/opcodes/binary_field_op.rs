@@ -21,7 +21,7 @@ impl<'a> BrilligHandler<'a> for BinaryFieldOpHandler<'a> {
         let lhs_v = ctx.memory.read(self.lhs, opcode_index)?;
         let rhs_v = ctx.memory.read(self.rhs, opcode_index)?;
         let result = ctx.emit_binary_field_op(self.op, lhs_v, rhs_v)?;
-        ctx.memory.write(self.destination, result);
+        ctx.memory.write(self.destination, result)?;
         Ok(OpcodeAction::Continue)
     }
 }

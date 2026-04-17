@@ -32,6 +32,13 @@ pub enum Error {
         /// The bytecode index of the opcode that performed the read.
         opcode_index: usize,
     },
+    /// A Brillig opcode used a `Relative` memory address, but slot 0
+    /// (the stack pointer) has not been tracked as a known integer
+    /// constant, so the address cannot be resolved at translation time.
+    UnresolvedStackPointer {
+        /// The offset portion of the `Relative` address.
+        offset: u32,
+    },
     /// A `Call` opcode references a circuit index that does not exist in the program.
     OutOfRangeCallTarget {
         /// The out-of-range circuit index that was requested.
@@ -70,6 +77,12 @@ impl fmt::Display for Error {
                 f,
                 "Brillig opcode at bytecode index {opcode_index} reads \
                  undefined register {addr}"
+            ),
+            Error::UnresolvedStackPointer { offset } => write!(
+                f,
+                "Brillig opcode uses Relative({offset}) but slot 0 \
+                 (stack pointer) has not been initialised with a \
+                 known integer constant"
             ),
             Error::OutOfRangeCallTarget { id, num_circuits } => write!(
                 f,
