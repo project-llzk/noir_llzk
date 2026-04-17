@@ -92,13 +92,12 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             (true, true, _) => Ok(src),
             (false, false, BitSize::Integer(int_size)) => {
                 let dst_bits = u32::from(*int_size);
-                let src_bits =
-                    integer_width(src_ty).ok_or_else(|| Error::UnsupportedBrillig {
-                        reason: format!(
-                            "Cast source has non-integer type `{src_ty}`; integer width \
+                let src_bits = integer_width(src_ty).ok_or_else(|| Error::UnsupportedBrillig {
+                    reason: format!(
+                        "Cast source has non-integer type `{src_ty}`; integer width \
                              conversion requires an integer-typed source"
-                        ),
-                    })?;
+                    ),
+                })?;
                 if src_bits == dst_bits {
                     return Ok(src);
                 }
@@ -155,13 +154,9 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             BinaryIntOp::Mul => self.writer.insert_arith_muli(lhs, rhs),
             BinaryIntOp::Div => self.writer.insert_arith_divui(lhs, rhs),
             BinaryIntOp::Equals => self.writer.insert_arith_cmpi(CmpiPredicate::Eq, lhs, rhs),
-            BinaryIntOp::LessThan => {
-                self.writer
-                    .insert_arith_cmpi(CmpiPredicate::Ult, lhs, rhs)
-            }
+            BinaryIntOp::LessThan => self.writer.insert_arith_cmpi(CmpiPredicate::Ult, lhs, rhs),
             BinaryIntOp::LessThanEquals => {
-                self.writer
-                    .insert_arith_cmpi(CmpiPredicate::Ule, lhs, rhs)
+                self.writer.insert_arith_cmpi(CmpiPredicate::Ule, lhs, rhs)
             }
             BinaryIntOp::And => self.writer.insert_arith_andi(lhs, rhs),
             BinaryIntOp::Or => self.writer.insert_arith_ori(lhs, rhs),
@@ -200,10 +195,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     }
 
     /// Converts `val` to `index` type for `ram.load`/`ram.store` addresses.
-    pub(crate) fn cast_to_index(
-        &mut self,
-        val: Value<'c, 'b>,
-    ) -> Result<Value<'c, 'b>, Error> {
+    pub(crate) fn cast_to_index(&mut self, val: Value<'c, 'b>) -> Result<Value<'c, 'b>, Error> {
         let ty = val.r#type();
         if ty == self.writer.index_type() {
             return Ok(val);
@@ -226,16 +218,15 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             return Ok(Vec::new());
         }
 
-        let size = *self
-            .known_constants
-            .get(&return_data.size)
-            .ok_or_else(|| Error::UnsupportedBrillig {
+        let size = *self.known_constants.get(&return_data.size).ok_or_else(|| {
+            Error::UnsupportedBrillig {
                 reason: format!(
                     "Stop at bytecode index {opcode_index}: return_data size register {} \
                      is not a known integer constant",
                     return_data.size.to_u32()
                 ),
-            })?;
+            }
+        })?;
         let pointer = *self
             .known_constants
             .get(&return_data.pointer)

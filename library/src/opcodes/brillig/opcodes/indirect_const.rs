@@ -1,5 +1,5 @@
-use acir::brillig::{BitSize, MemoryAddress};
 use acir::FieldElement;
+use acir::brillig::{BitSize, MemoryAddress};
 
 use crate::error::Error;
 

@@ -142,8 +142,8 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
     let body = vec![
         const_int(0, IntegerBitSize::U32, 100), // r0 = pointer
         const_int(1, IntegerBitSize::U32, 1),   // r1 = size
-        const_field(2, 42),                      // r2 = return value
-        store(0, 2),                             // mem[r0] = r2
+        const_field(2, 42),                     // r2 = return value
+        store(0, 2),                            // mem[r0] = r2
         BrilligOpcode::Stop {
             return_data: acir::brillig::HeapVector {
                 pointer: acir::brillig::MemoryAddress::Direct(0),

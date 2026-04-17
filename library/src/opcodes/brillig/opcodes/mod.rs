@@ -6,8 +6,8 @@
 //! right handler for an opcode, mirroring the `build_handler` →
 //! `Box<dyn OpcodeEmitter>` pattern used for ACIR opcodes.
 
-use acir::brillig::Opcode as B;
 use acir::FieldElement;
+use acir::brillig::Opcode as B;
 
 use crate::error::Error;
 
