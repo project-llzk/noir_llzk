@@ -16,6 +16,8 @@ use crate::error::Error;
 
 use super::memory::Memory;
 use super::opcodes::build_handler;
+use super::type_inference::infer_types;
+use crate::brillig_writer::is_felt_type;
 
 // ── Core types ─────────────────────────────────────────────────────────
 
@@ -34,7 +36,7 @@ pub(crate) enum OpcodeAction<'c, 'b> {
 /// the function's calldata.
 pub(crate) struct TranslationCtx<'c, 'b, 'r> {
     pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) memory: Memory<'c>,
+    pub(crate) memory: Memory,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
 }
@@ -192,19 +194,6 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         Ok(())
     }
 
-    /// Converts `val` to `index` type for `ram.load`/`ram.store` addresses.
-    pub(super) fn cast_to_index(&mut self, val: Value<'c, 'b>) -> Result<Value<'c, 'b>, Error> {
-        let ty = val.r#type();
-        if ty == self.writer.index_type() {
-            return Ok(val);
-        }
-        if is_felt_type(ty) {
-            return self.writer.insert_cast_to_index(val);
-        }
-        let index_ty = self.writer.index_type();
-        self.writer.insert_arith_index_cast(val, index_ty)
-    }
-
     /// Reads the `Stop` opcode's `return_data` HeapVector and emits
     /// `ram.load` ops for each return slot.
     pub(super) fn emit_return_data(
@@ -246,11 +235,12 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             });
         }
 
-        let felt_ty = self.writer.felt_type();
         let mut returns = Vec::with_capacity(size);
         for j in 0..size {
             let addr = MemoryAddress::Direct((pointer + j) as u32);
-            let val = self.memory.read(self.writer, addr, felt_ty, opcode_index)?;
+            let val = self
+                .memory
+                .read_constant_address(self.writer, addr, BitSize::Field)?;
             returns.push(val);
         }
         Ok(returns)
@@ -276,9 +266,10 @@ pub(super) fn translate_bytecode<'c, 'b>(
     calldata: &[Value<'c, 'b>],
     expected_output_count: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
+    let inferred = infer_types(&bytecode.bytecode)?;
     let mut ctx = TranslationCtx {
         writer,
-        memory: Memory::new(),
+        memory: Memory::new(inferred),
         calldata,
         expected_output_count,
     };
@@ -304,11 +295,6 @@ pub(super) fn translate_bytecode<'c, 'b>(
 }
 
 // ── Utility functions ──────────────────────────────────────────────────
-
-/// Treats any type whose textual form starts with `!felt.` as a felt type.
-fn is_felt_type(ty: Type<'_>) -> bool {
-    format!("{ty}").starts_with("!felt.")
-}
 
 /// Returns the bit width of an integer-typed `ty`, or `None` if not integer.
 fn integer_width(ty: Type<'_>) -> Option<u32> {

@@ -14,6 +14,7 @@ mod memory;
 mod opcodes;
 pub(crate) mod registry;
 mod translator;
+mod type_inference;
 
 use std::collections::BTreeSet;
 

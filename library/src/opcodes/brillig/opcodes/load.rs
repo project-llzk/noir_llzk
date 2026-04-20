@@ -1,4 +1,4 @@
-use acir::brillig::MemoryAddress;
+use acir::brillig::{BitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -16,13 +16,11 @@ impl BrilligHandler<'_> for LoadHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let ptr = ctx
+        let val = ctx
             .memory
-            .read_inferred(ctx.writer, self.source_pointer, opcode_index)?;
-        let ptr_idx = ctx.cast_to_index(ptr)?;
-        let felt_ty = ctx.writer.felt_type();
-        let val = ctx.writer.insert_ram_load(ptr_idx, felt_ty)?;
-        ctx.memory.write(ctx.writer, self.destination, val)?;
+            .read_dynamic_address(ctx.writer, self.source_pointer, opcode_index)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, val, BitSize::Field)?;
         Ok(OpcodeAction::Continue)
     }
 }

@@ -1,4 +1,4 @@
-use acir::brillig::{BinaryIntOp, IntegerBitSize, MemoryAddress};
+use acir::brillig::{BinaryIntOp, BitSize, IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -19,18 +19,19 @@ impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
+        let expected = BitSize::Integer(self.bit_size);
         let expected_bits = u32::from(self.bit_size);
-        let int_ty = ctx.writer.integer_type(expected_bits);
         let lhs_v = ctx
             .memory
-            .read(ctx.writer, self.lhs, int_ty, opcode_index)?;
+            .read_constant_address(ctx.writer, self.lhs, expected)?;
         let rhs_v = ctx
             .memory
-            .read(ctx.writer, self.rhs, int_ty, opcode_index)?;
+            .read_constant_address(ctx.writer, self.rhs, expected)?;
         ctx.check_int_width(lhs_v, expected_bits, opcode_index)?;
         ctx.check_int_width(rhs_v, expected_bits, opcode_index)?;
         let result = ctx.emit_binary_int_op(self.op, lhs_v, rhs_v)?;
-        ctx.memory.write(ctx.writer, self.destination, result)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, result, expected)?;
         Ok(OpcodeAction::Continue)
     }
 }

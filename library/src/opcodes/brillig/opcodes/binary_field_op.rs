@@ -1,4 +1,4 @@
-use acir::brillig::{BinaryFieldOp, MemoryAddress};
+use acir::brillig::{BinaryFieldOp, BitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -16,17 +16,17 @@ impl<'a> BrilligHandler<'a> for BinaryFieldOpHandler<'a> {
     fn execute<'c, 'b>(
         &self,
         ctx: &mut TranslationCtx<'c, 'b, '_>,
-        opcode_index: usize,
+        _opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let felt_ty = ctx.writer.felt_type();
         let lhs_v = ctx
             .memory
-            .read(ctx.writer, self.lhs, felt_ty, opcode_index)?;
+            .read_constant_address(ctx.writer, self.lhs, BitSize::Field)?;
         let rhs_v = ctx
             .memory
-            .read(ctx.writer, self.rhs, felt_ty, opcode_index)?;
+            .read_constant_address(ctx.writer, self.rhs, BitSize::Field)?;
         let result = ctx.emit_binary_field_op(self.op, lhs_v, rhs_v)?;
-        ctx.memory.write(ctx.writer, self.destination, result)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, result, BitSize::Field)?;
         Ok(OpcodeAction::Continue)
     }
 }

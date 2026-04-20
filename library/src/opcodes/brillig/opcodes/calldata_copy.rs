@@ -1,4 +1,4 @@
-use acir::brillig::MemoryAddress;
+use acir::brillig::{BitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -17,15 +17,16 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         i: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let size = ctx.memory.get_const(self.size_address)?.ok_or_else(|| {
-            Error::UnsupportedBrillig {
-                reason: format!(
-                    "CalldataCopy at bytecode index {i}: size register {} \
+        let size =
+            ctx.memory
+                .get_const(self.size_address)?
+                .ok_or_else(|| Error::UnsupportedBrillig {
+                    reason: format!(
+                        "CalldataCopy at bytecode index {i}: size register {} \
                      is not a known integer constant",
-                    self.size_address.to_u32()
-                ),
-            }
-        })?;
+                        self.size_address.to_u32()
+                    ),
+                })?;
         let offset = ctx.memory.get_const(self.offset_address)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
@@ -52,7 +53,8 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         for j in 0..size {
             let addr = MemoryAddress::Direct((dst_base + j) as u32);
             let val = ctx.calldata[offset + j];
-            ctx.memory.write(ctx.writer, addr, val)?;
+            ctx.memory
+                .write_constant_address(ctx.writer, addr, val, BitSize::Field)?;
         }
         Ok(OpcodeAction::Continue)
     }

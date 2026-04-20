@@ -16,14 +16,15 @@ impl BrilligHandler<'_> for StoreHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let ptr = ctx
-            .memory
-            .read_inferred(ctx.writer, self.destination_pointer, opcode_index)?;
-        let ptr_idx = ctx.cast_to_index(ptr)?;
-        let val = ctx
+        let (val, _) = ctx
             .memory
             .read_inferred(ctx.writer, self.source, opcode_index)?;
-        ctx.writer.insert_ram_store(ptr_idx, val);
+        ctx.memory.write_dynamic_address(
+            ctx.writer,
+            self.destination_pointer,
+            val,
+            opcode_index,
+        )?;
         Ok(OpcodeAction::Continue)
     }
 }

@@ -16,10 +16,11 @@ impl BrilligHandler<'_> for MovHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let src = ctx
+        let (src, bit_size) = ctx
             .memory
             .read_inferred(ctx.writer, self.source, opcode_index)?;
-        ctx.memory.write(ctx.writer, self.destination, src)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, src, bit_size)?;
         Ok(OpcodeAction::Continue)
     }
 }

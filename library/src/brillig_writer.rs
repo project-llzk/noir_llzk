@@ -11,12 +11,17 @@ use acir::FieldElement;
 use llzk::prelude::melior_dialects::arith::{self, CmpiPredicate};
 use llzk::prelude::{
     Block, BlockLike, BlockRef, FeltType, IntegerAttribute, IntegerType, LlzkContext, Location,
-    Operation, OperationRef, Type, Value, dialect,
+    Operation, OperationRef, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
+
+/// Treats any type whose textual form starts with `!felt.` as a felt type.
+pub(crate) fn is_felt_type(ty: Type<'_>) -> bool {
+    format!("{ty}").starts_with("!felt.")
+}
 
 /// Block writer for module-level Brillig sibling functions.
 ///
@@ -45,11 +50,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     }
 
     // ── Type helpers ────────────────────────────────────────────────────
-
-    /// Returns the canonical felt type for this circuit's field.
-    pub(crate) fn felt_type(&self) -> Type<'c> {
-        FeltType::with_field(self.context, FIELD_NAME).into()
-    }
 
     /// Returns the MLIR `index` type for this context.
     pub(crate) fn index_type(&self) -> Type<'c> {
@@ -150,17 +150,29 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::cast::tofelt(self.location, val, Some(felt_ty)))
     }
 
+    /// Converts `val` to `index` type for `ram.load` / `ram.store` addresses.
+    ///
+    /// Index-typed inputs pass through. Felt inputs go via `cast.toindex`;
+    /// everything else (including `iN`) goes via `arith.index_cast`.
+    pub(crate) fn cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        let ty = val.r#type();
+        if ty == self.index_type() {
+            return Ok(val);
+        }
+        if is_felt_type(ty) {
+            return self.insert_cast_to_index(val);
+        }
+        self.insert_arith_index_cast(val, self.index_type())
+    }
+
     // ── RAM operations ─────────────────────────────────────────────────
 
-    /// Emits `ram.load %addr : result_ty`, returning the loaded value.
+    /// Emits `ram.load %addr`, returning a value of the circuit's felt type.
     ///
-    /// `addr` must be index-typed.
-    pub(crate) fn insert_ram_load(
-        &self,
-        addr: Value<'c, 'a>,
-        result_ty: Type<'c>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::ram::load(self.location, result_ty, addr))
+    /// `addr` must be index-typed. RAM cells always hold felts.
+    pub(crate) fn insert_ram_load(&self, addr: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        let felt_ty = FeltType::with_field(self.context, FIELD_NAME);
+        self.insert_op_with_result(dialect::ram::load(self.location, addr, Some(felt_ty)))
     }
 
     /// Emits `ram.store %addr, %val : type(val)`.

@@ -17,11 +17,12 @@ impl<'a> BrilligHandler<'a> for CastHandler<'a> {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let src = ctx
+        let (src, _) = ctx
             .memory
             .read_inferred(ctx.writer, self.source, opcode_index)?;
         let casted = ctx.emit_cast(src, self.bit_size)?;
-        ctx.memory.write(ctx.writer, self.destination, casted)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, casted, *self.bit_size)?;
         Ok(OpcodeAction::Continue)
     }
 }

@@ -1,4 +1,4 @@
-use acir::brillig::{IntegerBitSize, MemoryAddress};
+use acir::brillig::{BitSize, IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -15,13 +15,13 @@ impl BrilligHandler<'_> for NotHandler {
     fn execute<'c, 'b>(
         &self,
         ctx: &mut TranslationCtx<'c, 'b, '_>,
-        opcode_index: usize,
+        _opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
+        let expected = BitSize::Integer(self.bit_size);
         let num_bits = u32::from(self.bit_size);
-        let int_ty = ctx.writer.integer_type(num_bits);
         let src = ctx
             .memory
-            .read(ctx.writer, self.source, int_ty, opcode_index)?;
+            .read_constant_address(ctx.writer, self.source, expected)?;
         let mask = if num_bits >= 128 {
             u128::MAX
         } else {
@@ -29,7 +29,8 @@ impl BrilligHandler<'_> for NotHandler {
         };
         let all_ones = ctx.writer.insert_arith_int_constant(num_bits, mask)?;
         let result = ctx.writer.insert_arith_xori(src, all_ones)?;
-        ctx.memory.write(ctx.writer, self.destination, result)?;
+        ctx.memory
+            .write_constant_address(ctx.writer, self.destination, result, expected)?;
         Ok(OpcodeAction::Continue)
     }
 }
