@@ -20,7 +20,7 @@ use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
     opcodes::{
-        TranslatedOpcode,
+        TranslatedOpcode, aes128,
         assert_zero::AssertZero,
         bitwise, blake2s, blake3,
         brillig::{BrilligCall, registry::BrilligRegistry},
@@ -182,6 +182,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         if let Some(sha256_op) = sha256::from_opcode(opcode)? {
             return Ok(Box::new(sha256_op));
+        }
+
+        if let Some(aes_op) = aes128::from_opcode(opcode)? {
+            return Ok(Box::new(aes_op));
         }
 
         if let Some(keccak_op) = keccak::from_opcode(opcode)? {

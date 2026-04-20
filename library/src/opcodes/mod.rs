@@ -1,3 +1,4 @@
+pub(crate) mod aes128;
 pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
 pub(crate) mod blake2s;

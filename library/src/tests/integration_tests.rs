@@ -144,3 +144,8 @@ fn noir_sha256() {
 fn noir_keccak() {
     run_noir_test("keccak");
 }
+
+#[test]
+fn noir_aes128() {
+    run_noir_test("aes128");
+}

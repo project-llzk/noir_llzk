@@ -3,11 +3,14 @@ use llzk::prelude::{
     Value, dialect,
 };
 
-use crate::{blackboxes::common::felt_type, error::Error};
-
-use super::common::{
-    ConstantCache, IV, emit_g, emit_message_words, emit_word_to_bytes, emit_xor, iv_values,
+use crate::{
+    blackboxes::common::{
+        ConstantCache, emit_message_words, emit_word_to_bytes, emit_xor, felt_type,
+    },
+    error::Error,
 };
+
+use super::common::{IV, emit_g, iv_values};
 
 pub(crate) const BLAKE3_DIGEST_BYTES: usize = 32;
 const BLOCK_BYTES: usize = 64;
