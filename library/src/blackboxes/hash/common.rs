@@ -39,6 +39,14 @@ impl<'c, 'a> ConstantCache<'c, 'a> {
         self.u32(u32::MAX)
     }
 
+    pub(super) fn u64(&mut self, value: u64) -> Result<Value<'c, 'a>, Error> {
+        self.field(FieldElement::from(u128::from(value)))
+    }
+
+    pub(super) fn u64_mask(&mut self) -> Result<Value<'c, 'a>, Error> {
+        self.u64(u64::MAX)
+    }
+
     pub(super) fn field(&mut self, value: FieldElement) -> Result<Value<'c, 'a>, Error> {
         if let Some(&cached) = self.values.get(&value) {
             return Ok(cached);
@@ -138,6 +146,18 @@ pub(super) fn emit_rotr<'c, 'a>(
     let left = emit_shl(cache, value, 32 - amount)?;
     let combined = emit_or(cache.block, cache.location, right, left)?;
     let mask = cache.word_mask()?;
+    emit_and(cache.block, cache.location, combined, mask)
+}
+
+pub(super) fn emit_rotl64<'c, 'a>(
+    cache: &mut ConstantCache<'c, 'a>,
+    value: Value<'c, 'a>,
+    amount: u32,
+) -> Result<Value<'c, 'a>, Error> {
+    let left = emit_shl(cache, value, amount)?;
+    let right = emit_shr(cache, value, 64 - amount)?;
+    let combined = emit_or(cache.block, cache.location, left, right)?;
+    let mask = cache.u64_mask()?;
     emit_and(cache.block, cache.location, combined, mask)
 }
 
