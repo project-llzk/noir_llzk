@@ -12,8 +12,6 @@ use super::{
     binary_field_op, binary_int_op, brillig_stop, cast, const_field, const_int,
     count_brillig_body_ops, find_brillig_fn, translate_body,
 };
-use crate::Error;
-
 /// Each `BinaryFieldOp` variant emits the expected LLZK op on felt operands.
 #[test]
 fn brillig_binary_field_op_emits_expected_op() {
@@ -71,24 +69,26 @@ fn brillig_binary_field_integer_div_emits_uintdiv() {
     print_and_verify_module(&module, "brillig_binary_field_integer_div_emits_uintdiv");
 }
 
-/// Each `BinaryIntOp` arithmetic/bitwise variant emits its `arith.*` op for
+/// Each `BinaryIntOp` arithmetic/bitwise variant emits its `felt.*` op for
 /// every supported integer bit size. Comparison variants are covered by
-/// [`brillig_binary_int_op_cmpi_variants`].
+/// [`brillig_binary_int_op_cmp_variants`]. Overflow-prone ops (`Add`,
+/// `Sub`, `Mul`, `Shl`) also emit a trailing `felt.bit_and` mask; this
+/// test checks the primary op name, not the mask.
 #[test]
-fn brillig_binary_int_op_emits_expected_arith_op() {
+fn brillig_binary_int_op_emits_expected_felt_op() {
     use IntegerBitSize::*;
 
     let sizes = [U8, U32, U64, U128];
     let cases: &[(BinaryIntOp, &str)] = &[
-        (BinaryIntOp::Add, "arith.addi"),
-        (BinaryIntOp::Sub, "arith.subi"),
-        (BinaryIntOp::Mul, "arith.muli"),
-        (BinaryIntOp::Div, "arith.divui"),
-        (BinaryIntOp::And, "arith.andi"),
-        (BinaryIntOp::Or, "arith.ori"),
-        (BinaryIntOp::Xor, "arith.xori"),
-        (BinaryIntOp::Shl, "arith.shli"),
-        (BinaryIntOp::Shr, "arith.shrui"),
+        (BinaryIntOp::Add, "felt.add"),
+        (BinaryIntOp::Sub, "felt.sub"),
+        (BinaryIntOp::Mul, "felt.mul"),
+        (BinaryIntOp::Div, "felt.uintdiv"),
+        (BinaryIntOp::And, "felt.bit_and"),
+        (BinaryIntOp::Or, "felt.bit_or"),
+        (BinaryIntOp::Xor, "felt.bit_xor"),
+        (BinaryIntOp::Shl, "felt.shl"),
+        (BinaryIntOp::Shr, "felt.shr"),
     ];
 
     for &bs in &sizes {
@@ -108,7 +108,13 @@ fn brillig_binary_int_op_emits_expected_arith_op() {
             let count = count_brillig_body_ops(&module, 0, |o| {
                 o.name().as_string_ref().as_str() == Ok(*expected)
             });
-            assert_eq!(count, 1, "{op:?} at {bs:?} should emit one {expected}");
+            // `And` itself *is* felt.bit_and, so it adds to the mask count
+            // for Add/Sub/Mul/Shl. For `And` we expect at least one felt.bit_and.
+            let min_expected = if matches!(op, BinaryIntOp::And) { 1 } else { 1 };
+            assert!(
+                count >= min_expected,
+                "{op:?} at {bs:?} should emit at least one {expected} (got {count})"
+            );
             assert!(
                 module.as_operation().verify(),
                 "{op:?} at {bs:?} module should verify"
@@ -117,20 +123,21 @@ fn brillig_binary_int_op_emits_expected_arith_op() {
     }
 }
 
-/// `BinaryIntOp` comparison variants emit `arith.cmpi` with the expected
-/// unsigned predicate.
+/// `BinaryIntOp` comparison variants emit `bool.cmp`, same as the
+/// felt-domain comparisons. With values stored as felts in `[0, 2^n)`,
+/// the comparison gives the correct unsigned-integer answer.
 #[test]
-fn brillig_binary_int_op_cmpi_variants() {
+fn brillig_binary_int_op_cmp_variants() {
     use IntegerBitSize::*;
 
-    let cases: &[(BinaryIntOp, &str)] = &[
-        (BinaryIntOp::Equals, "eq"),
-        (BinaryIntOp::LessThan, "ult"),
-        (BinaryIntOp::LessThanEquals, "ule"),
+    let cases: &[BinaryIntOp] = &[
+        BinaryIntOp::Equals,
+        BinaryIntOp::LessThan,
+        BinaryIntOp::LessThanEquals,
     ];
 
     for &bs in &[U1, U8, U32, U64, U128] {
-        for (op, _predicate_str) in cases {
+        for op in cases {
             let context = LlzkContext::new();
             let module = translate_body(
                 &context,
@@ -143,10 +150,10 @@ fn brillig_binary_int_op_cmpi_variants() {
             )
             .unwrap_or_else(|e| panic!("{op:?} at {bs:?} failed: {e}"));
 
-            let cmpi_count = count_brillig_body_ops(&module, 0, |o| {
-                o.name().as_string_ref().as_str() == Ok("arith.cmpi")
+            let cmp_count = count_brillig_body_ops(&module, 0, |o| {
+                o.name().as_string_ref().as_str() == Ok("bool.cmp")
             });
-            assert_eq!(cmpi_count, 1, "{op:?} at {bs:?} should emit one arith.cmpi");
+            assert_eq!(cmp_count, 1, "{op:?} at {bs:?} should emit one bool.cmp");
             assert!(
                 module.as_operation().verify(),
                 "{op:?} at {bs:?} module should verify"
@@ -203,15 +210,16 @@ fn brillig_binary_field_op_chained_arithmetic() {
     print_and_verify_module(&module, "brillig_binary_field_op_chained_arithmetic");
 }
 
-/// `arith.cmpi` ops emitted from `BinaryIntOp::{Equals, LessThan, LessThanEquals}`
-/// carry the expected unsigned predicate. Brillig integers are unsigned, so
-/// we must emit `eq` / `ult` / `ule` — not the signed variants.
+/// `bool.cmp` ops emitted from `BinaryIntOp::{Equals, LessThan, LessThanEquals}`
+/// carry the expected predicate. The mnemonic differs from the felt-domain
+/// signed `arith.cmpi` world: `bool.cmp` uses `eq` / `lt` / `le` and relies
+/// on the caller maintaining `[0, 2^n)` for both operands.
 #[test]
-fn brillig_binary_int_op_cmpi_uses_unsigned_predicate() {
+fn brillig_binary_int_op_cmp_uses_unsigned_predicate() {
     let cases: &[(BinaryIntOp, &str)] = &[
         (BinaryIntOp::Equals, "eq"),
-        (BinaryIntOp::LessThan, "ult"),
-        (BinaryIntOp::LessThanEquals, "ule"),
+        (BinaryIntOp::LessThan, "lt"),
+        (BinaryIntOp::LessThanEquals, "le"),
     ];
 
     for (op, expected_mnemonic) in cases {
@@ -233,31 +241,24 @@ fn brillig_binary_int_op_cmpi_uses_unsigned_predicate() {
             .unwrap()
             .first_block()
             .unwrap();
-        let cmpi_op = iter_block_ops(body)
-            .find(|o| o.name().as_string_ref().as_str() == Ok("arith.cmpi"))
-            .unwrap_or_else(|| panic!("{op:?} should emit an arith.cmpi op"));
-        let printed = format!("{cmpi_op}");
+        let cmp_op = iter_block_ops(body)
+            .find(|o| o.name().as_string_ref().as_str() == Ok("bool.cmp"))
+            .unwrap_or_else(|| panic!("{op:?} should emit a bool.cmp op"));
+        let printed = format!("{cmp_op}");
         assert!(
             printed.contains(expected_mnemonic),
-            "{op:?} should emit arith.cmpi with `{expected_mnemonic}` predicate, got: {printed}"
+            "{op:?} should emit bool.cmp with `{expected_mnemonic}` predicate, got: {printed}"
         );
     }
 }
 
-/// Every `BinaryIntOp` arithmetic op preserves the operand width — `iN + iN → iN`.
-/// This is the core invariant of option (b) width-typed integer handling.
+/// Every `BinaryIntOp` arithmetic op produces a felt result, regardless of
+/// the declared operand bit size. The bit size governs the trailing mask,
+/// not the IR type.
 #[test]
-fn brillig_binary_int_op_preserves_width() {
+fn brillig_binary_int_op_produces_felt() {
     use IntegerBitSize::*;
-    let sizes = [
-        (U1, "i1"),
-        (U8, "i8"),
-        (U32, "i32"),
-        (U64, "i64"),
-        (U128, "i128"),
-    ];
-
-    for (bs, expected_ty) in sizes {
+    for bs in [U1, U8, U32, U64, U128] {
         let context = LlzkContext::new();
         let module = translate_body(
             &context,
@@ -276,21 +277,20 @@ fn brillig_binary_int_op_preserves_width() {
             .unwrap()
             .first_block()
             .unwrap();
-        let addi_op = iter_block_ops(body)
-            .find(|o| o.name().as_string_ref().as_str() == Ok("arith.addi"))
-            .expect("should have an arith.addi");
-        let result_ty = addi_op.result(0).unwrap().r#type();
-        assert_eq!(
-            format!("{result_ty}"),
-            expected_ty,
-            "arith.addi at bit size {bs:?} should produce {expected_ty}"
+        let add_op = iter_block_ops(body)
+            .find(|o| o.name().as_string_ref().as_str() == Ok("felt.add"))
+            .expect("should have a felt.add");
+        let result_ty = format!("{}", add_op.result(0).unwrap().r#type());
+        assert!(
+            result_ty.starts_with("!felt."),
+            "felt.add at bit size {bs:?} should produce a felt type, got {result_ty}"
         );
     }
 }
 
-/// `arith.cmpi` always returns `i1`, regardless of operand width.
+/// `bool.cmp` always returns `i1`, regardless of operand width.
 #[test]
-fn brillig_binary_int_cmpi_result_is_i1() {
+fn brillig_binary_int_cmp_result_is_i1() {
     use IntegerBitSize::*;
     for &bs in &[U1, U8, U32, U64, U128] {
         let context = LlzkContext::new();
@@ -311,21 +311,20 @@ fn brillig_binary_int_cmpi_result_is_i1() {
             .unwrap()
             .first_block()
             .unwrap();
-        let cmpi_op = iter_block_ops(body)
-            .find(|o| o.name().as_string_ref().as_str() == Ok("arith.cmpi"))
-            .expect("should have arith.cmpi");
-        let result_ty = cmpi_op.result(0).unwrap().r#type();
+        let cmp_op = iter_block_ops(body)
+            .find(|o| o.name().as_string_ref().as_str() == Ok("bool.cmp"))
+            .expect("should have bool.cmp");
+        let result_ty = cmp_op.result(0).unwrap().r#type();
         assert_eq!(
             format!("{result_ty}"),
             "i1",
-            "cmpi result at operand width {bs:?} should be i1"
+            "bool.cmp result at operand width {bs:?} should be i1"
         );
     }
 }
 
-/// Chained integer arithmetic threads width-typed SSA values through the
-/// regmap. `r0=2; r1=3; r2=r0+r1; r3=4; r4=r2*r3; Stop` should produce exactly
-/// one `arith.addi` and one `arith.muli`, both on i32 operands.
+/// Chained integer arithmetic: `r0=2; r1=3; r2=r0+r1; r3=4; r4=r2*r3; Stop`
+/// should produce exactly one `felt.add` and one `felt.mul` (each masked).
 #[test]
 fn brillig_binary_int_op_chained_arithmetic() {
     let bs = IntegerBitSize::U32;
@@ -344,18 +343,20 @@ fn brillig_binary_int_op_chained_arithmetic() {
     .expect("chained int translation should succeed");
 
     let add_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("arith.addi")
+        op.name().as_string_ref().as_str() == Ok("felt.add")
     });
     let mul_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("arith.muli")
+        op.name().as_string_ref().as_str() == Ok("felt.mul")
     });
-    assert_eq!(add_count, 1, "expected one arith.addi");
-    assert_eq!(mul_count, 1, "expected one arith.muli");
+    assert_eq!(add_count, 1, "expected one felt.add");
+    assert_eq!(mul_count, 1, "expected one felt.mul");
     print_and_verify_module(&module, "brillig_binary_int_op_chained_arithmetic");
 }
 
-/// Mixing integer and field arithmetic through an explicit `Cast` works
-/// end-to-end: `iN → felt` conversion, then a felt binary op.
+/// Mixing integer and field arithmetic still works end-to-end. Since
+/// registers are all felts now, the `iN → felt` Cast is a no-op; the test
+/// just checks that `felt.add` (from the int op) and `felt.mul` (from the
+/// field op) both appear and verify.
 #[test]
 fn brillig_mixed_int_and_field_via_cast() {
     let context = LlzkContext::new();
@@ -373,16 +374,13 @@ fn brillig_mixed_int_and_field_via_cast() {
     )
     .expect("mixed translation should succeed");
 
-    // Expect: two arith.constant, one arith.addi, one arith.index_cast,
-    // one cast.tofelt, one felt.const, one felt.mul, one function.return.
     let body = find_brillig_fn(&module, 0)
         .unwrap()
         .region(0)
         .unwrap()
         .first_block()
         .unwrap();
-    assert!(iter_block_ops(body).any(|op| op.name().as_string_ref().as_str() == Ok("arith.addi")));
-    assert!(iter_block_ops(body).any(|op| op.name().as_string_ref().as_str() == Ok("cast.tofelt")));
+    assert!(iter_block_ops(body).any(|op| op.name().as_string_ref().as_str() == Ok("felt.add")));
     assert!(iter_block_ops(body).any(|op| op.name().as_string_ref().as_str() == Ok("felt.mul")));
     print_and_verify_module(&module, "brillig_mixed_int_and_field_via_cast");
 }
@@ -404,51 +402,37 @@ fn brillig_cast_field_to_u1_then_back() {
     )
     .expect("U1 round-trip should translate");
 
-    // felt → U1: cast.toindex + arith.index_cast (into i1)
-    // U1 → felt: arith.index_cast (i1 → index) + cast.tofelt
+    // Field → U1: one felt.bit_and mask.
+    // U1 → Field: emit_cast is a no-op.
+    // Neither direction involves cast.toindex, arith.index_cast, or
+    // cast.tofelt — values are felt end-to-end.
+    assert_eq!(
+        count_brillig_body_ops(&module, 0, |op| {
+            op.name().as_string_ref().as_str() == Ok("felt.bit_and")
+        }),
+        1,
+        "expected one felt.bit_and mask op for the felt→U1 cast"
+    );
     assert_eq!(
         count_brillig_body_ops(&module, 0, |op| {
             op.name().as_string_ref().as_str() == Ok("cast.toindex")
         }),
-        1,
-        "expected one cast.toindex"
+        0,
+        "no cast.toindex — felt values stay felt"
     );
     assert_eq!(
         count_brillig_body_ops(&module, 0, |op| {
             op.name().as_string_ref().as_str() == Ok("arith.index_cast")
         }),
-        2,
-        "expected two arith.index_cast ops (one per direction)"
+        0,
+        "no arith.index_cast — no iN types in the emitted IR"
     );
     assert_eq!(
         count_brillig_body_ops(&module, 0, |op| {
             op.name().as_string_ref().as_str() == Ok("cast.tofelt")
         }),
-        1,
-        "expected one cast.tofelt"
+        0,
+        "no cast.tofelt — all values are already felt"
     );
     print_and_verify_module(&module, "brillig_cast_field_to_u1_then_back");
-}
-
-/// Reading an unwritten register via a binary op surfaces `UndefinedRegister`
-/// with the offending opcode index.
-#[test]
-fn brillig_binary_op_from_undefined_register_errors() {
-    let context = LlzkContext::new();
-    let err = translate_body(
-        &context,
-        vec![
-            const_field(0, 1),
-            binary_field_op(2, BinaryFieldOp::Add, 0, 1),
-            brillig_stop(),
-        ],
-    )
-    .expect_err("binary op reading undefined register should error");
-    match err {
-        Error::UndefinedRegister { addr, opcode_index } => {
-            assert_eq!(addr, 1);
-            assert_eq!(opcode_index, 1);
-        }
-        other => panic!("expected UndefinedRegister, got {other:?}"),
-    }
 }

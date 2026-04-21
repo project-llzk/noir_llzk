@@ -23,9 +23,8 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         {
             ctx.memory.record_const(self.destination, v as usize)?;
         }
-        let ssa = ctx.emit_const(self.bit_size, self.value)?;
-        ctx.memory
-            .write_constant_address(ctx.writer, self.destination, ssa, *self.bit_size)?;
+        let ssa = ctx.emit_const(self.value)?;
+        ctx.memory.write(ctx.writer, self.destination, ssa)?;
         Ok(OpcodeAction::Continue)
     }
 }

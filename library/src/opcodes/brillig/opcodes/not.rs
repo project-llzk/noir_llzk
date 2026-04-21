@@ -1,4 +1,5 @@
-use acir::brillig::{BitSize, IntegerBitSize, MemoryAddress};
+use acir::FieldElement;
+use acir::brillig::{IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
 
@@ -17,20 +18,19 @@ impl BrilligHandler<'_> for NotHandler {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         _opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let expected = BitSize::Integer(self.bit_size);
-        let num_bits = u32::from(self.bit_size);
-        let src = ctx
-            .memory
-            .read_constant_address(ctx.writer, self.source, expected)?;
-        let mask = if num_bits >= 128 {
+        // Brillig `Not` is n-bit complement, not felt-wide complement.
+        // `felt.bit_not` would flip all bits of the prime's representation,
+        // so we implement it as `src XOR (2^n - 1)` instead.
+        let src = ctx.memory.read(ctx.writer, self.source)?;
+        let n = u32::from(self.bit_size);
+        let mask = if n >= 128 {
             u128::MAX
         } else {
-            (1u128 << num_bits) - 1
+            (1u128 << n) - 1
         };
-        let all_ones = ctx.writer.insert_arith_int_constant(num_bits, mask)?;
-        let result = ctx.writer.insert_arith_xori(src, all_ones)?;
-        ctx.memory
-            .write_constant_address(ctx.writer, self.destination, result, expected)?;
+        let mask_val = ctx.writer.emit_constant(&FieldElement::from(mask))?;
+        let result = ctx.writer.insert_felt_bit_xor(src, mask_val)?;
+        ctx.memory.write(ctx.writer, self.destination, result)?;
         Ok(OpcodeAction::Continue)
     }
 }

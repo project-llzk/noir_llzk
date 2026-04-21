@@ -14,17 +14,11 @@ impl BrilligHandler<'_> for StoreHandler {
     fn execute<'c, 'b>(
         &self,
         ctx: &mut TranslationCtx<'c, 'b, '_>,
-        opcode_index: usize,
+        _opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        let (val, _) = ctx
-            .memory
-            .read_inferred(ctx.writer, self.source, opcode_index)?;
-        ctx.memory.write_dynamic_address(
-            ctx.writer,
-            self.destination_pointer,
-            val,
-            opcode_index,
-        )?;
+        let val = ctx.memory.read(ctx.writer, self.source)?;
+        ctx.memory
+            .write_dynamic(ctx.writer, self.destination_pointer, val)?;
         Ok(OpcodeAction::Continue)
     }
 }

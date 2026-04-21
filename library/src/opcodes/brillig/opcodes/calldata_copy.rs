@@ -1,4 +1,4 @@
-use acir::brillig::{BitSize, MemoryAddress};
+use acir::brillig::MemoryAddress;
 
 use crate::error::Error;
 
@@ -53,8 +53,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         for j in 0..size {
             let addr = MemoryAddress::Direct((dst_base + j) as u32);
             let val = ctx.calldata[offset + j];
-            ctx.memory
-                .write_constant_address(ctx.writer, addr, val, BitSize::Field)?;
+            ctx.memory.write(ctx.writer, addr, val)?;
         }
         Ok(OpcodeAction::Continue)
     }

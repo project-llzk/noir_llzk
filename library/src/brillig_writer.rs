@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::prelude::melior_dialects::arith::{self, CmpiPredicate};
+use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    Block, BlockLike, BlockRef, FeltType, IntegerAttribute, IntegerType, LlzkContext, Location,
-    Operation, OperationRef, Type, Value, ValueLike, dialect,
+    Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    OperationRef, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -54,11 +54,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// Returns the MLIR `index` type for this context.
     pub(crate) fn index_type(&self) -> Type<'c> {
         Type::index(self.context)
-    }
-
-    /// Returns the canonical signless integer type of the given bit width.
-    pub(crate) fn integer_type(&self, bits: u32) -> Type<'c> {
-        IntegerType::new(self.context, bits).into()
     }
 
     // ── Felt arithmetic ────────────────────────────────────────────────
@@ -108,6 +103,57 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
     }
 
+    // ── Felt bitwise / shifts ──────────────────────────────────────────
+    //
+    // Operate on the integer representation of the felt. Marked
+    // `NotFieldNative` in the felt dialect — used in the brillig
+    // (unconstrained) context to mirror Brillig VM bit-level semantics.
+
+    /// Emits `felt.bit_and lhs, rhs`.
+    pub(crate) fn insert_felt_bit_and(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::bit_and(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.bit_or lhs, rhs`.
+    pub(crate) fn insert_felt_bit_or(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::bit_or(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.bit_xor lhs, rhs`.
+    pub(crate) fn insert_felt_bit_xor(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::bit_xor(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.shl lhs, rhs`.
+    pub(crate) fn insert_felt_shl(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::shl(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.shr lhs, rhs`.
+    pub(crate) fn insert_felt_shr(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::shr(self.location, lhs, rhs)?)
+    }
+
     // ── Bool comparisons ───────────────────────────────────────────────
 
     /// Emits `bool.cmp lt(lhs, rhs)`.
@@ -144,25 +190,19 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::cast::toindex(self.location, val))
     }
 
-    /// Emits `cast.tofelt val`, converting an index-typed value into a felt.
-    pub(crate) fn insert_cast_to_felt(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        let felt_ty = FeltType::with_field(self.context, FIELD_NAME);
-        self.insert_op_with_result(dialect::cast::tofelt(self.location, val, Some(felt_ty)))
-    }
-
     /// Converts `val` to `index` type for `ram.load` / `ram.store` addresses.
     ///
-    /// Index-typed inputs pass through. Felt inputs go via `cast.toindex`;
-    /// everything else (including `iN`) goes via `arith.index_cast`.
+    /// Index-typed inputs pass through; felt inputs go via `cast.toindex`.
     pub(crate) fn cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         let ty = val.r#type();
         if ty == self.index_type() {
             return Ok(val);
         }
-        if is_felt_type(ty) {
-            return self.insert_cast_to_index(val);
-        }
-        self.insert_arith_index_cast(val, self.index_type())
+        debug_assert!(
+            is_felt_type(ty),
+            "cast_to_index expected felt or index, got {ty}"
+        );
+        self.insert_cast_to_index(val)
     }
 
     // ── RAM operations ─────────────────────────────────────────────────
@@ -180,146 +220,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// `addr` must be index-typed.
     pub(crate) fn insert_ram_store(&self, addr: Value<'c, 'a>, val: Value<'c, 'a>) {
         self.insert_op(dialect::ram::store(self.location, addr, val));
-    }
-
-    // ── Integer arithmetic (arith dialect) ─────────────────────────────
-
-    /// Emits `arith.constant` producing an `iN` value for the given bit width.
-    pub(crate) fn insert_arith_int_constant(
-        &self,
-        bits: u32,
-        value: u128,
-    ) -> Result<Value<'c, 'a>, Error> {
-        let ty = self.integer_type(bits);
-        self.insert_op_with_result(arith::constant(
-            self.context,
-            IntegerAttribute::new(ty, value as i64).into(),
-            self.location,
-        ))
-    }
-
-    /// Emits `arith.index_cast val : target_ty`, bridging `index` ↔ `iN`.
-    pub(crate) fn insert_arith_index_cast(
-        &self,
-        val: Value<'c, 'a>,
-        target_ty: Type<'c>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::index_cast(val, target_ty, self.location))
-    }
-
-    /// Emits `arith.trunci val : target_ty` (narrowing integer truncation).
-    pub(crate) fn insert_arith_trunci(
-        &self,
-        val: Value<'c, 'a>,
-        target_ty: Type<'c>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::trunci(val, target_ty, self.location))
-    }
-
-    /// Emits `arith.extui val : target_ty` (zero-extending integer widening).
-    pub(crate) fn insert_arith_extui(
-        &self,
-        val: Value<'c, 'a>,
-        target_ty: Type<'c>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::extui(val, target_ty, self.location))
-    }
-
-    /// Emits `arith.addi lhs, rhs`.
-    pub(crate) fn insert_arith_addi(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::addi(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.subi lhs, rhs`.
-    pub(crate) fn insert_arith_subi(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::subi(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.muli lhs, rhs`.
-    pub(crate) fn insert_arith_muli(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::muli(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.divui lhs, rhs` (unsigned division; Brillig integers are unsigned).
-    pub(crate) fn insert_arith_divui(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::divui(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.andi lhs, rhs`.
-    pub(crate) fn insert_arith_andi(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::andi(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.ori lhs, rhs`.
-    pub(crate) fn insert_arith_ori(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::ori(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.xori lhs, rhs`.
-    pub(crate) fn insert_arith_xori(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::xori(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.shli lhs, rhs` (logical left shift).
-    pub(crate) fn insert_arith_shli(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::shli(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.shrui lhs, rhs` (logical right shift; Brillig integers are unsigned).
-    pub(crate) fn insert_arith_shrui(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::shrui(lhs, rhs, self.location))
-    }
-
-    /// Emits `arith.cmpi predicate, lhs, rhs`, returning an `i1` result.
-    pub(crate) fn insert_arith_cmpi(
-        &self,
-        predicate: CmpiPredicate,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::cmpi(
-            self.context,
-            predicate,
-            lhs,
-            rhs,
-            self.location,
-        ))
     }
 
     // ── Caching helpers ─────────────────────────────────────────────────

@@ -25,13 +25,6 @@ pub enum Error {
         /// The opcode index where the error occurred.
         opcode_index: usize,
     },
-    /// A Brillig opcode referenced a register that has not been written.
-    UndefinedRegister {
-        /// The register index that was read.
-        addr: usize,
-        /// The bytecode index of the opcode that performed the read.
-        opcode_index: usize,
-    },
     /// A Brillig opcode used a `Relative` memory address, but slot 0
     /// (the stack pointer) has not been tracked as a known integer
     /// constant, so the address cannot be resolved at translation time.
@@ -72,11 +65,6 @@ impl fmt::Display for Error {
                 f,
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
-            ),
-            Error::UndefinedRegister { addr, opcode_index } => write!(
-                f,
-                "Brillig opcode at bytecode index {opcode_index} reads \
-                 undefined register {addr}"
             ),
             Error::UnresolvedStackPointer { offset } => write!(
                 f,

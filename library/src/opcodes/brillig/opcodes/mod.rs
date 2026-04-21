@@ -150,11 +150,10 @@ pub(super) fn build_handler<'a>(
 
         B::IndirectConst {
             destination_pointer,
-            bit_size,
+            bit_size: _,
             value,
         } => Ok(Box::new(IndirectConstHandler {
             destination_pointer: *destination_pointer,
-            bit_size,
             value,
         })),
 

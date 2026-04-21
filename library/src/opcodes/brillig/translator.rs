@@ -5,19 +5,18 @@
 //! opcode via [`build_handler`](super::opcodes::build_handler) and executes
 //! it against the shared [`TranslationCtx`].
 
-use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, MemoryAddress};
+use acir::FieldElement;
+use acir::brillig::{
+    BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
+};
 use acir::circuit::brillig::BrilligBytecode;
-use acir::{AcirField, FieldElement};
-use llzk::prelude::melior_dialects::arith::CmpiPredicate;
-use llzk::prelude::{Type, Value, ValueLike};
+use llzk::prelude::Value;
 
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::memory::Memory;
 use super::opcodes::build_handler;
-use super::type_inference::infer_types;
-use crate::brillig_writer::is_felt_type;
 
 // ── Core types ─────────────────────────────────────────────────────────
 
@@ -44,82 +43,36 @@ pub(crate) struct TranslationCtx<'c, 'b, 'r> {
 // ── TranslationCtx shared helpers ──────────────────────────────────────
 
 impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
-    /// Emits a constant op. Field constants become `felt.const`; integer
-    /// constants become `arith.constant` with the matching `iN` type.
-    pub(super) fn emit_const(
-        &mut self,
-        bit_size: &BitSize,
-        value: &FieldElement,
-    ) -> Result<Value<'c, 'b>, Error> {
-        match bit_size {
-            BitSize::Field => self.writer.emit_constant(value),
-            BitSize::Integer(int_size) => {
-                let num_bits = u32::from(*int_size);
-                let as_u128 = value.try_into_u128().ok_or(Error::ConstantOutOfRange {
-                    value: *value,
-                    num_bits,
-                })?;
-                let max = if num_bits >= 128 {
-                    u128::MAX
-                } else {
-                    (1u128 << num_bits) - 1
-                };
-                if as_u128 > max {
-                    return Err(Error::ConstantOutOfRange {
-                        value: *value,
-                        num_bits,
-                    });
-                }
-                self.writer.insert_arith_int_constant(num_bits, as_u128)
-            }
-        }
+    /// Emits a felt constant. ACVM produces canonical bytecode, so integer
+    /// width is enforced downstream on cast/use rather than here.
+    pub(super) fn emit_const(&mut self, value: &FieldElement) -> Result<Value<'c, 'b>, Error> {
+        self.writer.emit_constant(value)
     }
 
-    /// Emits conversion ops to reinterpret `src` as `target_bit_size`.
-    ///
-    /// Supports the full matrix of felt ↔ `iN` conversions and integer
-    /// width changes (`arith.trunci` / `arith.extui`).
+    /// Emits conversion ops to reinterpret `src` (a felt) as
+    /// `target_bit_size`. Field targets are a no-op; integer targets apply
+    /// `felt.bit_and` against `2^n - 1` to enforce the bit-width invariant.
     pub(super) fn emit_cast(
         &mut self,
         src: Value<'c, 'b>,
         target_bit_size: &BitSize,
     ) -> Result<Value<'c, 'b>, Error> {
-        let src_ty = src.r#type();
-        let src_is_felt = is_felt_type(src_ty);
-        let target_is_felt = matches!(target_bit_size, BitSize::Field);
-
-        match (src_is_felt, target_is_felt, target_bit_size) {
-            (true, true, _) => Ok(src),
-            (false, false, BitSize::Integer(int_size)) => {
-                let dst_bits = u32::from(*int_size);
-                let src_bits = integer_width(src_ty).ok_or_else(|| Error::UnsupportedBrillig {
-                    reason: format!(
-                        "Cast source has non-integer type `{src_ty}`; integer width \
-                             conversion requires an integer-typed source"
-                    ),
-                })?;
-                if src_bits == dst_bits {
-                    return Ok(src);
-                }
-                let dst_ty = self.writer.integer_type(dst_bits);
-                if dst_bits < src_bits {
-                    self.writer.insert_arith_trunci(src, dst_ty)
-                } else {
-                    self.writer.insert_arith_extui(src, dst_ty)
-                }
-            }
-            (true, false, BitSize::Integer(int_size)) => {
-                let as_index = self.writer.insert_cast_to_index(src)?;
-                let dst_ty = self.writer.integer_type(u32::from(*int_size));
-                self.writer.insert_arith_index_cast(as_index, dst_ty)
-            }
-            (false, true, _) => {
-                let index_ty = self.writer.index_type();
-                let as_index = self.writer.insert_arith_index_cast(src, index_ty)?;
-                self.writer.insert_cast_to_felt(as_index)
-            }
-            (_, false, BitSize::Field) => unreachable!("BitSize::Field is target_is_felt=true"),
+        match target_bit_size {
+            BitSize::Field => Ok(src),
+            BitSize::Integer(int_size) => self.emit_mask(src, *int_size),
         }
+    }
+
+    /// Applies `v & (2^n - 1)` via `felt.bit_and` with a constant mask,
+    /// forcing `v` into the `[0, 2^n)` range.
+    pub(super) fn emit_mask(
+        &mut self,
+        val: Value<'c, 'b>,
+        int_size: IntegerBitSize,
+    ) -> Result<Value<'c, 'b>, Error> {
+        let mask = mask_for(int_size);
+        let mask_val = self.writer.emit_constant(&FieldElement::from(mask))?;
+        self.writer.insert_felt_bit_and(val, mask_val)
     }
 
     /// Emits the LLZK op for a `BinaryFieldOp`.
@@ -141,57 +94,35 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         }
     }
 
-    /// Emits the LLZK op for a `BinaryIntOp`.
+    /// Emits the LLZK op for a `BinaryIntOp`, producing a felt result.
+    ///
+    /// Operations that can exceed the bit width (`Add`, `Sub`, `Mul`,
+    /// `Shl`) are masked back into `[0, 2^n)` here. Bitwise ops, shifts
+    /// right, and divisions are already width-preserving when their
+    /// inputs are. Comparisons return a bare `i1` via `bool.cmp` and
+    /// never need masking.
     pub(super) fn emit_binary_int_op(
-        &self,
+        &mut self,
         op: &BinaryIntOp,
+        bit_size: IntegerBitSize,
         lhs: Value<'c, 'b>,
         rhs: Value<'c, 'b>,
     ) -> Result<Value<'c, 'b>, Error> {
-        match op {
-            BinaryIntOp::Add => self.writer.insert_arith_addi(lhs, rhs),
-            BinaryIntOp::Sub => self.writer.insert_arith_subi(lhs, rhs),
-            BinaryIntOp::Mul => self.writer.insert_arith_muli(lhs, rhs),
-            BinaryIntOp::Div => self.writer.insert_arith_divui(lhs, rhs),
-            BinaryIntOp::Equals => self.writer.insert_arith_cmpi(CmpiPredicate::Eq, lhs, rhs),
-            BinaryIntOp::LessThan => self.writer.insert_arith_cmpi(CmpiPredicate::Ult, lhs, rhs),
-            BinaryIntOp::LessThanEquals => {
-                self.writer.insert_arith_cmpi(CmpiPredicate::Ule, lhs, rhs)
-            }
-            BinaryIntOp::And => self.writer.insert_arith_andi(lhs, rhs),
-            BinaryIntOp::Or => self.writer.insert_arith_ori(lhs, rhs),
-            BinaryIntOp::Xor => self.writer.insert_arith_xori(lhs, rhs),
-            BinaryIntOp::Shl => self.writer.insert_arith_shli(lhs, rhs),
-            BinaryIntOp::Shr => self.writer.insert_arith_shrui(lhs, rhs),
-        }
-    }
-
-    /// Checks that `val` is an integer type with the expected bit width.
-    /// Returns an `UnsupportedBrillig` error on mismatch so that
-    /// width disagreements between the opcode and the register map are
-    /// caught early rather than surfacing as opaque LLZK verification failures.
-    pub(super) fn check_int_width(
-        &self,
-        val: Value<'c, 'b>,
-        expected_bits: u32,
-        opcode_index: usize,
-    ) -> Result<(), Error> {
-        let actual = integer_width(val.r#type()).ok_or_else(|| Error::UnsupportedBrillig {
-            reason: format!(
-                "BinaryIntOp at bytecode index {opcode_index}: operand has \
-                 non-integer type `{}`",
-                val.r#type()
-            ),
-        })?;
-        if actual != expected_bits {
-            return Err(Error::UnsupportedBrillig {
-                reason: format!(
-                    "BinaryIntOp at bytecode index {opcode_index}: operand width \
-                     is i{actual} but opcode declares {expected_bits}-bit operands"
-                ),
-            });
-        }
-        Ok(())
+        let raw = match op {
+            BinaryIntOp::Add => self.writer.insert_add(lhs, rhs)?,
+            BinaryIntOp::Sub => self.writer.insert_sub(lhs, rhs)?,
+            BinaryIntOp::Mul => self.writer.insert_mul(lhs, rhs)?,
+            BinaryIntOp::Div => return self.writer.insert_uintdiv(lhs, rhs),
+            BinaryIntOp::Equals => return self.writer.insert_bool_eq(lhs, rhs),
+            BinaryIntOp::LessThan => return self.writer.insert_bool_lt(lhs, rhs),
+            BinaryIntOp::LessThanEquals => return self.writer.insert_bool_le(lhs, rhs),
+            BinaryIntOp::And => return self.writer.insert_felt_bit_and(lhs, rhs),
+            BinaryIntOp::Or => return self.writer.insert_felt_bit_or(lhs, rhs),
+            BinaryIntOp::Xor => return self.writer.insert_felt_bit_xor(lhs, rhs),
+            BinaryIntOp::Shl => self.writer.insert_felt_shl(lhs, rhs)?,
+            BinaryIntOp::Shr => return self.writer.insert_felt_shr(lhs, rhs),
+        };
+        self.emit_mask(raw, bit_size)
     }
 
     /// Reads the `Stop` opcode's `return_data` HeapVector and emits
@@ -238,12 +169,20 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         let mut returns = Vec::with_capacity(size);
         for j in 0..size {
             let addr = MemoryAddress::Direct((pointer + j) as u32);
-            let val = self
-                .memory
-                .read_constant_address(self.writer, addr, BitSize::Field)?;
+            let val = self.memory.read(self.writer, addr)?;
             returns.push(val);
         }
         Ok(returns)
+    }
+}
+
+/// Returns `2^n - 1` as a `u128`, saturating at `u128::MAX` for `n = 128`.
+fn mask_for(int_size: IntegerBitSize) -> u128 {
+    let n = u32::from(int_size);
+    if n >= 128 {
+        u128::MAX
+    } else {
+        (1u128 << n) - 1
     }
 }
 
@@ -266,10 +205,9 @@ pub(super) fn translate_bytecode<'c, 'b>(
     calldata: &[Value<'c, 'b>],
     expected_output_count: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
-    let inferred = infer_types(&bytecode.bytecode)?;
     let mut ctx = TranslationCtx {
         writer,
-        memory: Memory::new(inferred),
+        memory: Memory::new(),
         calldata,
         expected_output_count,
     };
@@ -292,12 +230,4 @@ pub(super) fn translate_bytecode<'c, 'b>(
         });
     }
     Ok(Vec::new())
-}
-
-// ── Utility functions ──────────────────────────────────────────────────
-
-/// Returns the bit width of an integer-typed `ty`, or `None` if not integer.
-fn integer_width(ty: Type<'_>) -> Option<u32> {
-    use llzk::prelude::IntegerType;
-    IntegerType::try_from(ty).ok().map(|it| it.width())
 }
