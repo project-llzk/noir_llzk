@@ -22,7 +22,7 @@ use crate::{
     multiprec::{LIMBS, Limbs256, emit_inv_mod_p},
     opcodes::{
         OpcodeEmitter, collect_input_witness,
-        ecdsa::curve::{emit_point_add_affine, emit_point_double},
+        ecdsa::curve::{emit_point_add_affine, emit_point_double, emit_scalar_mul_known_msb},
         emit_blackbox_input,
     },
 };
@@ -96,6 +96,11 @@ impl EcdsaSecp256k1<'_> {
         let _sum = emit_point_add_affine(writer, (p1_x, p1_y), (p2_x, p2_y))?;
         let _inv = emit_inv_mod_p(writer, &p1_x, &SECP256K1_P)?;
         let _dbl = emit_point_double(writer, (p1_x, p1_y))?;
+
+        // Exercise scalar mul for k = 3 (bits LSB-first: [1, 1]). Result = 3·p1.
+        let one = writer.emit_constant(&FieldElement::from(1u128))?;
+        let scalar_bits = [one, one];
+        let _mul = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &scalar_bits)?;
         Ok(())
     }
 }

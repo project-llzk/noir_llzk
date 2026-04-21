@@ -5,10 +5,13 @@
 //! primitives assume finite, non-special inputs. Edge cases (P + (-P),
 //! doubling at y=0, infinity handling) will be layered on top later.
 
+use acir::FieldElement;
+use llzk::prelude::Value;
+
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    multiprec::{Limbs256, emit_add_mod_p, emit_div_mod_p, emit_mul_mod_p, emit_sub_mod_p},
+    multiprec::{LIMBS, Limbs256, emit_add_mod_p, emit_div_mod_p, emit_mul_mod_p, emit_sub_mod_p},
 };
 
 use super::secp256k1::SECP256K1_P;
@@ -47,6 +50,61 @@ pub(super) fn emit_point_add_affine<'c, 'a>(
 ///   λ  = 3·x² / (2·y)
 ///   x3 = λ² - 2·x
 ///   y3 = λ·(x - x3) - y
+/// Selects `if_one` when `bit = 1`, `if_zero` when `bit = 0`.
+/// Per limb: `out = bit · if_one + (1 - bit) · if_zero`.
+/// Caller must have constrained `bit ∈ {0, 1}`.
+pub(super) fn emit_point_select<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    bit: Value<'c, 'a>,
+    if_one: AffinePoint<'c, 'a>,
+    if_zero: AffinePoint<'c, 'a>,
+) -> Result<AffinePoint<'c, 'a>, Error> {
+    let one = writer.emit_constant(&FieldElement::from(1u128))?;
+    let neg_bit = writer.insert_neg(bit)?;
+    let one_minus_bit = writer.insert_add(one, neg_bit)?;
+    let x = select_limbs(writer, bit, one_minus_bit, &if_one.0, &if_zero.0)?;
+    let y = select_limbs(writer, bit, one_minus_bit, &if_one.1, &if_zero.1)?;
+    Ok((x, y))
+}
+
+fn select_limbs<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    bit: Value<'c, 'a>,
+    one_minus_bit: Value<'c, 'a>,
+    if_one: &Limbs256<'c, 'a>,
+    if_zero: &Limbs256<'c, 'a>,
+) -> Result<Limbs256<'c, 'a>, Error> {
+    let mut out: [Option<Value<'c, 'a>>; LIMBS] = [None; LIMBS];
+    for (i, slot) in out.iter_mut().enumerate() {
+        let from_one = writer.insert_mul(bit, if_one[i])?;
+        let from_zero = writer.insert_mul(one_minus_bit, if_zero[i])?;
+        *slot = Some(writer.insert_add(from_one, from_zero)?);
+    }
+    Ok(out.map(|s| s.expect("all slots filled")))
+}
+
+/// Fixed-width scalar multiplication `k · P` assuming `k`'s MSB is 1 and the
+/// running accumulator never hits the point at infinity or `±P` during the
+/// double-and-add loop. Bits are given **LSB-first**; the MSB is the
+/// initialisation bit for `acc = P`, and subsequent iterations walk from the
+/// bit below the MSB down to bit 0.
+///
+/// Per iteration: one double (`~123` nondets) + one add (`~100`) + one select
+/// (deterministic, no nondets).
+pub(super) fn emit_scalar_mul_known_msb<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    point: AffinePoint<'c, 'a>,
+    scalar_bits_lsb_first: &[Value<'c, 'a>],
+) -> Result<AffinePoint<'c, 'a>, Error> {
+    let mut acc = point;
+    for bit in scalar_bits_lsb_first.iter().rev().skip(1).copied() {
+        let doubled = emit_point_double(writer, acc)?;
+        let added = emit_point_add_affine(writer, doubled, point)?;
+        acc = emit_point_select(writer, bit, added, doubled)?;
+    }
+    Ok(acc)
+}
+
 pub(super) fn emit_point_double<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p: AffinePoint<'c, 'a>,

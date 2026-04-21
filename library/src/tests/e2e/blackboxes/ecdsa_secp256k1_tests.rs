@@ -344,6 +344,60 @@ fn point_double_nondets(p_pt: &(BigUint, BigUint), p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
+// ── Rust oracle for secp256k1 affine arithmetic ─────────────────────────
+
+fn secp_add(p1: &(BigUint, BigUint), p2: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
+    let (x1, y1) = p1;
+    let (x2, y2) = p2;
+    let dy = (p + y2 - y1) % p;
+    let dx = (p + x2 - x1) % p;
+    let dx_inv = dx.modpow(&(p - 2u32), p);
+    let lambda = (&dy * &dx_inv) % p;
+    let lambda_sq = (&lambda * &lambda) % p;
+    let x_sum = (x1 + x2) % p;
+    let x3 = (p + &lambda_sq - &x_sum) % p;
+    let x1_minus_x3 = (p + x1 - &x3) % p;
+    let lambda_dx3 = (&lambda * &x1_minus_x3) % p;
+    let y3 = (p + &lambda_dx3 - y1) % p;
+    (x3, y3)
+}
+
+fn secp_double(pt: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
+    let (x, y) = pt;
+    let x_sq = (x * x) % p;
+    let three_x_sq = (&x_sq * 3u32) % p;
+    let two_y = (y * 2u32) % p;
+    let two_y_inv = two_y.modpow(&(p - 2u32), p);
+    let lambda = (&three_x_sq * &two_y_inv) % p;
+    let lambda_sq = (&lambda * &lambda) % p;
+    let two_x = (x * 2u32) % p;
+    let x3 = (p + &lambda_sq - &two_x) % p;
+    let x_minus_x3 = (p + x - &x3) % p;
+    let lambda_dx3 = (&lambda * &x_minus_x3) % p;
+    let y3 = (p + &lambda_dx3 - y) % p;
+    (x3, y3)
+}
+
+/// Replays `emit_scalar_mul_known_msb(point, bits_lsb_first)` to derive the
+/// nondet sequence. `bits_lsb_first` must have MSB = 1.
+fn scalar_mul_known_msb_nondets(
+    point: &(BigUint, BigUint),
+    bits_lsb_first: &[u8],
+    p: &BigUint,
+) -> Vec<Felt> {
+    assert!(!bits_lsb_first.is_empty() && *bits_lsb_first.last().unwrap() == 1);
+    let mut acc = point.clone();
+    let mut nondets = Vec::new();
+    for &bit in bits_lsb_first.iter().rev().skip(1) {
+        let doubled = secp_double(&acc, p);
+        let added = secp_add(&doubled, point, p);
+        nondets.extend(point_double_nondets(&acc, p));
+        nondets.extend(point_add_affine_nondets(&doubled, point, p));
+        acc = if bit == 1 { added } else { doubled };
+    }
+    nondets
+}
+
 fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
     let private: Vec<u32> = (0..=PREDICATE_W).collect();
     let circuit = make_circuit_with_opcodes(
@@ -358,6 +412,8 @@ fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
     let mut nondet = point_add_affine_nondets(&p1, &p2, &p);
     nondet.extend(inv_mod_p_nondets(&p1.0, &p));
     nondet.extend(point_double_nondets(&p1, &p));
+    // Scalar mul with k=3, bits LSB-first = [1, 1]. Result = 3·p1.
+    nondet.extend(scalar_mul_known_msb_nondets(&p1, &[1, 1], &p));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
@@ -366,4 +422,33 @@ fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
 #[test]
 fn stub_point_add_g_plus_2g() {
     run_point_add_test(secp256k1_g(), secp256k1_2g());
+}
+
+#[test]
+fn oracle_double_g_equals_2g() {
+    // Cross-check our Rust oracle against the canonical secp256k1 2G vector.
+    let p = secp256k1_p();
+    let doubled = secp_double(&secp256k1_g(), &p);
+    assert_eq!(doubled, secp256k1_2g());
+}
+
+#[test]
+fn oracle_scalar_mul_3_equals_3g() {
+    // Cross-check scalar mul oracle: 3·G should equal the canonical 3G vector.
+    let p = secp256k1_p();
+    // Replay the algorithm in Rust: start with acc = G, 1 iteration (bit = 1).
+    let g = secp256k1_g();
+    let doubled = secp_double(&g, &p);
+    let added = secp_add(&doubled, &g, &p);
+    let expected_3g_x = BigUint::parse_bytes(
+        b"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9",
+        16,
+    )
+    .unwrap();
+    let expected_3g_y = BigUint::parse_bytes(
+        b"388F7B0F632DE8140FE337E62A37F3566500A99934C2231B6CB9FD7584B8E672",
+        16,
+    )
+    .unwrap();
+    assert_eq!(added, (expected_3g_x, expected_3g_y));
 }
