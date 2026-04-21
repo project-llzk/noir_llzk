@@ -35,6 +35,15 @@ pub(super) const SECP256K1_P: [u64; 4] = [
     0xFFFF_FFFF_FFFF_FFFF,
 ];
 
+/// secp256k1 scalar field order `n`, little-endian 64-bit limbs.
+/// n = 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141.
+pub(super) const SECP256K1_N: [u64; 4] = [
+    0xBFD2_5E8C_D036_4141,
+    0xBAAE_DCE6_AF48_A03B,
+    0xFFFF_FFFF_FFFF_FFFE,
+    0xFFFF_FFFF_FFFF_FFFF,
+];
+
 pub(crate) struct EcdsaSecp256k1<'a> {
     public_key_x: &'a [FunctionInput<FieldElement>; 32],
     public_key_y: &'a [FunctionInput<FieldElement>; 32],
@@ -97,10 +106,15 @@ impl EcdsaSecp256k1<'_> {
         let _inv = emit_inv_mod_p(writer, &p1_x, &SECP256K1_P)?;
         let _dbl = emit_point_double(writer, (p1_x, p1_y))?;
 
-        // Exercise scalar mul for k = 3 (bits LSB-first: [1, 1]). Result = 3·p1.
+        // Exercise scalar mul for k = 15 (bits LSB-first: [1, 1, 1, 1]).
+        // 3 double-and-add iterations; result = 15·p1.
         let one = writer.emit_constant(&FieldElement::from(1u128))?;
-        let scalar_bits = [one, one];
+        let scalar_bits = [one; 4];
         let _mul = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &scalar_bits)?;
+
+        // Exercise Fr arithmetic: compute p2_y⁻¹ mod n (scalar field).
+        // Real ECDSA verify starts with s_inv mod n — this is that call shape.
+        let _s_inv = emit_inv_mod_p(writer, &p2_y, &SECP256K1_N)?;
         Ok(())
     }
 }

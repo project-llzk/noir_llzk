@@ -33,6 +33,15 @@ fn secp256k1_p() -> BigUint {
     BigUint::from_bytes_be(&bytes)
 }
 
+/// secp256k1 scalar field order `n`.
+fn secp256k1_n() -> BigUint {
+    BigUint::parse_bytes(
+        b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+        16,
+    )
+    .unwrap()
+}
+
 fn secp256k1_g() -> (BigUint, BigUint) {
     let gx = BigUint::parse_bytes(
         b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
@@ -95,10 +104,26 @@ fn inputs_from_two_points(
     p2: &(BigUint, BigUint),
 ) -> Vec<crate::tests::e2e::Value> {
     let mut inputs = Vec::with_capacity((PREDICATE_W + 1) as usize);
-    inputs.extend(biguint_to_be_bytes(&p1.0).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(&p1.1).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(&p2.0).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(&p2.1).iter().map(|&b| felt_u64(b as u64)));
+    inputs.extend(
+        biguint_to_be_bytes(&p1.0)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(&p1.1)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(&p2.0)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(&p2.1)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
     // hashed_message (unused): 32 zeros.
     inputs.extend(std::iter::repeat_n(felt_u64(0), 32));
     // predicate.
@@ -412,8 +437,12 @@ fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
     let mut nondet = point_add_affine_nondets(&p1, &p2, &p);
     nondet.extend(inv_mod_p_nondets(&p1.0, &p));
     nondet.extend(point_double_nondets(&p1, &p));
-    // Scalar mul with k=3, bits LSB-first = [1, 1]. Result = 3·p1.
-    nondet.extend(scalar_mul_known_msb_nondets(&p1, &[1, 1], &p));
+    // Scalar mul with k=15, bits LSB-first = [1, 1, 1, 1]. Result = 15·p1.
+    nondet.extend(scalar_mul_known_msb_nondets(&p1, &[1, 1, 1, 1], &p));
+    // Exercise Fr arithmetic: p2.y⁻¹ mod n.
+    let n = secp256k1_n();
+    assert!(p2.1 < n, "p2.y must be < n for inv mod n to be defined");
+    nondet.extend(inv_mod_p_nondets(&p2.1, &n));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
