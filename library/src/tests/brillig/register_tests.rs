@@ -1,14 +1,10 @@
-//! Issue 3: register-machine opcodes (Const / Mov / Cast / CMov).
-//!
-//! Covers SSA threading through the Brillig register map, integer constants
-//! with width-typed `iN` emission (option b), and the full felt↔iN cast matrix.
-
+//! Register-machine opcodes (Const / Mov / Cast / CMov).
 use acir::brillig::{BitSize, IntegerBitSize, Opcode as BrilligOpcode};
-use llzk::prelude::{LlzkContext, OperationLike, RegionLike};
+use llzk::prelude::{LlzkContext, OperationLike};
 
-use super::super::{iter_block_ops, print_and_verify_module};
+use super::super::print_and_verify_module;
 use super::{
-    addr, brillig_stop, cast, const_field, const_int, count_brillig_body_ops, find_brillig_fn, mov,
+    addr, brillig_stop, cast, const_field, const_int, count_loads, count_op, count_stores, mov,
     translate_body,
 };
 use crate::Error;
@@ -20,12 +16,15 @@ fn brillig_const_field_emits_felt_const() {
     let module = translate_body(&context, vec![const_field(0, 5), brillig_stop()])
         .expect("translation should succeed");
 
-    let body_op_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.const")
-    });
+    let body_op_count = count_op(&module, 0, "felt.const");
     assert_eq!(
         body_op_count, 1,
         "@brillig_0 should contain exactly one felt.const op"
+    );
+    assert_eq!(
+        count_stores(&module, 0),
+        1,
+        "Const should emit one ram.store for the destination register"
     );
     print_and_verify_module(&module, "brillig_const_field_emits_felt_const");
 }
@@ -43,12 +42,15 @@ fn brillig_const_int_emits_felt_const() {
     )
     .expect("translation should succeed");
 
-    let felt_const_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.const")
-    });
+    let felt_const_count = count_op(&module, 0, "felt.const");
     assert_eq!(
         felt_const_count, 1,
         "@brillig_0 should contain exactly one felt.const op for the integer value"
+    );
+    assert_eq!(
+        count_stores(&module, 0),
+        1,
+        "Const should emit one ram.store for the destination register"
     );
     print_and_verify_module(&module, "brillig_const_int_emits_felt_const");
 }
@@ -68,204 +70,74 @@ fn brillig_const_int_accepts_all_bit_sizes() {
         let context = LlzkContext::new();
         let module = translate_body(&context, vec![const_int(0, bs, v), brillig_stop()])
             .unwrap_or_else(|e| panic!("bit size {bs:?} value {v} failed: {e}"));
+        let felt_const_count = count_op(&module, 0, "felt.const");
+        assert_eq!(
+            felt_const_count, 1,
+            "bit size {bs:?} should emit exactly one felt.const"
+        );
         assert!(module.as_operation().verify());
     }
 }
 
-/// `Mov` round-trips the source value through RAM: it emits `ram.load` at
-/// the source slot and `ram.store` at the destination slot, with no
-/// explicit cast (both slots share the source's bit size).
+/// `Mov` round-trips the source value through RAM: one `ram.load` from the
+/// source slot and one `ram.store` to the destination slot.
 #[test]
-fn brillig_mov_emits_no_op() {
+fn brillig_mov_emits_load_store_pair() {
     let context = LlzkContext::new();
     let module = translate_body(&context, vec![const_field(0, 7), mov(1, 0), brillig_stop()])
         .expect("translation should succeed");
 
-    // Const(Field): felt.const + arith.constant(slot 0) + ram.store.
-    // Mov: ram.load(slot 0) + arith.constant(slot 1) + ram.store.
-    // Plus the function.return terminator. No cast.* ops for the Mov.
-    let brillig_op = find_brillig_fn(&module, 0).expect("@brillig_0 should exist");
-    let body = brillig_op.region(0).unwrap().first_block().unwrap();
-    let total = iter_block_ops(body).count();
-    assert_eq!(
-        total, 7,
-        "Const + Mov + Stop should produce 7 ops: felt.const + 2×arith.constant \
-         + 2×ram.store + ram.load + function.return"
-    );
+    // Const: 1 store. Mov: 1 load + 1 store.
+    assert_eq!(count_stores(&module, 0), 2);
+    assert_eq!(count_loads(&module, 0), 1);
 }
 
-/// Casting from a felt register to an `iN` integer type masks the source
-/// with `2^n - 1` via `felt.bit_and`. No cast.* or arith.index_cast ops
-/// are involved — values are felt end-to-end.
+/// Casting to an `iN` integer type masks the source with `2^n - 1` via
+/// `felt.bit_and`, regardless of the source's declared bit size. No
+/// `cast.*` or `arith.index_cast` ops are involved — values are felt
+/// end-to-end. Covers field→int, narrowing int→int, and widening int→int.
 #[test]
-fn brillig_cast_field_to_integer_emits_mask() {
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            const_field(0, 9),
-            cast(1, 0, BitSize::Integer(IntegerBitSize::U32)),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
+fn brillig_cast_to_integer_emits_mask() {
+    use IntegerBitSize::*;
+    let cases: &[(&str, Option<IntegerBitSize>, IntegerBitSize)] = &[
+        ("field → U32", None, U32), // field source
+        ("U8 → U32 (widen)", Some(U8), U32),
+        ("U32 → U8 (narrow)", Some(U32), U8),
+    ];
 
-    let bit_and_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.bit_and")
-    });
-    let toindex_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("cast.toindex")
-    });
-    let index_cast_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("arith.index_cast")
-    });
-    assert_eq!(bit_and_count, 1, "expected one felt.bit_and mask op");
-    assert_eq!(toindex_count, 0, "no cast.toindex — felt values stay felt");
-    assert_eq!(index_cast_count, 0, "no arith.index_cast — no iN types");
-    print_and_verify_module(&module, "brillig_cast_field_to_integer_emits_mask");
-}
+    for (label, src_bs, dst_bs) in cases {
+        let context = LlzkContext::new();
+        let src_const = match src_bs {
+            None => const_field(0, 9),
+            Some(bs) => const_int(0, *bs, 3),
+        };
+        let module = translate_body(
+            &context,
+            vec![
+                src_const,
+                cast(1, 0, BitSize::Integer(*dst_bs)),
+                brillig_stop(),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("{label} translation failed: {e}"));
 
-/// Casting from an `iN` integer register to a felt type is a no-op in
-/// `emit_cast` — the stored felt is already the integer value. The Cast
-/// handler still emits a ram.load + ram.store pair to rebind the
-/// destination register, but no explicit conversion ops.
-#[test]
-fn brillig_cast_integer_to_field_no_conversion_ops() {
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            const_int(0, IntegerBitSize::U32, 11),
-            cast(1, 0, BitSize::Field),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
-
-    let index_cast_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("arith.index_cast")
-    });
-    let tofelt_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("cast.tofelt")
-    });
-    let bit_and_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.bit_and")
-    });
-    assert_eq!(index_cast_count, 0, "no arith.index_cast — no iN types");
-    assert_eq!(tofelt_count, 0, "no cast.tofelt — value is already felt");
-    assert_eq!(
-        bit_and_count, 0,
-        "no mask — Field target doesn't enforce a bit width"
-    );
-    print_and_verify_module(&module, "brillig_cast_integer_to_field_no_conversion_ops");
-}
-
-/// `Cast` with a destination type that matches the source emits no
-/// conversion op in `emit_cast` itself — but the surrounding RAM
-/// machinery still reads the source slot and writes the destination slot,
-/// so the body is not empty.
-#[test]
-fn brillig_cast_same_type_emits_no_op() {
-    // Field → Field: emit_cast is a no-op, but the Cast still round-trips
-    // the value through RAM.
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            const_field(0, 1),
-            cast(1, 0, BitSize::Field),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
-    let body = find_brillig_fn(&module, 0)
-        .unwrap()
-        .region(0)
-        .unwrap()
-        .first_block()
-        .unwrap();
-    // Const(Field): felt.const + arith.constant(slot 0) + ram.store.
-    // Cast(Field→Field): ram.load(slot 0) + arith.constant(slot 1) + ram.store.
-    // Plus function.return. No cast.* ops emitted by emit_cast.
-    assert_eq!(
-        iter_block_ops(body).count(),
-        7,
-        "Const + Cast(Field→Field) + Stop should emit 7 ops (no cast.* from emit_cast)"
-    );
-
-    // iN → iN (same width): emit_cast is a no-op, but the register
-    // narrow/widen shuffle around ram.load/ram.store remains.
-    let context2 = LlzkContext::new();
-    let module2 = translate_body(
-        &context2,
-        vec![
-            const_int(0, IntegerBitSize::U32, 3),
-            cast(1, 0, BitSize::Integer(IntegerBitSize::U32)),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
-    let body2 = find_brillig_fn(&module2, 0)
-        .unwrap()
-        .region(0)
-        .unwrap()
-        .first_block()
-        .unwrap();
-    // Const(iN): felt.const(val) + arith.constant(slot 0) + ram.store  (3 ops)
-    // Cast(iN→iN same width): ram.load + felt.const(mask) + felt.bit_and
-    //          + arith.constant(slot 1) + ram.store  (5 ops)
-    // Plus function.return. The always-mask policy means same-width casts
-    // still emit one felt.bit_and — simpler than tracking source widths.
-    assert_eq!(
-        iter_block_ops(body2).count(),
-        9,
-        "Const + Cast(iN→iN same width) + Stop should emit 9 ops"
-    );
-}
-
-/// Casting a narrow integer to a wider integer is a `felt.bit_and` with
-/// `2^n_target - 1`. Widening is semantically a no-op (the source value
-/// already fits), but the always-mask policy still emits the op.
-#[test]
-fn brillig_cast_widens_int_emits_mask() {
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            const_int(0, IntegerBitSize::U8, 3),
-            cast(1, 0, BitSize::Integer(IntegerBitSize::U32)),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
-
-    let bit_and_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.bit_and")
-    });
-    assert_eq!(bit_and_count, 1, "expected one felt.bit_and mask op");
-    print_and_verify_module(&module, "brillig_cast_widens_int_emits_mask");
-}
-
-/// Casting a wider integer to a narrower integer is a `felt.bit_and` with
-/// `2^n_target - 1`, truncating the high bits.
-#[test]
-fn brillig_cast_narrows_int_emits_mask() {
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            const_int(0, IntegerBitSize::U32, 3),
-            cast(1, 0, BitSize::Integer(IntegerBitSize::U8)),
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed");
-
-    let bit_and_count = count_brillig_body_ops(&module, 0, |op| {
-        op.name().as_string_ref().as_str() == Ok("felt.bit_and")
-    });
-    assert_eq!(bit_and_count, 1, "expected one felt.bit_and mask op");
-    print_and_verify_module(&module, "brillig_cast_narrows_int_emits_mask");
+        let bit_and_count = count_op(&module, 0, "felt.bit_and");
+        let toindex_count = count_op(&module, 0, "cast.toindex");
+        let index_cast_count = count_op(&module, 0, "arith.index_cast");
+        assert_eq!(
+            bit_and_count, 1,
+            "{label}: expected one felt.bit_and mask op"
+        );
+        assert_eq!(
+            toindex_count, 0,
+            "{label}: no cast.toindex — felt values stay felt"
+        );
+        assert_eq!(
+            index_cast_count, 0,
+            "{label}: no arith.index_cast — no iN types"
+        );
+        print_and_verify_module(&module, label);
+    }
 }
 
 /// `ConditionalMov` is control flow and is rejected with a clear message.

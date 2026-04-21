@@ -10,7 +10,6 @@
 //! `@brillig_{id}` lookup) live in this module so every sibling test file
 //! imports them via `super::`.
 
-use acir::FieldElement;
 use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
@@ -18,9 +17,16 @@ use acir::brillig::{
 use acir::circuit::Opcode;
 use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::native_types::{Expression, Witness};
-use llzk::prelude::{FuncDefOpRef, LlzkContext, Module, OperationLike, OperationRef, RegionLike};
+use acir::{AcirField, FieldElement};
+use llzk::prelude::dialect::function::is_func_call;
+use llzk::prelude::{
+    BlockRef, FuncDefOpRef, LlzkContext, Module, OperationLike, OperationRef, RegionLike,
+    StructDefOpLike,
+};
 
-use super::{iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig};
+use super::{
+    first_struct_def, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
+};
 use crate::Error;
 use crate::program::translate_program;
 
@@ -154,6 +160,45 @@ pub(super) fn store(ptr: u32, src: u32) -> BrilligOpcode<FieldElement> {
     }
 }
 
+// ── @compute lookup helpers ────────────────────────────────────────────
+
+/// Returns the first block of `@compute` on the first struct in the module.
+pub(super) fn get_compute_block<'c, 'a>(module: &'a Module<'c>) -> BlockRef<'c, 'a> {
+    let struct_def = first_struct_def(module);
+    let compute_fn = struct_def
+        .get_compute_func()
+        .expect("Circuit0 should have @compute");
+    compute_fn.region(0).unwrap().first_block().unwrap()
+}
+
+/// Counts ops in `@compute` whose op name equals `name`.
+pub(super) fn count_compute_op(module: &Module, name: &str) -> usize {
+    iter_block_ops(get_compute_block(module))
+        .filter(|op| op.name().as_string_ref().as_str() == Ok(name))
+        .count()
+}
+
+/// Counts `function.call` ops in `@compute`.
+pub(super) fn count_compute_calls(module: &Module) -> usize {
+    iter_block_ops(get_compute_block(module))
+        .filter(is_func_call)
+        .count()
+}
+
+/// Returns the first `function.call` op in `@compute`, if any.
+pub(super) fn first_compute_call<'c, 'a>(module: &'a Module<'c>) -> Option<OperationRef<'c, 'a>> {
+    iter_block_ops(get_compute_block(module)).find(is_func_call)
+}
+
+/// Builds a non-trivial predicate `Expression` whose value equals witness `w`.
+pub(super) fn witness_predicate(w: u32) -> Expression<FieldElement> {
+    Expression {
+        mul_terms: vec![],
+        linear_combinations: vec![(FieldElement::one(), Witness(w))],
+        q_c: FieldElement::zero(),
+    }
+}
+
 // ── Module / brillig-body lookup helpers ───────────────────────────────
 
 /// Locates the module-level `@brillig_{id}` function, if present.
@@ -207,11 +252,40 @@ pub(super) fn translate_body(
 }
 
 /// Counts ops in the body of `@brillig_{id}` that match `predicate`.
-pub(super) fn count_brillig_body_ops<F>(module: &Module, id: u32, predicate: F) -> usize
+fn count_brillig_body_ops<F>(module: &Module, id: u32, predicate: F) -> usize
 where
     F: Fn(OperationRef<'_, '_>) -> bool,
 {
     let brillig_op = find_brillig_fn(module, id).expect("module should contain @brillig_{id}");
     let body = brillig_op.region(0).unwrap().first_block().unwrap();
     iter_block_ops(body).filter(|op| predicate(*op)).count()
+}
+
+/// Counts ops in the body of `@brillig_{id}` whose op name equals `name`.
+pub(super) fn count_op(module: &Module, id: u32, name: &str) -> usize {
+    count_brillig_body_ops(module, id, |op| {
+        op.name().as_string_ref().as_str() == Ok(name)
+    })
+}
+
+/// Returns the first op in the body of `@brillig_{id}` whose op name
+/// equals `name`, if any.
+pub(super) fn find_op<'c, 'a>(
+    module: &'a Module<'c>,
+    id: u32,
+    name: &str,
+) -> Option<OperationRef<'c, 'a>> {
+    let brillig_op = find_brillig_fn(module, id)?;
+    let body = brillig_op.region(0).unwrap().first_block().unwrap();
+    iter_block_ops(body).find(|op| op.name().as_string_ref().as_str() == Ok(name))
+}
+
+/// Counts `ram.load` ops in the body of `@brillig_{id}`.
+pub(super) fn count_loads(module: &Module, id: u32) -> usize {
+    count_op(module, id, "ram.load")
+}
+
+/// Counts `ram.store` ops in the body of `@brillig_{id}`.
+pub(super) fn count_stores(module: &Module, id: u32) -> usize {
+    count_op(module, id, "ram.store")
 }

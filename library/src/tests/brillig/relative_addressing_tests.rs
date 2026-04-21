@@ -27,6 +27,21 @@ fn relative_address_aliases_with_direct_after_sp_init() {
     )
     .expect("translation should succeed once SP is set");
     assert!(module.as_operation().verify());
+
+    // Relative(5) with SP=10 must resolve to Direct(15). The slot-index
+    // constants used by ram.load/ram.store are emitted as `arith.constant N
+    // : index`, so the IR should contain `arith.constant 15 : index` (the
+    // resolved Mov source) and MUST NOT contain `arith.constant 5 : index`
+    // (which would indicate the translator read from the unresolved slot).
+    let ir = format!("{}", module.as_operation());
+    assert!(
+        ir.contains("arith.constant 15 : index"),
+        "IR should address slot 15 (Relative(5) + SP=10):\n{ir}"
+    );
+    assert!(
+        !ir.contains("arith.constant 5 : index"),
+        "IR must not address raw slot 5 — Relative(5) should have resolved:\n{ir}"
+    );
 }
 
 #[test]

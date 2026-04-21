@@ -1,26 +1,26 @@
-//! Issue 2: `BrilligCall` handler skeleton & dispatch.
+//!`BrilligCall` handler skeleton & dispatch.
 //!
 //! These cover the shell of the translator — the sibling function exists on
 //! the struct with `allow_witness = true`, the call site shows up in
 //! `@compute`, and every unsupported Brillig construct (opcodes,
 //! marshalling shapes) returns an actionable `UnsupportedBrillig` error.
 
-use acir::brillig::Opcode as BrilligOpcode;
+use acir::brillig::{IntegerBitSize, Opcode as BrilligOpcode};
 use acir::circuit::Opcode;
 use acir::circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    FuncDefOpLike, FuncDefOpRef, LlzkContext, OperationLike, RegionLike, StructDefOpLike,
+    BlockLike, FuncDefOpLike, FuncDefOpRef, LlzkContext, OperationLike, RegionLike,
 };
 
 use super::super::{
-    count_occurrences, first_struct_def, iter_block_ops, make_circuit_with_opcodes,
-    make_program_with_brillig, print_and_verify_module,
+    count_occurrences, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
+    print_and_verify_module,
 };
 use super::{
     brillig_call_opcode, brillig_stop, bytecode, const_field, const_int, count_brillig_fns,
-    find_brillig_fn, single_witness, store,
+    count_compute_calls, count_compute_op, find_brillig_fn, first_compute_call, single_witness,
+    store, witness_predicate,
 };
 use crate::Error;
 use crate::program::translate_program;
@@ -51,44 +51,13 @@ fn empty_brillig_call_verifies() {
         "@brillig_0 should have allow_witness = true"
     );
 
-    // Exactly one function.call lives in @compute — the brillig call site.
-    let struct0 = first_struct_def(&module);
-    let compute_fn = struct0
-        .get_compute_func()
-        .expect("Circuit0 should have @compute");
-    let compute_block = compute_fn.region(0).unwrap().first_block().unwrap();
-    let call_count = iter_block_ops(compute_block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
-        .count();
     assert_eq!(
-        call_count, 1,
+        count_compute_calls(&module),
+        1,
         "@compute should contain exactly one function.call (the brillig call)"
     );
 
     print_and_verify_module(&module, "empty_brillig_call_verifies");
-}
-
-/// Dispatch is wired up: `Opcode::BrilligCall` routes to the new handler
-/// rather than falling through to the `UnsupportedOpcode` arm.
-#[test]
-fn brillig_dispatch_routes_to_handler() {
-    let context = LlzkContext::new();
-
-    let circuit = make_circuit_with_opcodes(
-        0,
-        &[],
-        &[],
-        &[],
-        vec![brillig_call_opcode(0, vec![], vec![])],
-    );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
-
-    let result = translate_program(&context, &program);
-    assert!(
-        result.is_ok(),
-        "BrilligCall should dispatch to the new handler, not UnsupportedOpcode, got {:?}",
-        result.err()
-    );
 }
 
 /// A non-trivial predicate on `BrilligCall` with no outputs succeeds —
@@ -98,22 +67,24 @@ fn brillig_dispatch_routes_to_handler() {
 fn brillig_with_nontrivial_predicate_no_outputs() {
     let context = LlzkContext::new();
 
-    let nontrivial = Expression {
-        mul_terms: vec![],
-        linear_combinations: vec![(FieldElement::one(), Witness(0))],
-        q_c: FieldElement::zero(),
-    };
     let opcode = Opcode::BrilligCall {
         id: BrilligFunctionId(0),
         inputs: vec![],
         outputs: vec![],
-        predicate: nontrivial,
+        predicate: witness_predicate(0),
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![opcode]);
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
     let module = translate_program(&context, &program)
         .expect("non-trivial predicate with no outputs should succeed");
+
+    assert_eq!(
+        count_compute_op(&module, "felt.mul"),
+        0,
+        "@compute should contain zero felt.mul ops (no outputs to gate)"
+    );
+
     print_and_verify_module(&module, "brillig_nontrivial_predicate_no_outputs");
 }
 
@@ -122,16 +93,7 @@ fn brillig_with_nontrivial_predicate_no_outputs() {
 /// a `felt.mul` for each output witness.
 #[test]
 fn brillig_with_nontrivial_predicate_gates_outputs() {
-    use acir::brillig::IntegerBitSize;
-
     let context = LlzkContext::new();
-
-    // Predicate: w0 (a single witness, non-trivial).
-    let nontrivial = Expression {
-        mul_terms: vec![],
-        linear_combinations: vec![(FieldElement::one(), Witness(0))],
-        q_c: FieldElement::zero(),
-    };
 
     // Brillig bytecode that stores a value into RAM and returns it:
     //   r0 = 100 (pointer for return_data)
@@ -140,10 +102,10 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
     //   mem[100] = r2
     //   Stop { return_data: { pointer: r0, size: r1 } }
     let body = vec![
-        const_int(0, IntegerBitSize::U32, 100), // r0 = pointer
-        const_int(1, IntegerBitSize::U32, 1),   // r1 = size
-        const_field(2, 42),                     // r2 = return value
-        store(0, 2),                            // mem[r0] = r2
+        const_int(0, IntegerBitSize::U32, 100),
+        const_int(1, IntegerBitSize::U32, 1),
+        const_field(2, 42),
+        store(0, 2),
         BrilligOpcode::Stop {
             return_data: acir::brillig::HeapVector {
                 pointer: acir::brillig::MemoryAddress::Direct(0),
@@ -156,7 +118,7 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
         id: BrilligFunctionId(0),
         inputs: vec![],
         outputs: vec![BrilligOutputs::Simple(Witness(1))],
-        predicate: nontrivial,
+        predicate: witness_predicate(0),
     };
     // w0 is the predicate witness (public input); w1 is the output.
     let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
@@ -165,21 +127,41 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
     let module = translate_program(&context, &program)
         .expect("non-trivial predicate with outputs should succeed");
 
-    // Verify that @compute contains a `felt.mul` for the predicate gating.
-    let struct0 = first_struct_def(&module);
-    let compute_fn = struct0
-        .get_compute_func()
-        .expect("Circuit0 should have @compute");
-    let compute_block = compute_fn.region(0).unwrap().first_block().unwrap();
-    let felt_mul_count = iter_block_ops(compute_block)
-        .filter(|op| op.name().as_string_ref().as_str() == Ok("felt.mul"))
-        .count();
     assert_eq!(
-        felt_mul_count, 1,
+        count_compute_op(&module, "felt.mul"),
+        1,
         "@compute should contain exactly one felt.mul (the predicate gating)"
     );
 
     print_and_verify_module(&module, "brillig_nontrivial_predicate_gates_outputs");
+}
+
+/// `Stop` at index 0 short-circuits translation; downstream unsupported
+/// opcodes are never reached.
+#[test]
+fn brillig_stop_short_circuits_unsupported_ops() {
+    let context = LlzkContext::new();
+
+    let circuit = make_circuit_with_opcodes(
+        0,
+        &[],
+        &[],
+        &[],
+        vec![brillig_call_opcode(0, vec![], vec![])],
+    );
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode(vec![
+            brillig_stop(),
+            BrilligOpcode::Jump { location: 0 },
+            brillig_stop(),
+        ])],
+    );
+
+    assert!(
+        translate_program(&context, &program).is_ok(),
+        "Stop at index 0 should terminate translation before the unsupported op is reached"
+    );
 }
 
 /// An unsupported Brillig opcode surfaces an `UnsupportedBrillig` error that
@@ -195,37 +177,15 @@ fn brillig_with_unsupported_opcode_errors() {
         &[],
         vec![brillig_call_opcode(0, vec![], vec![])],
     );
-
-    // Index 0: Stop (ignored because we short-circuit below... but actually for
-    // this test we want the unsupported op to be at index 1, preceded by an
-    // unsupported op at index 0 so the error cites index 0).
-    // Put the unsupported op first so the reported index is predictable.
-    let unsupported = BrilligOpcode::Jump { location: 0 };
     let program = make_program_with_brillig(
         vec![circuit],
-        vec![bytecode(vec![brillig_stop(), unsupported, brillig_stop()])],
-    );
-    // The translator returns at the first Stop — so this bytecode is actually
-    // accepted. Build a second case that surfaces the unsupported op.
-    let result = translate_program(&context, &program);
-    assert!(
-        result.is_ok(),
-        "Stop at index 0 should terminate translation before the unsupported op is reached"
+        vec![bytecode(vec![
+            BrilligOpcode::Jump { location: 0 },
+            brillig_stop(),
+        ])],
     );
 
-    let circuit2 = make_circuit_with_opcodes(
-        0,
-        &[],
-        &[],
-        &[],
-        vec![brillig_call_opcode(0, vec![], vec![])],
-    );
-    let unsupported_first = BrilligOpcode::Jump { location: 0 };
-    let program2 = make_program_with_brillig(
-        vec![circuit2],
-        vec![bytecode(vec![unsupported_first, brillig_stop()])],
-    );
-    let err = translate_program(&context, &program2)
+    let err = translate_program(&context, &program)
         .expect_err("unsupported Brillig opcode should propagate as an error");
     let msg = format!("{err}");
     assert!(
@@ -265,10 +225,11 @@ fn brillig_reads_single_input_from_self() {
         "module should contain @brillig_0"
     );
 
-    let ir = format!("{}", module.as_operation());
-    assert!(
-        ir.contains("@brillig_0"),
-        "module IR should reference @brillig_0:\n{ir}"
+    let call = first_compute_call(&module).expect("@compute should contain a function.call");
+    assert_eq!(
+        call.operands().count(),
+        1,
+        "brillig call should have one operand for the single witness input"
     );
 
     print_and_verify_module(&module, "brillig_reads_single_input_from_self");
@@ -317,12 +278,30 @@ fn brillig_array_input_is_accepted() {
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
     let module = translate_program(&context, &program).expect("array inputs should be accepted");
+
+    let call = first_compute_call(&module).expect("@compute should contain a function.call");
+    assert_eq!(
+        call.operands().count(),
+        2,
+        "2-element array input should flatten to 2 call operands"
+    );
+
+    let brillig_fn = FuncDefOpRef::try_from(
+        find_brillig_fn(&module, 0).expect("module should contain @brillig_0"),
+    )
+    .expect("should be a FuncDefOp");
+    let brillig_block = brillig_fn.region(0).unwrap().first_block().unwrap();
+    assert_eq!(
+        brillig_block.argument_count(),
+        2,
+        "@brillig_0 should take 2 flattened felt arguments"
+    );
+
     print_and_verify_module(&module, "brillig_array_input_is_accepted");
 }
 
-/// A `Simple` output paired with bytecode that produces no return values
-/// (the skeleton's behavior) is rejected — the translator cannot yet wire
-/// register values to return values; that arrives in later milestone-3 issues.
+/// A call site declaring outputs is rejected when the `Stop` opcode's
+/// `return_data.size` register has no statically known constant.
 #[test]
 fn brillig_simple_output_without_body_is_rejected() {
     let context = LlzkContext::new();
@@ -380,6 +359,7 @@ fn empty_brillig_body_is_just_a_return() {
         3,
         "IR should contain exactly three function.return operations, got:\n{ir}"
     );
+    print_and_verify_module(&module, "Empty Brillig");
 }
 
 /// Two BrilligCall sites that reference the same `BrilligFunctionId` share a
@@ -409,17 +389,9 @@ fn duplicate_brillig_calls_dedup_to_single_function() {
         "two calls to BrilligFunctionId(0) should produce exactly one module-level function"
     );
 
-    // Both call sites live in @compute.
-    let struct0 = first_struct_def(&module);
-    let compute_fn = struct0
-        .get_compute_func()
-        .expect("Circuit0 should have @compute");
-    let compute_block = compute_fn.region(0).unwrap().first_block().unwrap();
-    let call_count = iter_block_ops(compute_block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
-        .count();
     assert_eq!(
-        call_count, 2,
+        count_compute_calls(&module),
+        2,
         "@compute should contain two function.call ops — one per call site"
     );
 
