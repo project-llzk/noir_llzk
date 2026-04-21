@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::prelude::melior_dialects::arith;
+use llzk::prelude::melior_dialects::{arith, scf};
 use llzk::prelude::{
     Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationRef, Type, Value, ValueLike, dialect,
+    OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -183,6 +183,15 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::bool::eq(self.location, lhs, rhs)?)
     }
 
+    /// Emits `bool.cmp gt(lhs, rhs)`.
+    pub(crate) fn insert_bool_gt(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::bool::gt(self.location, lhs, rhs)?)
+    }
+
     // ── Cast operations ────────────────────────────────────────────────
 
     /// Emits `cast.toindex val`, converting a felt value to the index type.
@@ -220,6 +229,37 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// `addr` must be index-typed.
     pub(crate) fn insert_ram_store(&self, addr: Value<'c, 'a>, val: Value<'c, 'a>) {
         self.insert_op(dialect::ram::store(self.location, addr, val));
+    }
+
+    // ── Structured control flow ────────────────────────────────────────
+
+    /// Emits `scf.if` as a branchless select: yields `then_val` when `cond`
+    /// (an `i1`) is true, otherwise `else_val`. Both values must share
+    /// `result_ty`, which is also the type of the returned SSA value.
+    pub(crate) fn insert_scf_if_select(
+        &self,
+        cond: Value<'c, 'a>,
+        then_val: Value<'c, 'a>,
+        else_val: Value<'c, 'a>,
+        result_ty: Type<'c>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        let then_region = Region::new();
+        let then_block = Block::new(&[]);
+        then_block.append_operation(scf::r#yield(&[then_val], self.location));
+        then_region.append_block(then_block);
+
+        let else_region = Region::new();
+        let else_block = Block::new(&[]);
+        else_block.append_operation(scf::r#yield(&[else_val], self.location));
+        else_region.append_block(else_block);
+
+        self.insert_op_with_result(scf::r#if(
+            cond,
+            &[result_ty],
+            then_region,
+            else_region,
+            self.location,
+        ))
     }
 
     // ── Caching helpers ─────────────────────────────────────────────────

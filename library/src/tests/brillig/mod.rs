@@ -108,6 +108,20 @@ pub(super) fn mov(dst: u32, src: u32) -> BrilligOpcode<FieldElement> {
     }
 }
 
+pub(super) fn conditional_mov(
+    dst: u32,
+    source_a: u32,
+    source_b: u32,
+    condition: u32,
+) -> BrilligOpcode<FieldElement> {
+    BrilligOpcode::ConditionalMov {
+        destination: addr(dst),
+        source_a: addr(source_a),
+        source_b: addr(source_b),
+        condition: addr(condition),
+    }
+}
+
 pub(super) fn cast(dst: u32, src: u32, bit_size: BitSize) -> BrilligOpcode<FieldElement> {
     BrilligOpcode::Cast {
         destination: addr(dst),

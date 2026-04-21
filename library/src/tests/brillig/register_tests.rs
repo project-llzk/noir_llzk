@@ -1,13 +1,12 @@
 //! Register-machine opcodes (Const / Mov / Cast / CMov).
-use acir::brillig::{BitSize, IntegerBitSize, Opcode as BrilligOpcode};
+use acir::brillig::{BitSize, IntegerBitSize};
 use llzk::prelude::{LlzkContext, OperationLike};
 
 use super::super::print_and_verify_module;
 use super::{
-    addr, brillig_stop, cast, const_field, const_int, count_loads, count_op, count_stores, mov,
-    translate_body,
+    brillig_stop, cast, conditional_mov, const_field, const_int, count_loads, count_op,
+    count_stores, mov, translate_body,
 };
-use crate::Error;
 
 /// `Const` with `BitSize::Field` emits `felt.const` in the brillig body.
 #[test]
@@ -140,25 +139,40 @@ fn brillig_cast_to_integer_emits_mask() {
     }
 }
 
-/// `ConditionalMov` is control flow and is rejected with a clear message.
+/// `ConditionalMov` lowers to `scf.if` on a truthy (`cond > 0`) check.
+/// The three RAM loads are for `source_a`, `source_b`, and `condition`;
+/// the single store writes the selected value into `destination`.
 #[test]
-fn brillig_conditional_mov_is_rejected() {
+fn brillig_conditional_mov_emits_scf_if() {
     let context = LlzkContext::new();
-    let cmov = BrilligOpcode::ConditionalMov {
-        destination: addr(2),
-        source_a: addr(0),
-        source_b: addr(1),
-        condition: addr(3),
-    };
-    let err = translate_body(&context, vec![cmov, brillig_stop()])
-        .expect_err("ConditionalMov should be rejected");
-    let msg = format!("{err}");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
+    let module = translate_body(
+        &context,
+        vec![
+            const_field(0, 7),                   // source_a
+            const_field(1, 9),                   // source_b
+            const_int(2, IntegerBitSize::U1, 1), // condition
+            conditional_mov(3, 0, 1, 2),
+            brillig_stop(),
+        ],
+    )
+    .expect("translation should succeed");
+
+    assert_eq!(
+        count_op(&module, 0, "scf.if"),
+        1,
+        "ConditionalMov should emit one scf.if"
     );
-    assert!(
-        msg.contains("ConditionalMov"),
-        "error message should name ConditionalMov, got {msg:?}"
+    assert_eq!(
+        count_op(&module, 0, "bool.cmp"),
+        1,
+        "ConditionalMov should emit one bool.cmp for the truthy check"
     );
+    assert_eq!(
+        count_loads(&module, 0),
+        3,
+        "ConditionalMov should load source_a, source_b, and condition"
+    );
+    // 3 Const stores + 1 ConditionalMov store.
+    assert_eq!(count_stores(&module, 0), 4);
+    print_and_verify_module(&module, "brillig_conditional_mov_emits_scf_if");
 }

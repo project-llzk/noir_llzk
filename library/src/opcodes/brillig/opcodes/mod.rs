@@ -17,6 +17,7 @@ mod binary_field_op;
 mod binary_int_op;
 mod calldata_copy;
 mod cast;
+mod conditional_mov;
 mod const_op;
 mod indirect_const;
 mod load;
@@ -29,6 +30,7 @@ use self::binary_field_op::BinaryFieldOpHandler;
 use self::binary_int_op::BinaryIntOpHandler;
 use self::calldata_copy::CalldataCopyHandler;
 use self::cast::CastHandler;
+use self::conditional_mov::ConditionalMovHandler;
 use self::const_op::ConstHandler;
 use self::indirect_const::IndirectConstHandler;
 use self::load::LoadHandler;
@@ -159,12 +161,17 @@ pub(super) fn build_handler<'a>(
 
         B::Stop { return_data } => Ok(Box::new(StopHandler { return_data })),
 
-        B::ConditionalMov { .. } => Err(Error::UnsupportedBrillig {
-            reason: format!(
-                "Brillig opcode `ConditionalMov` at bytecode index {index} is \
-                 control flow and not supported by this milestone"
-            ),
-        }),
+        B::ConditionalMov {
+            destination,
+            source_a,
+            source_b,
+            condition,
+        } => Ok(Box::new(ConditionalMovHandler {
+            destination: *destination,
+            source_a: *source_a,
+            source_b: *source_b,
+            condition: *condition,
+        })),
 
         other => Err(Error::UnsupportedBrillig {
             reason: format!(
