@@ -1,10 +1,10 @@
 //! End-to-end tests for the EcdsaSecp256k1 **stub** opcode.
 //!
-//! The stub packs `public_key_x` and the first 32 bytes of `signature` into
-//! 4 little-endian 64-bit limbs, then drives `multiprec::emit_add_mod_p` on
-//! them modulo the secp256k1 base field prime. These tests feed controlled
-//! byte inputs and expected nondets (k, r limbs, per-limb carries) to
-//! exercise the addition path end-to-end.
+//! The stub packs `(pk_x, pk_y)` and the first 64 bytes of `signature` into
+//! two secp256k1 affine points, runs `emit_point_add_affine`, and also
+//! exercises `emit_inv_mod_p` on `pk_x`. These tests drive the stub with real
+//! secp256k1 test vectors (G, 2G, 3G) and derive the full nondet sequence
+//! (~100 slots for the curve add + 18 for the standalone inv).
 
 use acir::FieldElement;
 use acir::circuit::Opcode;
@@ -33,6 +33,34 @@ fn secp256k1_p() -> BigUint {
     BigUint::from_bytes_be(&bytes)
 }
 
+fn secp256k1_g() -> (BigUint, BigUint) {
+    let gx = BigUint::parse_bytes(
+        b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+        16,
+    )
+    .unwrap();
+    let gy = BigUint::parse_bytes(
+        b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+        16,
+    )
+    .unwrap();
+    (gx, gy)
+}
+
+fn secp256k1_2g() -> (BigUint, BigUint) {
+    let x = BigUint::parse_bytes(
+        b"C6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5",
+        16,
+    )
+    .unwrap();
+    let y = BigUint::parse_bytes(
+        b"1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A",
+        16,
+    )
+    .unwrap();
+    (x, y)
+}
+
 fn byte_inputs(start: u32, count: usize) -> Vec<FunctionInput<FieldElement>> {
     (0..count)
         .map(|i| FunctionInput::Witness(Witness(start + i as u32)))
@@ -54,7 +82,6 @@ fn ecdsa_secp256k1_opcode() -> Opcode<FieldElement> {
     })
 }
 
-/// Converts a BigUint into 32 big-endian byte inputs (zero-padded on the left).
 fn biguint_to_be_bytes(value: &BigUint) -> [u8; 32] {
     let bytes = value.to_bytes_be();
     assert!(bytes.len() <= 32, "value exceeds 32 bytes");
@@ -63,22 +90,15 @@ fn biguint_to_be_bytes(value: &BigUint) -> [u8; 32] {
     padded
 }
 
-fn inputs_from_pk_x_and_sig_r(pk_x: &BigUint, sig_r: &BigUint) -> Vec<crate::tests::e2e::Value> {
+fn inputs_from_two_points(
+    p1: &(BigUint, BigUint),
+    p2: &(BigUint, BigUint),
+) -> Vec<crate::tests::e2e::Value> {
     let mut inputs = Vec::with_capacity((PREDICATE_W + 1) as usize);
-    inputs.extend(
-        biguint_to_be_bytes(pk_x)
-            .iter()
-            .map(|&b| felt_u64(b as u64)),
-    );
-    // pk_y (unused): 32 zeros.
-    inputs.extend(std::iter::repeat_n(felt_u64(0), 32));
-    // signature: first 32 bytes = sig_r (BE), next 32 bytes = zeros.
-    inputs.extend(
-        biguint_to_be_bytes(sig_r)
-            .iter()
-            .map(|&b| felt_u64(b as u64)),
-    );
-    inputs.extend(std::iter::repeat_n(felt_u64(0), 32));
+    inputs.extend(biguint_to_be_bytes(&p1.0).iter().map(|&b| felt_u64(b as u64)));
+    inputs.extend(biguint_to_be_bytes(&p1.1).iter().map(|&b| felt_u64(b as u64)));
+    inputs.extend(biguint_to_be_bytes(&p2.0).iter().map(|&b| felt_u64(b as u64)));
+    inputs.extend(biguint_to_be_bytes(&p2.1).iter().map(|&b| felt_u64(b as u64)));
     // hashed_message (unused): 32 zeros.
     inputs.extend(std::iter::repeat_n(felt_u64(0), 32));
     // predicate.
@@ -86,73 +106,7 @@ fn inputs_from_pk_x_and_sig_r(pk_x: &BigUint, sig_r: &BigUint) -> Vec<crate::tes
     inputs
 }
 
-/// Computes the nondet sequence that `emit_add_mod_p(a, b, p)` consumes:
-/// `[k, r0, r1, r2, r3, c1, c2, c3, c4]` in order of emission.
-fn add_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
-    let sum = a + b;
-    let k = if &sum >= p { 1u64 } else { 0u64 };
-    let r = &sum - k * p;
-    mod_p_nondets_from_identity(a, b, &r, p, k, /* b_sign = */ 1)
-}
-
-/// Nondet sequence for `emit_sub_mod_p(a, b, p)`:
-/// `[k, r0, r1, r2, r3, c1, c2, c3, c4]`.
-fn sub_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
-    let (k, r) = if a >= b {
-        (0u64, a - b)
-    } else {
-        (1u64, (a + p) - b)
-    };
-    mod_p_nondets_from_identity(a, b, &r, p, k, /* b_sign = */ -1)
-}
-
-/// Shared nondet builder: replays the per-limb polynomial identity
-/// `a_i + b_sign·b_i + kp_sign·k·p_i - r_i + carry_in = carry_out · 2^64`
-/// (kp_sign = -b_sign: add uses `-k·p`, sub uses `+k·p`).
-fn mod_p_nondets_from_identity(
-    a: &BigUint,
-    b: &BigUint,
-    r: &BigUint,
-    p: &BigUint,
-    k: u64,
-    b_sign: i128,
-) -> Vec<Felt> {
-    let kp_sign = -b_sign;
-    let a_limbs = biguint_to_le_64_limbs(a);
-    let b_limbs = biguint_to_le_64_limbs(b);
-    let r_limbs = biguint_to_le_64_limbs(r);
-    let p_limbs = biguint_to_le_64_limbs(p);
-    let two_64 = 1i128 << 64;
-
-    let mut carries = [0i128; 4];
-    let mut carry_in: i128 = 0;
-    for i in 0..4 {
-        let lhs = (a_limbs[i] as i128)
-            + b_sign * (b_limbs[i] as i128)
-            + kp_sign * (k as i128) * (p_limbs[i] as i128)
-            - (r_limbs[i] as i128)
-            + carry_in;
-        let carry_out = lhs / two_64;
-        assert_eq!(
-            carry_out * two_64,
-            lhs,
-            "limb {i} identity does not divide 2^64 (lhs={lhs})"
-        );
-        carries[i] = carry_out;
-        carry_in = carry_out;
-    }
-    assert_eq!(carry_in, 0, "final carry must be zero");
-
-    let mut nondets = Vec::with_capacity(9);
-    nondets.push(Felt::from_u64(k));
-    for limb in r_limbs {
-        nondets.push(Felt::from_u64(limb));
-    }
-    for carry in carries {
-        nondets.push(signed_felt(carry));
-    }
-    nondets
-}
+// ── Nondet oracles ──────────────────────────────────────────────────────
 
 fn biguint_to_le_64_limbs(value: &BigUint) -> [u64; 4] {
     let mut limbs = [0u64; 4];
@@ -173,8 +127,6 @@ fn bn254_prime() -> BigUint {
     .unwrap()
 }
 
-/// Encodes a small signed integer as a felt, wrapping negative values via
-/// `p - |x|`.
 fn signed_felt(value: i128) -> Felt {
     if value >= 0 {
         Felt::from_u64(value as u64)
@@ -183,31 +135,80 @@ fn signed_felt(value: i128) -> Felt {
     }
 }
 
-/// Wider signed felt for values up to ~2^128 (multiplication carries).
 fn signed_felt_big(value: &BigInt) -> Felt {
     match value.sign() {
-        Sign::Minus => {
-            let magnitude = value.magnitude().clone();
-            Felt::new(bn254_prime() - magnitude)
-        }
+        Sign::Minus => Felt::new(bn254_prime() - value.magnitude().clone()),
         _ => Felt::new(value.magnitude().clone()),
     }
 }
 
-/// Nondet sequence for `emit_mul_mod_p(a, b, p)`:
-/// `[q0..q3, r0..r3, c1..c6]` in emission order.
+/// `[k, r0..r3, c1..c4]` for `emit_add_mod_p(a, b, p)`.
+fn add_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+    let sum = a + b;
+    let k = if &sum >= p { 1u64 } else { 0u64 };
+    let r = &sum - k * p;
+    mod_p_nondets_from_identity(a, b, &r, p, k, 1)
+}
+
+/// `[k, r0..r3, c1..c4]` for `emit_sub_mod_p(a, b, p)`.
+fn sub_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+    let (k, r) = if a >= b {
+        (0u64, a - b)
+    } else {
+        (1u64, (a + p) - b)
+    };
+    mod_p_nondets_from_identity(a, b, &r, p, k, -1)
+}
+
+fn mod_p_nondets_from_identity(
+    a: &BigUint,
+    b: &BigUint,
+    r: &BigUint,
+    p: &BigUint,
+    k: u64,
+    b_sign: i128,
+) -> Vec<Felt> {
+    let kp_sign = -b_sign;
+    let a_limbs = biguint_to_le_64_limbs(a);
+    let b_limbs = biguint_to_le_64_limbs(b);
+    let r_limbs = biguint_to_le_64_limbs(r);
+    let p_limbs = biguint_to_le_64_limbs(p);
+    let two_64 = 1i128 << 64;
+    let mut carries = [0i128; 4];
+    let mut carry_in: i128 = 0;
+    for i in 0..4 {
+        let lhs = (a_limbs[i] as i128)
+            + b_sign * (b_limbs[i] as i128)
+            + kp_sign * (k as i128) * (p_limbs[i] as i128)
+            - (r_limbs[i] as i128)
+            + carry_in;
+        let carry_out = lhs / two_64;
+        assert_eq!(carry_out * two_64, lhs, "limb {i} not divisible by 2^64");
+        carries[i] = carry_out;
+        carry_in = carry_out;
+    }
+    assert_eq!(carry_in, 0, "final carry must be zero");
+    let mut nondets = Vec::with_capacity(9);
+    nondets.push(Felt::from_u64(k));
+    for limb in r_limbs {
+        nondets.push(Felt::from_u64(limb));
+    }
+    for carry in carries {
+        nondets.push(signed_felt(carry));
+    }
+    nondets
+}
+
+/// `[q0..q3, r0..r3, c1..c6]` for `emit_mul_mod_p(a, b, p)`.
 fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let prod = a * b;
     let q = &prod / p;
     let r = &prod - &q * p;
-
     let a_limbs = biguint_to_le_64_limbs(a);
     let b_limbs = biguint_to_le_64_limbs(b);
     let p_limbs = biguint_to_le_64_limbs(p);
     let q_limbs = biguint_to_le_64_limbs(&q);
     let r_limbs = biguint_to_le_64_limbs(&r);
-
-    // Per-limb polynomial sums: up to 4 * (2^64 - 1)^2 ≈ 2^130, so use BigInt.
     let mut ab_poly: Vec<BigInt> = vec![BigInt::from(0); 7];
     let mut qp_poly: Vec<BigInt> = vec![BigInt::from(0); 7];
     for i in 0..4 {
@@ -223,7 +224,6 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
             BigInt::from(0)
         }
     });
-
     let two_64 = BigInt::from(1u128 << 64);
     let mut carries: Vec<BigInt> = Vec::with_capacity(6);
     let mut carry_in = BigInt::from(0);
@@ -239,8 +239,7 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
             carry_in = carry_out;
         }
     }
-
-    let mut nondets = Vec::with_capacity(4 + 4 + 6);
+    let mut nondets = Vec::with_capacity(14);
     for limb in q_limbs {
         nondets.push(Felt::from_u64(limb));
     }
@@ -253,12 +252,24 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-/// Nondet sequence for `emit_inv_mod_p(a, p)`: 4 limbs of `a_inv` followed by
-/// the 14-element mul nondet sequence proving `a · a_inv ≡ 1 (mod p)`.
+/// `[q_div0..q_div3, mul_nondets..]` for `emit_div_mod_p(a, b, p)`.
+/// Result: `q = a · b⁻¹ mod p`. The inner mul proves `b · q = a mod p`.
+fn div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+    let b_inv = b.modpow(&(p - 2u32), p);
+    let q = (a * &b_inv) % p;
+    let q_limbs = biguint_to_le_64_limbs(&q);
+    let mut nondets = Vec::with_capacity(4 + 14);
+    for limb in q_limbs {
+        nondets.push(Felt::from_u64(limb));
+    }
+    nondets.extend(mul_mod_p_nondets(b, &q, p));
+    nondets
+}
+
+/// `[a_inv0..a_inv3, mul_nondets..]` for `emit_inv_mod_p(a, p)`.
 fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     let a_inv = a.modpow(&(p - 2u32), p);
     let a_inv_limbs = biguint_to_le_64_limbs(&a_inv);
-
     let mut nondets = Vec::with_capacity(4 + 14);
     for limb in a_inv_limbs {
         nondets.push(Felt::from_u64(limb));
@@ -267,7 +278,73 @@ fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-fn run_with_pk_x_and_sig_r(pk_x: &BigUint, sig_r: &BigUint) {
+/// Full nondet sequence for `emit_point_add_affine(p1, p2)`, in emission order.
+/// ~100 slots: 4 subs, 1 add, 1 div, 2 muls.
+fn point_add_affine_nondets(
+    p1: &(BigUint, BigUint),
+    p2: &(BigUint, BigUint),
+    p: &BigUint,
+) -> Vec<Felt> {
+    let (x1, y1) = p1;
+    let (x2, y2) = p2;
+    let dy = (p + y2 - y1) % p;
+    let dx = (p + x2 - x1) % p;
+    let dx_inv = dx.modpow(&(p - 2u32), p);
+    let lambda = (&dy * &dx_inv) % p;
+    let lambda_sq = (&lambda * &lambda) % p;
+    let x_sum = (x1 + x2) % p;
+    let x3 = (p + &lambda_sq - &x_sum) % p;
+    let x1_minus_x3 = (p + x1 - &x3) % p;
+    let lambda_dx3 = (&lambda * &x1_minus_x3) % p;
+    let _y3 = (p + &lambda_dx3 - y1) % p;
+
+    let mut nondets = Vec::with_capacity(100);
+    nondets.extend(sub_mod_p_nondets(y2, y1, p));
+    nondets.extend(sub_mod_p_nondets(x2, x1, p));
+    nondets.extend(div_mod_p_nondets(&dy, &dx, p));
+    nondets.extend(mul_mod_p_nondets(&lambda, &lambda, p));
+    nondets.extend(add_mod_p_nondets(x1, x2, p));
+    nondets.extend(sub_mod_p_nondets(&lambda_sq, &x_sum, p));
+    nondets.extend(sub_mod_p_nondets(x1, &x3, p));
+    nondets.extend(mul_mod_p_nondets(&lambda, &x1_minus_x3, p));
+    nondets.extend(sub_mod_p_nondets(&lambda_dx3, y1, p));
+    nondets
+}
+
+/// Nondet sequence for `emit_point_double(p)` — ~123 slots: 1 mul (x²),
+/// 4 adds (2x², 3x², 2y, 2x), 1 div (λ), 1 mul (λ²), 3 subs (x3, x-x3, y3),
+/// 1 mul (λ·(x-x3)).
+fn point_double_nondets(p_pt: &(BigUint, BigUint), p: &BigUint) -> Vec<Felt> {
+    let (x, y) = p_pt;
+    let x_sq = (x * x) % p;
+    let two_x_sq = (&x_sq + &x_sq) % p;
+    let three_x_sq = (&two_x_sq + &x_sq) % p;
+    let two_y = (y + y) % p;
+    let two_y_inv = two_y.modpow(&(p - 2u32), p);
+    let lambda = (&three_x_sq * &two_y_inv) % p;
+    let lambda_sq = (&lambda * &lambda) % p;
+    let two_x = (x + x) % p;
+    let x3 = (p + &lambda_sq - &two_x) % p;
+    let x_minus_x3 = (p + x - &x3) % p;
+    let lambda_dx3 = (&lambda * &x_minus_x3) % p;
+    let _y3 = (p + &lambda_dx3 - y) % p;
+
+    let mut nondets = Vec::with_capacity(123);
+    nondets.extend(mul_mod_p_nondets(x, x, p));
+    nondets.extend(add_mod_p_nondets(&x_sq, &x_sq, p));
+    nondets.extend(add_mod_p_nondets(&two_x_sq, &x_sq, p));
+    nondets.extend(add_mod_p_nondets(y, y, p));
+    nondets.extend(div_mod_p_nondets(&three_x_sq, &two_y, p));
+    nondets.extend(mul_mod_p_nondets(&lambda, &lambda, p));
+    nondets.extend(add_mod_p_nondets(x, x, p));
+    nondets.extend(sub_mod_p_nondets(&lambda_sq, &two_x, p));
+    nondets.extend(sub_mod_p_nondets(x, &x3, p));
+    nondets.extend(mul_mod_p_nondets(&lambda, &x_minus_x3, p));
+    nondets.extend(sub_mod_p_nondets(&lambda_dx3, y, p));
+    nondets
+}
+
+fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
     let private: Vec<u32> = (0..=PREDICATE_W).collect();
     let circuit = make_circuit_with_opcodes(
         OUTPUT_W,
@@ -276,59 +353,17 @@ fn run_with_pk_x_and_sig_r(pk_x: &BigUint, sig_r: &BigUint) {
         &[OUTPUT_W],
         vec![ecdsa_secp256k1_opcode()],
     );
-    let inputs = inputs_from_pk_x_and_sig_r(pk_x, sig_r);
+    let inputs = inputs_from_two_points(&p1, &p2);
     let p = secp256k1_p();
-    let mut nondet = add_mod_p_nondets(pk_x, sig_r, &p);
-    nondet.extend(sub_mod_p_nondets(pk_x, sig_r, &p));
-    nondet.extend(mul_mod_p_nondets(pk_x, sig_r, &p));
-    nondet.extend(inv_mod_p_nondets(pk_x, &p));
+    let mut nondet = point_add_affine_nondets(&p1, &p2, &p);
+    nondet.extend(inv_mod_p_nondets(&p1.0, &p));
+    nondet.extend(point_double_nondets(&p1, &p));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
 #[test]
-fn stub_add_one_plus_zero() {
-    // a must be nonzero (inv(a) is computed by the stub).
-    run_with_pk_x_and_sig_r(&BigUint::from(1u32), &BigUint::from(0u32));
-}
-
-#[test]
-fn stub_add_one_plus_one() {
-    run_with_pk_x_and_sig_r(&BigUint::from(1u32), &BigUint::from(1u32));
-}
-
-#[test]
-fn stub_add_crosses_limb_boundary() {
-    let max_limb = BigUint::from(u64::MAX);
-    run_with_pk_x_and_sig_r(&max_limb, &BigUint::from(1u32));
-}
-
-#[test]
-fn stub_add_wraps_modulus_k_equals_one() {
-    let p = secp256k1_p();
-    let p_minus_one = &p - 1u32;
-    run_with_pk_x_and_sig_r(&p_minus_one, &BigUint::from(2u32));
-}
-
-#[test]
-fn stub_add_full_width_values() {
-    // Two arbitrary values close to but below p, picked so the sum is still < 2p.
-    let p = secp256k1_p();
-    let a = &p / 3u32;
-    let b = &p - &a - 7u32;
-    run_with_pk_x_and_sig_r(&a, &b);
-}
-
-#[test]
-fn stub_sub_a_less_than_b_triggers_borrow() {
-    // a < b forces sub's k = 1 (r = a - b + p), independently of the add path.
-    run_with_pk_x_and_sig_r(&BigUint::from(3u32), &BigUint::from(10u32));
-}
-
-#[test]
-fn stub_sub_crosses_limb_boundary() {
-    // a = 2^64 (into limb[1]), b = 1: a - b leaves limb[0] = 2^64 - 1 with a borrow from limb[1].
-    let a = BigUint::from(1u64) << 64;
-    run_with_pk_x_and_sig_r(&a, &BigUint::from(1u32));
+fn stub_point_add_g_plus_2g() {
+    run_point_add_test(secp256k1_g(), secp256k1_2g());
 }

@@ -10,11 +10,13 @@
 
 mod add;
 mod common;
+mod div;
 mod inverse;
 mod mul;
 mod sub;
 
 pub(crate) use add::emit_add_mod_p;
+pub(crate) use div::emit_div_mod_p;
 pub(crate) use inverse::emit_inv_mod_p;
 pub(crate) use mul::emit_mul_mod_p;
 pub(crate) use sub::emit_sub_mod_p;

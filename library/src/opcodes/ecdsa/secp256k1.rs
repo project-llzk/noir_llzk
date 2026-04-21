@@ -1,8 +1,9 @@
 //! EcdsaSecp256k1 opcode — **stub**.
 //!
-//! Current state: wires a single `emit_add_mod_p` call (on hardcoded constants)
-//! into the @compute and @constrain bodies, writes `output = 1` unconditionally.
-//! Used as a test vehicle for the multiprec module while we grow it.
+//! Current state: packs `(pk_x, pk_y)` and the first 64 bytes of `signature`
+//! into two secp256k1 affine points, drives `emit_point_add_affine` plus a
+//! standalone `emit_inv_mod_p`, and writes `output = 1` unconditionally. Used
+//! as a test vehicle for the multiprec and curve modules while ECDSA grows.
 
 use std::collections::BTreeSet;
 
@@ -18,12 +19,16 @@ use llzk::prelude::Value;
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    multiprec::{LIMBS, Limbs256, emit_add_mod_p, emit_inv_mod_p, emit_mul_mod_p, emit_sub_mod_p},
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    multiprec::{LIMBS, Limbs256, emit_inv_mod_p},
+    opcodes::{
+        OpcodeEmitter, collect_input_witness,
+        ecdsa::curve::{emit_point_add_affine, emit_point_double},
+        emit_blackbox_input,
+    },
 };
 
 /// secp256k1 base field modulus: 2^256 - 2^32 - 977, little-endian 64-bit limbs.
-const SECP256K1_P: [u64; 4] = [
+pub(super) const SECP256K1_P: [u64; 4] = [
     0xFFFF_FFFE_FFFF_FC2F,
     0xFFFF_FFFF_FFFF_FFFF,
     0xFFFF_FFFF_FFFF_FFFF,
@@ -73,19 +78,24 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
 }
 
 impl EcdsaSecp256k1<'_> {
-    /// Packs pk_x and the first 32 bytes of signature into 4-limb little-endian
-    /// integers and feeds them to `emit_add_mod_p` and `emit_sub_mod_p`.
-    /// Temporary — will be replaced by real ECDSA verify logic.
+    /// Packs `(pk_x, pk_y)` and the first 64 bytes of signature into two
+    /// secp256k1 affine points, drives `emit_point_add_affine`, and also
+    /// exercises `emit_inv_mod_p` on `pk_x`. Temporary — will be replaced by
+    /// real ECDSA verify logic.
     fn exercise_multiprec<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let a = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
-        let sig_r: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
+        let p1_x = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
+        let p1_y = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
+        let sig_x: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
             .try_into()
             .expect("signature has at least 32 bytes");
-        let b = pack_bytes_be_to_le_limbs(writer, sig_r)?;
-        let _add = emit_add_mod_p(writer, &a, &b, &SECP256K1_P)?;
-        let _sub = emit_sub_mod_p(writer, &a, &b, &SECP256K1_P)?;
-        let _mul = emit_mul_mod_p(writer, &a, &b, &SECP256K1_P)?;
-        let _inv = emit_inv_mod_p(writer, &a, &SECP256K1_P)?;
+        let sig_y: &[FunctionInput<FieldElement>; 32] = self.signature[32..64]
+            .try_into()
+            .expect("signature has 64 bytes");
+        let p2_x = pack_bytes_be_to_le_limbs(writer, sig_x)?;
+        let p2_y = pack_bytes_be_to_le_limbs(writer, sig_y)?;
+        let _sum = emit_point_add_affine(writer, (p1_x, p1_y), (p2_x, p2_y))?;
+        let _inv = emit_inv_mod_p(writer, &p1_x, &SECP256K1_P)?;
+        let _dbl = emit_point_double(writer, (p1_x, p1_y))?;
         Ok(())
     }
 }
