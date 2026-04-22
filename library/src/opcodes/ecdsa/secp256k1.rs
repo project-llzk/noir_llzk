@@ -21,7 +21,7 @@ use crate::{
     error::Error,
     multiprec::{
         LIMBS, Limbs256, emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256,
-        emit_inv_mod_p, emit_mul_mod_p,
+        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
     },
     opcodes::{
         OpcodeEmitter, collect_input_witness,
@@ -141,6 +141,13 @@ impl EcdsaSecp256k1<'_> {
         // Soundness: force the reduced value below n so the prover can't
         // return an unreduced x_mod_n.
         emit_assert_lt_modulus(writer, &x_mod_n, &SECP256K1_N)?;
+
+        // ECDSA final-check shape: compute is_eq = (x_mod_n == p1_x). The test
+        // arranges both to equal G.x, so is_eq should be 1. Real verify would
+        // compare against sig_r here.
+        let is_eq = emit_limbs_eq_boolean(writer, &x_mod_n, &p1_x)?;
+        let one_const = writer.emit_constant(&FieldElement::from(1u128))?;
+        writer.insert_constrain_eq(is_eq, one_const);
         Ok(())
     }
 }

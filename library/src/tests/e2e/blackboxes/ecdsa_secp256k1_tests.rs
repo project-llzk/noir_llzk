@@ -470,9 +470,24 @@ fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     nondet.extend(add_mod_p_nondets(&p1.0, &BigUint::from(0u32), &n));
     // Soundness assertion: reduced value < n. `d = n - 1 - p1.x`.
     nondet.extend(assert_lt_modulus_nondets(&p1.0, &n));
+    // Final equality check: x_mod_n == p1.x (both equal G.x in this test).
+    nondet.extend(limbs_eq_boolean_nondets(true));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
+}
+
+/// Nondet sequence for `emit_limbs_eq_boolean(a, b)`: `[is_eq, inv_hint]`.
+/// When a == b, `is_eq = 1` and `inv_hint` is ignored — use 0.
+/// When a != b, `is_eq = 0` and `inv_hint = sum_of_squared_diffs⁻¹ mod p_bn254`.
+fn limbs_eq_boolean_nondets(equal: bool) -> Vec<Felt> {
+    if equal {
+        vec![Felt::from_u64(1), Felt::from_u64(0)]
+    } else {
+        // Not used by current tests — would need to compute inverse of
+        // Σ (a_i - b_i)² over BN254 Fr.
+        unimplemented!("unequal path oracle not needed yet")
+    }
 }
 
 /// Nondet sequence for `emit_assert_lt_modulus(value, modulus)`:

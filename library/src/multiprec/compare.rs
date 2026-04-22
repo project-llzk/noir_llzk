@@ -1,10 +1,11 @@
 use acir::{AcirField, FieldElement};
+use llzk::prelude::Value;
 
 use crate::{block_writer::BlockWriter, error::Error};
 
 use super::{
     LIMBS, Limbs256,
-    common::{constrain_signed_trit, two_pow_64, witness_result_limbs},
+    common::{constrain_signed_trit, two_pow_64, witness_bool, witness_result_limbs},
 };
 
 /// Enforces `value < modulus` where `value` is given as 4 little-endian
@@ -44,6 +45,51 @@ pub(crate) fn emit_assert_lt_modulus<'c, 'a>(
     writer.insert_constrain_eq(carry, zero);
 
     Ok(())
+}
+
+/// Returns a felt `is_eq ∈ {0, 1}` equal to 1 iff `a` and `b` are equal
+/// as 4-limb values.
+///
+/// Uses the standard nonzero-hint pattern: witness `is_eq` and an inverse
+/// hint `inv`. Constrain `is_eq · sum_of_squared_diffs = 0` (forces
+/// sum = 0 when claimed equal) and `(1 - is_eq) · (sum · inv - 1) = 0`
+/// (forces sum nonzero to have an inverse when claimed not-equal). Each
+/// limb-wise difference fits in 65 bits and its square in 130, so the
+/// sum over 4 limbs stays well below the BN254 modulus — no wraparound.
+pub(crate) fn emit_limbs_eq_boolean<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    a: &Limbs256<'c, 'a>,
+    b: &Limbs256<'c, 'a>,
+) -> Result<Value<'c, 'a>, Error> {
+    let felt_ty = writer.felt_type();
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    let one = writer.emit_constant(&FieldElement::one())?;
+
+    let is_eq = witness_bool(writer)?;
+
+    let mut sum_sq = zero;
+    for (a_i, b_i) in a.iter().zip(b.iter()) {
+        let neg_b = writer.insert_neg(*b_i)?;
+        let diff = writer.insert_add(*a_i, neg_b)?;
+        let sq = writer.insert_mul(diff, diff)?;
+        sum_sq = writer.insert_add(sum_sq, sq)?;
+    }
+
+    // is_eq · sum_sq = 0.
+    let gate_eq = writer.insert_mul(is_eq, sum_sq)?;
+    writer.insert_constrain_eq(gate_eq, zero);
+
+    // (1 - is_eq) · (sum_sq · inv - 1) = 0.
+    let inv_hint = writer.insert_nondet(felt_ty)?;
+    let neg_is_eq = writer.insert_neg(is_eq)?;
+    let one_minus_is_eq = writer.insert_add(one, neg_is_eq)?;
+    let prod = writer.insert_mul(sum_sq, inv_hint)?;
+    let neg_one = writer.insert_neg(one)?;
+    let prod_minus_one = writer.insert_add(prod, neg_one)?;
+    let gate_neq = writer.insert_mul(one_minus_is_eq, prod_minus_one)?;
+    writer.insert_constrain_eq(gate_neq, zero);
+
+    Ok(is_eq)
 }
 
 /// Computes `modulus - 1` as little-endian 64-bit limbs. `modulus` must be > 0.
