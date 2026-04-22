@@ -24,6 +24,10 @@ impl Memory {
     // ── Constant-address operations ────────────────────────────────────
 
     /// Writes `value` (a felt) into the RAM slot identified by `addr`.
+    ///
+    /// Invalidates any tracked integer constant for `addr`. Callers that
+    /// intend to keep tracking a constant should use [`Self::record_const`]
+    /// after this (see [`ConstHandler`](super::opcodes) for the pattern).
     pub(super) fn write<'c, 'b>(
         &mut self,
         writer: &mut BrilligWriter<'c, 'b>,
@@ -31,6 +35,7 @@ impl Memory {
         value: Value<'c, 'b>,
     ) -> Result<(), Error> {
         let resolved = self.resolve(addr)?;
+        self.known_constants.remove(&resolved);
         let slot = writer.insert_integer(self.slot_of(resolved))?;
         writer.insert_ram_store(slot, value);
         Ok(())
@@ -75,6 +80,9 @@ impl Memory {
     }
 
     // ── Translation-time integer tracking ──────────────────────────────
+    //
+    // Only pointers and lengths are tracked here — the stack pointer (slot
+    // 0), `CalldataCopy` size/offset, and `Stop` return_data pointer/size.
 
     pub(super) fn record_const(&mut self, addr: MemoryAddress, value: usize) -> Result<(), Error> {
         let resolved = self.resolve(addr)?;

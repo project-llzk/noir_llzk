@@ -142,6 +142,13 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
 
     /// Reads the `Stop` opcode's `return_data` HeapVector and emits
     /// `ram.load` ops for each return slot.
+    ///
+    /// Requires `return_data.size` and `return_data.pointer` to be tracked
+    /// integer constants (populated by a preceding `Const` opcode). Noir's
+    /// entry-point codegen guarantees this: `make_usize_constant_instruction`
+    /// in `brillig_ir/entry_point.rs` materializes both registers via `Const`
+    /// opcodes immediately before every `Stop`. Bytecode that computes these
+    /// values at runtime is rejected with `UnsupportedBrillig`.
     pub(super) fn emit_return_data(
         &mut self,
         return_data: &HeapVector,

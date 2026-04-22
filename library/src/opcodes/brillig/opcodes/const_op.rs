@@ -1,4 +1,4 @@
-use acir::brillig::{BitSize, MemoryAddress};
+use acir::brillig::{BitSize, IntegerBitSize, MemoryAddress};
 use acir::{AcirField, FieldElement};
 
 use crate::error::Error;
@@ -18,13 +18,17 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         ctx: &mut TranslationCtx<'c, 'b, '_>,
         _opcode_index: usize,
     ) -> Result<OpcodeAction<'c, 'b>, Error> {
-        if let BitSize::Integer(_) = self.bit_size
+        let ssa = ctx.emit_const(self.value)?;
+        // `write` clears any stale integer-constant tracking for this slot;
+        // `record_const` then re-establishes it with the fresh value.
+        ctx.memory.write(ctx.writer, self.destination, ssa)?;
+        // Noir emits pointers and lengths as U32 (BRILLIG_MEMORY_ADDRESSING_BIT_SIZE),
+        // and those are the only values any `get_const` consumer uses.
+        if let BitSize::Integer(IntegerBitSize::U32) = self.bit_size
             && let Some(v) = self.value.try_into_u128()
         {
             ctx.memory.record_const(self.destination, v as usize)?;
         }
-        let ssa = ctx.emit_const(self.value)?;
-        ctx.memory.write(ctx.writer, self.destination, ssa)?;
         Ok(OpcodeAction::Continue)
     }
 }

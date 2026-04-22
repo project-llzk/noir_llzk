@@ -5,6 +5,14 @@ use crate::error::Error;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
+/// Handler for Brillig's `CalldataCopy`.
+///
+/// Requires `size_address` and `offset_address` to be tracked integer
+/// constants (populated by a preceding `Const` opcode). Noir's
+/// `calldata_copy_instruction` in `brillig_ir/instructions.rs` guarantees
+/// this by emitting `Const` opcodes for both registers immediately before
+/// the `CalldataCopy`. Bytecode that computes these values at runtime is
+/// rejected with `UnsupportedBrillig`.
 pub(super) struct CalldataCopyHandler {
     pub destination_address: MemoryAddress,
     pub size_address: MemoryAddress,
