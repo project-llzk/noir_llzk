@@ -10,6 +10,12 @@ use llzk::prelude::{LlzkError, MeliorError};
 pub enum Error {
     /// An ACIR opcode that is not yet supported was encountered.
     UnsupportedOpcode(String),
+    /// A Brillig construct (opcode, predicate, or marshalling shape) that is
+    /// not yet supported was encountered.
+    UnsupportedBrillig {
+        /// Human-readable reason describing what is unsupported.
+        reason: String,
+    },
     /// A witness cannot be solved because there are too many unknowns.
     UnsolvableWitness {
         /// The first unknown witness index.
@@ -18,6 +24,13 @@ pub enum Error {
         num_unknowns: usize,
         /// The opcode index where the error occurred.
         opcode_index: usize,
+    },
+    /// A Brillig opcode used a `Relative` memory address, but slot 0
+    /// (the stack pointer) has not been tracked as a known integer
+    /// constant, so the address cannot be resolved at translation time.
+    UnresolvedStackPointer {
+        /// The offset portion of the `Relative` address.
+        offset: u32,
     },
     /// A `Call` opcode references a circuit index that does not exist in the program.
     OutOfRangeCallTarget {
@@ -41,6 +54,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::UnsupportedOpcode(name) => write!(f, "unsupported ACIR opcode: {name}"),
+            Error::UnsupportedBrillig { reason } => {
+                write!(f, "unsupported Brillig: {reason}")
+            }
             Error::UnsolvableWitness {
                 witness,
                 num_unknowns,
@@ -49,6 +65,12 @@ impl fmt::Display for Error {
                 f,
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
+            ),
+            Error::UnresolvedStackPointer { offset } => write!(
+                f,
+                "Brillig opcode uses Relative({offset}) but slot 0 \
+                 (stack pointer) has not been initialised with a \
+                 known integer constant"
             ),
             Error::OutOfRangeCallTarget { id, num_circuits } => write!(
                 f,

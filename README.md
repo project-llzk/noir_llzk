@@ -52,17 +52,19 @@ Clone at the commit used by the `llzk-rs` v1 release:
 
 ```sh
 git clone https://github.com/project-llzk/llzk-lib.git
-cd llzk-lib && git checkout 2f11a3cda959a44cde9a98c0efa3e76e110fa6f9 && cd ..
+cd llzk-lib && git checkout d965a33d29b77efd53d312dc341e32997698dadd && cd ..
 ```
 
 Build and install with CMake:
 
 ```sh
-cmake -B llzk-lib/build -S llzk-lib \
-  -DCMAKE_INSTALL_PREFIX=$(pwd)/llzk-lib/build/install \
+cd llzk-lib 
+cmake -B build -S . \
+  -DCMAKE_INSTALL_PREFIX=$(pwd)/build/install \
   -DCMAKE_PREFIX_PATH=$MLIR_SYS_200_PREFIX
-cmake --build llzk-lib/build
-cmake --install llzk-lib/build
+cmake --build build
+cmake --install build
+cd ..
 ```
 
 Then set the `LLZK_SYS_10_PREFIX` environment variable to point to the install location:

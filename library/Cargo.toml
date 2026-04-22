@@ -8,11 +8,11 @@ acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", feat
 num-bigint = "0.4"
 
 # LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
-llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev ="5e14101"}
-llzk-sys = { git = "https://github.com/Veridise/llzk-rs", rev ="5e14101" }
+llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev = "19a5604"}
+llzk-sys = { git = "https://github.com/Veridise/llzk-rs", rev = "19a5604"}
 base64 = "0.22"
 serde_json = "1"
-llzk_interpreter = { git = "ssh://git@github.com/reilabs/llzk-interpreter.git", rev = "8964e1896e9de437be487655a1ee6d09ed3a241e", optional = true }
+llzk_interpreter = { git = "ssh://git@github.com/reilabs/llzk-interpreter.git", rev = "ded40bb59d7484debfb08955090cca7d029e8f9a", optional = true }
 
 [features]
 default = []

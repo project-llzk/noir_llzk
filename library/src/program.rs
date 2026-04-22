@@ -7,14 +7,21 @@ use llzk::prelude::{
 };
 use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 
-use crate::{Error, blackboxes::registry::BlackboxFunction, circuit::CircuitTranslator};
+use crate::{
+    Error,
+    blackboxes::registry::BlackboxFunction,
+    circuit::CircuitTranslator,
+    opcodes::brillig::registry::{BrilligRegistry, emit_brillig_functions},
+};
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";
 
 /// Translates an ACIR `Program` into an LLZK `Module`.
 ///
-/// Creates the root `module attributes {llzk.lang = "ACIR"}` and calls
-/// [`CircuitTranslator`] for each circuit in `program.functions`.
+/// Creates the root `module attributes {llzk.lang = "ACIR"}`, translates
+/// every circuit in `program.functions`, and emits one
+/// module-level `@brillig_{id}` function per unique `BrilligFunctionId`
+/// referenced across those circuits.
 pub fn translate_program<'c>(
     context: &'c LlzkContext,
     program: &Program<FieldElement>,
@@ -34,14 +41,18 @@ pub fn translate_program<'c>(
         StringAttribute::new(context, "ACIR").into(),
     );
 
+    let mut brillig_registry = BrilligRegistry::new();
     for helper in BlackboxFunction::used_in_program(program) {
         module.body().append_operation(helper.emit(context)?.into());
     }
 
     for (i, circuit) in program.functions.iter().enumerate() {
-        let struct_def = CircuitTranslator::new(context, circuit, program).translate(i)?;
+        let struct_def = CircuitTranslator::new(context, circuit, program)
+            .translate(i, &mut brillig_registry)?;
         module.body().append_operation(struct_def.into());
     }
+
+    emit_brillig_functions(context, &module, &brillig_registry)?;
 
     Ok(module)
 }
