@@ -455,14 +455,15 @@ fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     let u1 = (&z * &s_inv) % &n;
     nondet.extend(bit_decompose_256_nondets(&u1));
 
-    // Scalar mul via the decomposed bits. The test precondition ensures
-    // u1 = 0x8001 so bit[15] = 1 (MSB of the 16-bit scalar window).
-    assert_eq!(
-        u1,
-        BigUint::from(0x8001u32),
-        "z/s_inv chosen to make u1 = 0x8001"
-    );
-    let k_bits: [u8; 16] = std::array::from_fn(|i| ((0x8001u32 >> i) & 1) as u8);
+    // Scalar mul via all 256 decomposed bits. Test precondition ensures
+    // u1 = 2^255 + 1 so bit[255] = 1 (MSB of the 256-bit scalar).
+    let expected_u1 = (BigUint::from(1u32) << 255) + 1u32;
+    assert_eq!(u1, expected_u1, "z/s_inv chosen to make u1 = 2^255 + 1");
+    let u1_limbs = biguint_to_le_64_limbs(&u1);
+    let k_bits: [u8; 256] = std::array::from_fn(|i| {
+        let limb = u1_limbs[i / 64];
+        ((limb >> (i % 64)) & 1) as u8
+    });
     nondet.extend(scalar_mul_known_msb_nondets(&p1, &k_bits, &p));
 
     // p1.x mod n — trivial reduction since G.x < n (k=0, r = p1.x, no carries).
@@ -537,12 +538,13 @@ fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
 
 #[test]
 fn stub_full_chain_g_2g_z() {
-    // Pick z such that u1 = z · s_inv mod n = 0x8001 — the bit-15-set MSB
-    // required by scalar_mul_known_msb for a 16-bit scalar window.
+    // Pick z such that u1 = z · s_inv mod n = 2^255 + 1 — bit 255 is the
+    // MSB required by scalar_mul_known_msb for a 256-bit scalar.
     let n = secp256k1_n();
     let p2 = secp256k1_2g();
     let s = &p2.1;
-    let z = (&BigUint::from(0x8001u32) * s) % &n;
+    let u1_target = (BigUint::from(1u32) << 255) + 1u32;
+    let z = (&u1_target * s) % &n;
     run_stub_test(secp256k1_g(), p2, z);
 }
 

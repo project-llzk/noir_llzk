@@ -124,12 +124,11 @@ impl EcdsaSecp256k1<'_> {
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
         let _u2 = emit_mul_mod_p(writer, &p2_x, &s_inv, &SECP256K1_N)?;
 
-        // Bit-decompose u1 into 256 little-endian bits, then use the low 16
-        // as a scalar for scalar_mul_known_msb. The test arranges z so that
-        // u1 = 0x8001 (bit 15 = 1, bit 0 = 1, others 0), satisfying the
-        // MSB-is-one assumption.
+        // Bit-decompose u1 into 256 little-endian bits, then feed all 256 to
+        // scalar_mul_known_msb. The test arranges z so u1 = 2^255 + 1
+        // (bits 0 and 255 set), satisfying the MSB-is-one assumption.
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let _scalar_mul_via_bits = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &u1_bits[..16])?;
+        let _scalar_mul_via_bits = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &u1_bits)?;
 
         // Reduce p1.x mod n — the call shape ECDSA's final check needs when
         // mapping R.x ∈ Fp to the scalar field for comparison against r.
