@@ -9,6 +9,7 @@ use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 
 use crate::{
     Error,
+    blackboxes::registry::BlackboxFunction,
     circuit::CircuitTranslator,
     opcodes::brillig::registry::{BrilligRegistry, emit_brillig_functions},
 };
@@ -41,6 +42,9 @@ pub fn translate_program<'c>(
     );
 
     let mut brillig_registry = BrilligRegistry::new();
+    for helper in BlackboxFunction::used_in_program(program) {
+        module.body().append_operation(helper.emit(context)?.into());
+    }
 
     for (i, circuit) in program.functions.iter().enumerate() {
         let struct_def = CircuitTranslator::new(context, circuit, program)

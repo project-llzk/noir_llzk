@@ -22,11 +22,12 @@ use crate::{
     opcodes::{
         TranslatedOpcode,
         assert_zero::AssertZero,
-        bitwise,
+        bitwise, blake2s, blake3,
         brillig::{BrilligCall, registry::BrilligRegistry},
         call::Call,
-        memory_ops,
-        memory_ops::MemoryInit,
+        grumpkin, keccak,
+        memory_ops::{self, MemoryInit},
+        poseidon2, sha256,
     },
 };
 
@@ -151,6 +152,14 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         opcode: &'p Opcode<FieldElement>,
         brillig_registry: &mut BrilligRegistry<'c, 'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
+        if let Some(curve_add_op) = grumpkin::embedded_curve_add::from_opcode(opcode) {
+            return Ok(Box::new(curve_add_op));
+        }
+
+        if let Some(msm_op) = grumpkin::multi_scalar_mul::from_opcode(opcode) {
+            return Ok(Box::new(msm_op));
+        }
+
         if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
             return Ok(Box::new(range_op));
         }
@@ -161,6 +170,26 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         if let Some(and_op) = bitwise::and::from_opcode(opcode) {
             return Ok(Box::new(and_op));
+        }
+
+        if let Some(blake2s_op) = blake2s::from_opcode(opcode)? {
+            return Ok(Box::new(blake2s_op));
+        }
+
+        if let Some(blake3_op) = blake3::from_opcode(opcode)? {
+            return Ok(Box::new(blake3_op));
+        }
+
+        if let Some(sha256_op) = sha256::from_opcode(opcode)? {
+            return Ok(Box::new(sha256_op));
+        }
+
+        if let Some(keccak_op) = keccak::from_opcode(opcode)? {
+            return Ok(Box::new(keccak_op));
+        }
+
+        if let Some(poseidon2_op) = poseidon2::from_opcode(opcode)? {
+            return Ok(Box::new(poseidon2_op));
         }
 
         match opcode {

@@ -11,6 +11,7 @@ use llzk::prelude::{
 };
 
 use crate::FIELD_NAME;
+use crate::blackboxes::registry::BlackboxFunction;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 
@@ -124,6 +125,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Self::from_block(context, block, self_value, input_witnesses, 1, None)
     }
 
+    /// Returns the LLZK context this writer was created with.
+    pub(crate) fn context(&self) -> &'c LlzkContext {
+        self.context
+    }
+
+    /// Returns the location used for all emitted operations.
+    pub(crate) fn location(&self) -> Location<'c> {
+        self.location
+    }
+
     /// Reads the `name` member of `%self` (typed `ty`) before the return terminator.
     pub(crate) fn read_self_member(
         &self,
@@ -203,6 +214,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
+    }
+
+    /// Emits `llzk.nondet` with the given result type.
+    pub(crate) fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::llzk::nondet(self.location, result_type))
     }
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
@@ -355,6 +371,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         ))
     }
 
+    /// Calls a registered shared blackbox helper before the return terminator.
+    pub(crate) fn call_blackbox_function(
+        &self,
+        func: BlackboxFunction,
+        args: &[Value<'c, 'a>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        let result_types = func.result_types(self.context);
+        self.call_top_level_function(&func.symbol_name(), args, &result_types)
+    }
+
     /// Reads a felt-typed member of `from` by `name`.
     ///
     /// Convenience wrapper around [`read_member`](Self::read_member) that uses
@@ -386,11 +412,11 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     // ── Core IR operations ──────────────────────────────────────────────
 
     /// Inserts a single-result `op` and returns its first result as a `Value`.
-    fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
+    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
         Ok(self.insert_op(op).result(0)?.into())
     }
     /// Inserts `op` into the block immediately before the return terminator.
-    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
         self.block.insert_operation_before(self.ret_op, op)
     }
 

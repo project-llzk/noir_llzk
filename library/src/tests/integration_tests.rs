@@ -119,3 +119,28 @@ fn noir_bitwise_blackboxes() {
 fn noir_memory_ops() {
     run_noir_test("memory_ops");
 }
+
+#[test]
+fn noir_poseidon2() {
+    run_noir_test("poseidon2");
+}
+
+#[test]
+fn noir_blake2s() {
+    run_noir_test("blake2s");
+}
+
+#[test]
+fn noir_blake3() {
+    run_noir_test("blake3");
+}
+
+#[test]
+fn noir_sha256() {
+    run_noir_test("sha256");
+}
+
+#[test]
+fn noir_keccak() {
+    run_noir_test("keccak");
+}

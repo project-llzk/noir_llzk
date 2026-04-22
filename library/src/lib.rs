@@ -1,4 +1,5 @@
 //! A library to compile ACIR programs to LLZK modules
+mod blackboxes;
 mod block_writer;
 mod brillig_writer;
 mod circuit;
