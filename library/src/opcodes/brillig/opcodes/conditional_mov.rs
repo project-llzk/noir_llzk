@@ -31,9 +31,7 @@ impl BrilligHandler<'_> for ConditionalMovHandler {
         let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
         let cond_i1 = ctx.writer.insert_bool_gt(cond, zero)?;
 
-        let result = ctx
-            .writer
-            .insert_scf_if_select(cond_i1, a, b, a.r#type())?;
+        let result = ctx.writer.insert_scf_if_select(cond_i1, a, b, a.r#type())?;
 
         ctx.memory.write(ctx.writer, self.destination, result)?;
         Ok(OpcodeAction::Continue)
