@@ -25,7 +25,7 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         // Noir emits pointers and lengths as U32 (BRILLIG_MEMORY_ADDRESSING_BIT_SIZE),
         // and those are the only values any `get_const` consumer uses.
         if let BitSize::Integer(IntegerBitSize::U32) = self.bit_size
-            && let Some(v) = self.value.try_into_u128()
+            && let Some(v) = self.value.try_to_u32()
         {
             ctx.memory.record_const(self.destination, v as usize)?;
         }
