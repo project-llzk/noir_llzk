@@ -121,10 +121,12 @@ impl EcdsaSecp256k1<'_> {
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
         let _u2 = emit_mul_mod_p(writer, &p2_x, &s_inv, &SECP256K1_N)?;
 
-        // Bit-decompose u1 into 256 bits — the shape a real 256-bit scalar
-        // mul would consume. Not wired to a scalar mul yet (would add ~57k
-        // nondets per test run).
-        let _u1_bits = emit_bit_decompose_256(writer, &u1)?;
+        // Bit-decompose u1 into 256 little-endian bits, then use the low 16
+        // as a scalar for scalar_mul_known_msb. The test arranges z so that
+        // u1 = 0x8001 (bit 15 = 1, bit 0 = 1, others 0), satisfying the
+        // MSB-is-one assumption.
+        let u1_bits = emit_bit_decompose_256(writer, &u1)?;
+        let _scalar_mul_via_bits = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &u1_bits[..16])?;
         Ok(())
     }
 }

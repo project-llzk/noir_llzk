@@ -455,6 +455,16 @@ fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     let u1 = (&z * &s_inv) % &n;
     nondet.extend(bit_decompose_256_nondets(&u1));
 
+    // Scalar mul via the decomposed bits. The test precondition ensures
+    // u1 = 0x8001 so bit[15] = 1 (MSB of the 16-bit scalar window).
+    assert_eq!(
+        u1,
+        BigUint::from(0x8001u32),
+        "z/s_inv chosen to make u1 = 0x8001"
+    );
+    let k_bits: [u8; 16] = std::array::from_fn(|i| ((0x8001u32 >> i) & 1) as u8);
+    nondet.extend(scalar_mul_known_msb_nondets(&p1, &k_bits, &p));
+
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
@@ -473,9 +483,13 @@ fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
 
 #[test]
 fn stub_full_chain_g_2g_z() {
-    // Non-zero z < n keeps the u1 = z·s_inv branch meaningful.
-    let z = BigUint::parse_bytes(b"42", 10).unwrap();
-    run_stub_test(secp256k1_g(), secp256k1_2g(), z);
+    // Pick z such that u1 = z · s_inv mod n = 0x8001 — the bit-15-set MSB
+    // required by scalar_mul_known_msb for a 16-bit scalar window.
+    let n = secp256k1_n();
+    let p2 = secp256k1_2g();
+    let s = &p2.1;
+    let z = (&BigUint::from(0x8001u32) * s) % &n;
+    run_stub_test(secp256k1_g(), p2, z);
 }
 
 #[test]
