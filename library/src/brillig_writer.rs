@@ -199,6 +199,13 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::cast::toindex(self.location, val))
     }
 
+    /// Emits `cast.tofelt val`, widening an integer value (e.g. the `i1`
+    /// result of `bool.cmp`) to the circuit's felt type.
+    pub(crate) fn insert_cast_to_felt(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        let felt_ty = FeltType::with_field(self.context, FIELD_NAME);
+        self.insert_op_with_result(dialect::cast::tofelt(self.location, val, Some(felt_ty)))
+    }
+
     /// Converts `val` to `index` type for `ram.load` / `ram.store` addresses.
     ///
     /// Index-typed inputs pass through; felt inputs go via `cast.toindex`.

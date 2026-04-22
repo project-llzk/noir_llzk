@@ -75,7 +75,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         self.writer.insert_felt_bit_and(val, mask_val)
     }
 
-    /// Emits the LLZK op for a `BinaryFieldOp`.
+    /// Emits the LLZK op for a `BinaryFieldOp`, returning a felt result.
     pub(super) fn emit_binary_field_op(
         &self,
         op: &BinaryFieldOp,
@@ -87,9 +87,18 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             BinaryFieldOp::Sub => self.writer.insert_sub(lhs, rhs),
             BinaryFieldOp::Mul => self.writer.insert_mul(lhs, rhs),
             BinaryFieldOp::Div => self.writer.insert_div(lhs, rhs),
-            BinaryFieldOp::Equals => self.writer.insert_bool_eq(lhs, rhs),
-            BinaryFieldOp::LessThan => self.writer.insert_bool_lt(lhs, rhs),
-            BinaryFieldOp::LessThanEquals => self.writer.insert_bool_le(lhs, rhs),
+            BinaryFieldOp::Equals => {
+                let i1 = self.writer.insert_bool_eq(lhs, rhs)?;
+                self.writer.insert_cast_to_felt(i1)
+            }
+            BinaryFieldOp::LessThan => {
+                let i1 = self.writer.insert_bool_lt(lhs, rhs)?;
+                self.writer.insert_cast_to_felt(i1)
+            }
+            BinaryFieldOp::LessThanEquals => {
+                let i1 = self.writer.insert_bool_le(lhs, rhs)?;
+                self.writer.insert_cast_to_felt(i1)
+            }
             BinaryFieldOp::IntegerDiv => self.writer.insert_uintdiv(lhs, rhs),
         }
     }
@@ -97,10 +106,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     /// Emits the LLZK op for a `BinaryIntOp`, producing a felt result.
     ///
     /// Operations that can exceed the bit width (`Add`, `Sub`, `Mul`,
-    /// `Shl`) are masked back into `[0, 2^n)` here. Bitwise ops, shifts
-    /// right, and divisions are already width-preserving when their
-    /// inputs are. Comparisons return a bare `i1` via `bool.cmp` and
-    /// never need masking.
+    /// `Shl`) are masked back into `[0, 2^n)` here.
     pub(super) fn emit_binary_int_op(
         &mut self,
         op: &BinaryIntOp,
@@ -113,9 +119,18 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             BinaryIntOp::Sub => self.writer.insert_sub(lhs, rhs)?,
             BinaryIntOp::Mul => self.writer.insert_mul(lhs, rhs)?,
             BinaryIntOp::Div => return self.writer.insert_uintdiv(lhs, rhs),
-            BinaryIntOp::Equals => return self.writer.insert_bool_eq(lhs, rhs),
-            BinaryIntOp::LessThan => return self.writer.insert_bool_lt(lhs, rhs),
-            BinaryIntOp::LessThanEquals => return self.writer.insert_bool_le(lhs, rhs),
+            BinaryIntOp::Equals => {
+                let i1 = self.writer.insert_bool_eq(lhs, rhs)?;
+                return self.writer.insert_cast_to_felt(i1);
+            }
+            BinaryIntOp::LessThan => {
+                let i1 = self.writer.insert_bool_lt(lhs, rhs)?;
+                return self.writer.insert_cast_to_felt(i1);
+            }
+            BinaryIntOp::LessThanEquals => {
+                let i1 = self.writer.insert_bool_le(lhs, rhs)?;
+                return self.writer.insert_cast_to_felt(i1);
+            }
             BinaryIntOp::And => return self.writer.insert_felt_bit_and(lhs, rhs),
             BinaryIntOp::Or => return self.writer.insert_felt_bit_or(lhs, rhs),
             BinaryIntOp::Xor => return self.writer.insert_felt_bit_xor(lhs, rhs),
