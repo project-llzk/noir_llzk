@@ -1,14 +1,4 @@
-//! Tests for Milestone 3 Brillig translation, split by issue:
-//!
-//! - [`dispatch_tests`] — Issue 2 (BrilligCall handler skeleton, dispatch,
-//!   predicate gating, input-marshalling stubs, module-level dedup).
-//! - [`register_tests`] — Issue 3 (register-machine opcodes: Const / Mov /
-//!   Cast / CMov).
-//! - [`binary_op_tests`] — Issue 4 (BinaryFieldOp and BinaryIntOp).
-//!
-//! Shared test helpers (bytecode/opcode constructors, body translation,
-//! `@brillig_{id}` lookup) live in this module so every sibling test file
-//! imports them via `super::`.
+//! Tests for Brillig translation, split by issue:
 
 use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,

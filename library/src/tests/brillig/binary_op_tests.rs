@@ -46,6 +46,11 @@ fn brillig_binary_field_op_emits_expected_op() {
                 printed.contains(mnemonic),
                 "{op:?} should emit {expected_name} with `{mnemonic}` predicate, got: {printed}"
             );
+            assert_eq!(
+                count_op(&module, 0, "cast.tofelt"),
+                1,
+                "{op:?} should emit exactly one cast.tofelt for the bool.cmp result"
+            );
         }
         assert!(
             module.as_operation().verify(),
@@ -95,6 +100,11 @@ fn brillig_binary_int_op_emits_expected_op() {
             assert!(
                 printed.contains(mnemonic),
                 "{op:?} at {bs:?} should emit {expected} with `{mnemonic}` predicate, got: {printed}"
+            );
+            assert_eq!(
+                count_op(&module, 0, "cast.tofelt"),
+                1,
+                "{op:?} at {bs:?} should emit exactly one cast.tofelt for the bool.cmp result"
             );
         }
         assert!(
