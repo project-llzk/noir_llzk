@@ -9,6 +9,7 @@
 //! Parameterised by a constant prime `p` passed as `[u64; 4]` (little-endian limbs).
 
 mod add;
+mod bits;
 mod common;
 mod div;
 mod inverse;
@@ -16,6 +17,7 @@ mod mul;
 mod sub;
 
 pub(crate) use add::emit_add_mod_p;
+pub(crate) use bits::emit_bit_decompose_256;
 pub(crate) use div::emit_div_mod_p;
 pub(crate) use inverse::emit_inv_mod_p;
 pub(crate) use mul::emit_mul_mod_p;

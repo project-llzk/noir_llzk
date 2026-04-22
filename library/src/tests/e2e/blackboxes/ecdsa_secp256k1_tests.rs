@@ -99,9 +99,10 @@ fn biguint_to_be_bytes(value: &BigUint) -> [u8; 32] {
     padded
 }
 
-fn inputs_from_two_points(
+fn inputs_from_two_points_and_z(
     p1: &(BigUint, BigUint),
     p2: &(BigUint, BigUint),
+    z: &BigUint,
 ) -> Vec<crate::tests::e2e::Value> {
     let mut inputs = Vec::with_capacity((PREDICATE_W + 1) as usize);
     inputs.extend(
@@ -124,8 +125,8 @@ fn inputs_from_two_points(
             .iter()
             .map(|&b| felt_u64(b as u64)),
     );
-    // hashed_message (unused): 32 zeros.
-    inputs.extend(std::iter::repeat_n(felt_u64(0), 32));
+    // hashed_message = z (BE-packed, must be < n for the Fr mul to be valid).
+    inputs.extend(biguint_to_be_bytes(z).iter().map(|&b| felt_u64(b as u64)));
     // predicate.
     inputs.push(felt_u64(1));
     inputs
@@ -423,7 +424,7 @@ fn scalar_mul_known_msb_nondets(
     nondets
 }
 
-fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
+fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     let private: Vec<u32> = (0..=PREDICATE_W).collect();
     let circuit = make_circuit_with_opcodes(
         OUTPUT_W,
@@ -432,25 +433,49 @@ fn run_point_add_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint)) {
         &[OUTPUT_W],
         vec![ecdsa_secp256k1_opcode()],
     );
-    let inputs = inputs_from_two_points(&p1, &p2);
+    let inputs = inputs_from_two_points_and_z(&p1, &p2, &z);
     let p = secp256k1_p();
+    let n = secp256k1_n();
+    assert!(p2.1 < n, "p2.y must be < n for inv mod n");
+    assert!(p2.0 < n, "p2.x must be < n for the Fr mul to match");
+    assert!(z < n, "z must be < n");
+
     let mut nondet = point_add_affine_nondets(&p1, &p2, &p);
     nondet.extend(inv_mod_p_nondets(&p1.0, &p));
     nondet.extend(point_double_nondets(&p1, &p));
-    // Scalar mul with k=15, bits LSB-first = [1, 1, 1, 1]. Result = 15·p1.
     nondet.extend(scalar_mul_known_msb_nondets(&p1, &[1, 1, 1, 1], &p));
-    // Exercise Fr arithmetic: p2.y⁻¹ mod n.
-    let n = secp256k1_n();
-    assert!(p2.1 < n, "p2.y must be < n for inv mod n to be defined");
+
+    // Fr chain: s_inv = p2.y⁻¹ mod n, then u1 = z·s_inv, u2 = p2.x·s_inv.
+    let s_inv = p2.1.modpow(&(&n - 2u32), &n);
     nondet.extend(inv_mod_p_nondets(&p2.1, &n));
+    nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n));
+    nondet.extend(mul_mod_p_nondets(&p2.0, &s_inv, &n));
+
+    // Bit decomposition of u1 into 256 little-endian bits.
+    let u1 = (&z * &s_inv) % &n;
+    nondet.extend(bit_decompose_256_nondets(&u1));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
+/// Emits the 256 nondet bit values for `emit_bit_decompose_256(value)`.
+fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
+    let limbs = biguint_to_le_64_limbs(value);
+    let mut bits = Vec::with_capacity(256);
+    for limb in limbs {
+        for i in 0..64 {
+            bits.push(Felt::from_u64((limb >> i) & 1));
+        }
+    }
+    bits
+}
+
 #[test]
-fn stub_point_add_g_plus_2g() {
-    run_point_add_test(secp256k1_g(), secp256k1_2g());
+fn stub_full_chain_g_2g_z() {
+    // Non-zero z < n keeps the u1 = z·s_inv branch meaningful.
+    let z = BigUint::parse_bytes(b"42", 10).unwrap();
+    run_stub_test(secp256k1_g(), secp256k1_2g(), z);
 }
 
 #[test]

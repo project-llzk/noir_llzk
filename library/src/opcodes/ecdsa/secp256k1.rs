@@ -19,7 +19,7 @@ use llzk::prelude::Value;
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    multiprec::{LIMBS, Limbs256, emit_inv_mod_p},
+    multiprec::{LIMBS, Limbs256, emit_bit_decompose_256, emit_inv_mod_p, emit_mul_mod_p},
     opcodes::{
         OpcodeEmitter, collect_input_witness,
         ecdsa::curve::{emit_point_add_affine, emit_point_double, emit_scalar_mul_known_msb},
@@ -112,9 +112,19 @@ impl EcdsaSecp256k1<'_> {
         let scalar_bits = [one; 4];
         let _mul = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &scalar_bits)?;
 
-        // Exercise Fr arithmetic: compute p2_y⁻¹ mod n (scalar field).
-        // Real ECDSA verify starts with s_inv mod n — this is that call shape.
-        let _s_inv = emit_inv_mod_p(writer, &p2_y, &SECP256K1_N)?;
+        // ECDSA Fr chain: treat p2_y as `s`, p2_x as `r`, hashed_message as `z`.
+        //   s_inv = s⁻¹ mod n
+        //   u1    = z · s_inv mod n
+        //   u2    = r · s_inv mod n
+        let s_inv = emit_inv_mod_p(writer, &p2_y, &SECP256K1_N)?;
+        let z = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
+        let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
+        let _u2 = emit_mul_mod_p(writer, &p2_x, &s_inv, &SECP256K1_N)?;
+
+        // Bit-decompose u1 into 256 bits — the shape a real 256-bit scalar
+        // mul would consume. Not wired to a scalar mul yet (would add ~57k
+        // nondets per test run).
+        let _u1_bits = emit_bit_decompose_256(writer, &u1)?;
         Ok(())
     }
 }
