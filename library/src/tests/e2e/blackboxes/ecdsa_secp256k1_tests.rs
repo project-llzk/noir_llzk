@@ -465,6 +465,10 @@ fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     let k_bits: [u8; 16] = std::array::from_fn(|i| ((0x8001u32 >> i) & 1) as u8);
     nondet.extend(scalar_mul_known_msb_nondets(&p1, &k_bits, &p));
 
+    // p1.x mod n — trivial reduction since G.x < n (k=0, r = p1.x, no carries).
+    assert!(p1.0 < n, "p1.x must be < n for the nondet k=0 path");
+    nondet.extend(add_mod_p_nondets(&p1.0, &BigUint::from(0u32), &n));
+
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }

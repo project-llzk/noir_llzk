@@ -19,7 +19,9 @@ use llzk::prelude::Value;
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    multiprec::{LIMBS, Limbs256, emit_bit_decompose_256, emit_inv_mod_p, emit_mul_mod_p},
+    multiprec::{
+        LIMBS, Limbs256, emit_add_mod_p, emit_bit_decompose_256, emit_inv_mod_p, emit_mul_mod_p,
+    },
     opcodes::{
         OpcodeEmitter, collect_input_witness,
         ecdsa::curve::{emit_point_add_affine, emit_point_double, emit_scalar_mul_known_msb},
@@ -127,6 +129,14 @@ impl EcdsaSecp256k1<'_> {
         // MSB-is-one assumption.
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
         let _scalar_mul_via_bits = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &u1_bits[..16])?;
+
+        // Reduce p1.x mod n — the call shape ECDSA's final check needs when
+        // mapping R.x ∈ Fp to the scalar field for comparison against r.
+        // Uses emit_add_mod_p with b=0 and modulus=n; soundness depends on the
+        // prover supplying r < n (no r<n bound check yet).
+        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+        let zero_limbs: Limbs256 = [zero; LIMBS];
+        let _x_mod_n = emit_add_mod_p(writer, &p1_x, &zero_limbs, &SECP256K1_N)?;
         Ok(())
     }
 }
