@@ -70,9 +70,17 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         val: Value<'c, 'b>,
         int_size: IntegerBitSize,
     ) -> Result<Value<'c, 'b>, Error> {
-        let mask = mask_for(int_size);
-        let mask_val = self.writer.emit_constant(&FieldElement::from(mask))?;
+        let mask_val = self.emit_mask_constant(int_size)?;
         self.writer.insert_felt_bit_and(val, mask_val)
+    }
+
+    /// Emits the `2^n - 1` bitmask for `int_size` as a felt constant.
+    pub(super) fn emit_mask_constant(
+        &mut self,
+        int_size: IntegerBitSize,
+    ) -> Result<Value<'c, 'b>, Error> {
+        self.writer
+            .emit_constant(&FieldElement::from(mask_for(int_size)))
     }
 
     /// Emits the LLZK op for a `BinaryFieldOp`, returning a felt result.

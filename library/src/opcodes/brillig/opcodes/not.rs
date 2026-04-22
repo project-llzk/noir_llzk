@@ -1,4 +1,3 @@
-use acir::FieldElement;
 use acir::brillig::{IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
@@ -22,13 +21,7 @@ impl BrilligHandler<'_> for NotHandler {
         // `felt.bit_not` would flip all bits of the prime's representation,
         // so we implement it as `src XOR (2^n - 1)` instead.
         let src = ctx.memory.read(ctx.writer, self.source)?;
-        let n = u32::from(self.bit_size);
-        let mask = if n >= 128 {
-            u128::MAX
-        } else {
-            (1u128 << n) - 1
-        };
-        let mask_val = ctx.writer.emit_constant(&FieldElement::from(mask))?;
+        let mask_val = ctx.emit_mask_constant(self.bit_size)?;
         let result = ctx.writer.insert_felt_bit_xor(src, mask_val)?;
         ctx.memory.write(ctx.writer, self.destination, result)?;
         Ok(OpcodeAction::Continue)
