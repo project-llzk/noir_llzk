@@ -1,9 +1,16 @@
-//! EcdsaSecp256k1 opcode — **stub**.
+//! EcdsaSecp256k1 opcode — **stub**, structurally shaped like real verify.
 //!
-//! Current state: packs `(pk_x, pk_y)` and the first 64 bytes of `signature`
-//! into two secp256k1 affine points, drives `emit_point_add_affine` plus a
-//! standalone `emit_inv_mod_p`, and writes `output = 1` unconditionally. Used
-//! as a test vehicle for the multiprec and curve modules while ECDSA grows.
+//! Current state: runs the ECDSA Fr chain (s⁻¹, u1, u2), bit-decomposes u1,
+//! scalar-multiplies the public key by u1 (standing in for `u1·G + u2·Q`),
+//! reduces the result's x-coordinate mod n, and compares it against `r` from
+//! the signature. Writes the resulting equality bit to `output`.
+//!
+//! Known shortcuts vs. real verify:
+//!   - Scalar mul uses `pk` as base (should be `u1·G + u2·Q`).
+//!   - scalar_mul_known_msb requires MSB = 1 on the scalar.
+//!   - No infinity / doubling / ±P edge case handling in curve ops.
+//!   - No validation that (r, s) ∈ [1, n-1] or that `pk` is on the curve.
+//!   - No predicate gating.
 
 use std::collections::BTreeSet;
 
@@ -24,8 +31,7 @@ use crate::{
         emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
     },
     opcodes::{
-        OpcodeEmitter, collect_input_witness,
-        ecdsa::curve::{emit_point_add_affine, emit_point_double, emit_scalar_mul_known_msb},
+        OpcodeEmitter, collect_input_witness, ecdsa::curve::emit_scalar_mul_known_msb,
         emit_blackbox_input,
     },
 };
@@ -73,81 +79,56 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        self.exercise_multiprec(writer)?;
-        let one = writer.emit_constant(&FieldElement::from(1u128))?;
-        writer.write_member(&format!("w{}", self.output.0), one)?;
-        writer.mark_known(self.output.0, one);
+        let is_valid = self.emit_verify_body(writer)?;
+        writer.write_member(&format!("w{}", self.output.0), is_valid)?;
+        writer.mark_known(self.output.0, is_valid);
         Ok(())
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        self.exercise_multiprec(writer)?;
-        let one = writer.emit_constant(&FieldElement::from(1u128))?;
+        let is_valid = self.emit_verify_body(writer)?;
         let actual = writer.read_witness(self.output.0)?;
-        writer.insert_constrain_eq(actual, one);
+        writer.insert_constrain_eq(actual, is_valid);
         Ok(())
     }
 }
 
 impl EcdsaSecp256k1<'_> {
-    /// Packs `(pk_x, pk_y)` and the first 64 bytes of signature into two
-    /// secp256k1 affine points, drives `emit_point_add_affine`, and also
-    /// exercises `emit_inv_mod_p` on `pk_x`. Temporary — will be replaced by
-    /// real ECDSA verify logic.
-    fn exercise_multiprec<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let p1_x = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
-        let p1_y = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
-        let sig_x: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
+    /// Emits the verify body and returns a felt ∈ {0, 1} indicating validity.
+    /// Current shape: `scalar_mul(u1_bits, pk).x mod n == r`.
+    fn emit_verify_body<'c, 'b>(
+        &self,
+        writer: &mut BlockWriter<'c, 'b>,
+    ) -> Result<Value<'c, 'b>, Error> {
+        let pk_x = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
+        let pk_y = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
+        let sig_r_bytes: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
             .try_into()
             .expect("signature has at least 32 bytes");
-        let sig_y: &[FunctionInput<FieldElement>; 32] = self.signature[32..64]
+        let sig_s_bytes: &[FunctionInput<FieldElement>; 32] = self.signature[32..64]
             .try_into()
             .expect("signature has 64 bytes");
-        let p2_x = pack_bytes_be_to_le_limbs(writer, sig_x)?;
-        let p2_y = pack_bytes_be_to_le_limbs(writer, sig_y)?;
-        let _sum = emit_point_add_affine(writer, (p1_x, p1_y), (p2_x, p2_y))?;
-        let _inv = emit_inv_mod_p(writer, &p1_x, &SECP256K1_P)?;
-        let _dbl = emit_point_double(writer, (p1_x, p1_y))?;
-
-        // Exercise scalar mul for k = 15 (bits LSB-first: [1, 1, 1, 1]).
-        // 3 double-and-add iterations; result = 15·p1.
-        let one = writer.emit_constant(&FieldElement::from(1u128))?;
-        let scalar_bits = [one; 4];
-        let _mul = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &scalar_bits)?;
-
-        // ECDSA Fr chain: treat p2_y as `s`, p2_x as `r`, hashed_message as `z`.
-        //   s_inv = s⁻¹ mod n
-        //   u1    = z · s_inv mod n
-        //   u2    = r · s_inv mod n
-        let s_inv = emit_inv_mod_p(writer, &p2_y, &SECP256K1_N)?;
+        let sig_r = pack_bytes_be_to_le_limbs(writer, sig_r_bytes)?;
+        let sig_s = pack_bytes_be_to_le_limbs(writer, sig_s_bytes)?;
         let z = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
+
+        // Fr chain: s_inv = s⁻¹ mod n, u1 = z·s_inv, u2 = r·s_inv.
+        let s_inv = emit_inv_mod_p(writer, &sig_s, &SECP256K1_N)?;
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
-        let _u2 = emit_mul_mod_p(writer, &p2_x, &s_inv, &SECP256K1_N)?;
+        let _u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
 
-        // Bit-decompose u1 into 256 little-endian bits, then feed all 256 to
-        // scalar_mul_known_msb. The test arranges z so u1 = 2^255 + 1
-        // (bits 0 and 255 set), satisfying the MSB-is-one assumption.
+        // Scalar mul: R = u1·pk (stand-in for the real u1·G + u2·Q).
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let _scalar_mul_via_bits = emit_scalar_mul_known_msb(writer, (p1_x, p1_y), &u1_bits)?;
+        let (r_x, _r_y) = emit_scalar_mul_known_msb(writer, (pk_x, pk_y), &u1_bits)?;
 
-        // Reduce p1.x mod n — the call shape ECDSA's final check needs when
-        // mapping R.x ∈ Fp to the scalar field for comparison against r.
-        // Uses emit_add_mod_p with b=0 and modulus=n; soundness depends on the
-        // prover supplying r < n (no r<n bound check yet).
+        // Reduce R.x mod n and assert < n.
         let zero = writer.emit_constant(&FieldElement::from(0u128))?;
         let zero_limbs: Limbs256 = [zero; LIMBS];
-        let x_mod_n = emit_add_mod_p(writer, &p1_x, &zero_limbs, &SECP256K1_N)?;
-        // Soundness: force the reduced value below n so the prover can't
-        // return an unreduced x_mod_n.
-        emit_assert_lt_modulus(writer, &x_mod_n, &SECP256K1_N)?;
+        let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
+        emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
 
-        // ECDSA final-check shape: compute is_eq = (x_mod_n == p1_x). The test
-        // arranges both to equal G.x, so is_eq should be 1. Real verify would
-        // compare against sig_r here.
-        let is_eq = emit_limbs_eq_boolean(writer, &x_mod_n, &p1_x)?;
-        let one_const = writer.emit_constant(&FieldElement::from(1u128))?;
-        writer.insert_constrain_eq(is_eq, one_const);
-        Ok(())
+        // Final equality: is_valid = (R.x mod n == sig_r).
+        emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)
     }
 }
 
