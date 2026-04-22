@@ -468,9 +468,44 @@ fn run_stub_test(p1: (BigUint, BigUint), p2: (BigUint, BigUint), z: BigUint) {
     // p1.x mod n — trivial reduction since G.x < n (k=0, r = p1.x, no carries).
     assert!(p1.0 < n, "p1.x must be < n for the nondet k=0 path");
     nondet.extend(add_mod_p_nondets(&p1.0, &BigUint::from(0u32), &n));
+    // Soundness assertion: reduced value < n. `d = n - 1 - p1.x`.
+    nondet.extend(assert_lt_modulus_nondets(&p1.0, &n));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
+}
+
+/// Nondet sequence for `emit_assert_lt_modulus(value, modulus)`:
+/// `[d0..d3, c1..c4]` where `d = modulus - 1 - value`.
+fn assert_lt_modulus_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
+    assert!(value < modulus, "value must be < modulus");
+    let d = modulus - 1u32 - value;
+    let d_limbs = biguint_to_le_64_limbs(&d);
+    let m_minus_1 = modulus - 1u32;
+    let m_limbs = biguint_to_le_64_limbs(&m_minus_1);
+    let v_limbs = biguint_to_le_64_limbs(value);
+
+    // Replay: v_i + d_i - m_i + carry_in = carry_out · 2^64.
+    let two_64 = 1i128 << 64;
+    let mut carries = [0i128; 4];
+    let mut carry_in: i128 = 0;
+    for i in 0..4 {
+        let lhs = (v_limbs[i] as i128) + (d_limbs[i] as i128) - (m_limbs[i] as i128) + carry_in;
+        let carry_out = lhs / two_64;
+        assert_eq!(carry_out * two_64, lhs, "limb {i} not divisible by 2^64");
+        carries[i] = carry_out;
+        carry_in = carry_out;
+    }
+    assert_eq!(carry_in, 0, "final carry must be zero");
+
+    let mut nondets = Vec::with_capacity(8);
+    for limb in d_limbs {
+        nondets.push(Felt::from_u64(limb));
+    }
+    for carry in carries {
+        nondets.push(signed_felt(carry));
+    }
+    nondets
 }
 
 /// Emits the 256 nondet bit values for `emit_bit_decompose_256(value)`.

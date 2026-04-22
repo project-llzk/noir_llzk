@@ -20,7 +20,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     multiprec::{
-        LIMBS, Limbs256, emit_add_mod_p, emit_bit_decompose_256, emit_inv_mod_p, emit_mul_mod_p,
+        LIMBS, Limbs256, emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256,
+        emit_inv_mod_p, emit_mul_mod_p,
     },
     opcodes::{
         OpcodeEmitter, collect_input_witness,
@@ -136,7 +137,10 @@ impl EcdsaSecp256k1<'_> {
         // prover supplying r < n (no r<n bound check yet).
         let zero = writer.emit_constant(&FieldElement::from(0u128))?;
         let zero_limbs: Limbs256 = [zero; LIMBS];
-        let _x_mod_n = emit_add_mod_p(writer, &p1_x, &zero_limbs, &SECP256K1_N)?;
+        let x_mod_n = emit_add_mod_p(writer, &p1_x, &zero_limbs, &SECP256K1_N)?;
+        // Soundness: force the reduced value below n so the prover can't
+        // return an unreduced x_mod_n.
+        emit_assert_lt_modulus(writer, &x_mod_n, &SECP256K1_N)?;
         Ok(())
     }
 }
