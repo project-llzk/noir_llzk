@@ -126,18 +126,6 @@ pub(crate) fn emit_brillig_functions<'c>(
             &calldata,
             entry.output_types.len(),
         )?;
-        if returns.len() != entry.output_types.len() {
-            return Err(Error::UnsupportedBrillig {
-                reason: format!(
-                    "brillig function id {} declared {} output(s) but bytecode translator \
-                     produced {}; register-based output marshalling arrives in later \
-                     milestone-3 issues",
-                    id.0,
-                    entry.output_types.len(),
-                    returns.len(),
-                ),
-            });
-        }
         body_block.append_operation(dialect::function::r#return(location, &returns));
         func.region(0)?.append_block(body_block);
         module.body().append_operation(func.into());
