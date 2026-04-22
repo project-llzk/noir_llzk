@@ -18,7 +18,7 @@ runs:
   steps:
     - uses: actions/checkout@v4
       with:
-        repository: reilabs/llzk-lib
+        repository: project-llzk/llzk-lib
         ref: ${{ inputs.ref }}
         path: ${{ inputs.root }}
         fetch-depth: 1
