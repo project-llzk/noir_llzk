@@ -38,8 +38,7 @@ runs:
           -DCMAKE_PREFIX_PATH=$_MLIR_DIR \
           -DCMAKE_BUILD_TYPE=$_BUILD_TYPE \
           -DLLZK_VERSION_OVERRIDE=1.0.0 \
-          -DBUILD_TESTING=OFF \
-          -DCMAKE_CXX_FLAGS="-Wno-error=shadow"
+          -DBUILD_TESTING=OFF
       env:
         _ROOT: ${{ inputs.root }}
         _MLIR_DIR: ${{ inputs.mlir-dir }}

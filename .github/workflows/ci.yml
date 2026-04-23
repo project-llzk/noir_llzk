@@ -51,7 +51,7 @@ jobs:
       - name: Install LLZK
         uses: ./.github/actions/install-llzk
         with:
-          ref: d965a33d29b77efd53d312dc341e32997698dadd
+          ref: 030c16eeba535c5592d5cefc564a9101a3e2dc20
           type: Debug
           mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
       - name: Install PCL MLIR
