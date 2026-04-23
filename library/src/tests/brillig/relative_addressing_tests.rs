@@ -1,10 +1,10 @@
 //! Tests for `MemoryAddress::Relative` resolution in the Brillig translator.
 
 use acir::FieldElement;
-use acir::brillig::{BitSize, IntegerBitSize, Opcode as BrilligOpcode};
+use acir::brillig::{BinaryIntOp, BitSize, IntegerBitSize, Opcode as BrilligOpcode};
 use llzk::prelude::{LlzkContext, OperationLike};
 
-use super::{addr, brillig_stop, const_field, const_int, rel, translate_body};
+use super::{addr, binary_int_op, brillig_stop, const_field, const_int, rel, translate_body};
 use crate::Error;
 
 #[test]
@@ -62,6 +62,72 @@ fn relative_const_without_sp_init_errors() {
     assert!(
         matches!(err, Error::UnresolvedStackPointer { offset: 5 }),
         "expected UnresolvedStackPointer {{ offset: 5 }}, got {err:?}"
+    );
+}
+
+#[test]
+fn sp_prologue_add_updates_stack_pointer() {
+    // Brillig's call-frame prologue advances SP via `BinaryIntOp::Add` on
+    // slot 0 rather than a fresh `Const`. If the handler doesn't fold this
+    // into the frame stack, subsequent `Relative(_)` accesses resolve
+    // against the caller's SP.
+    let context = LlzkContext::new();
+    let module = translate_body(
+        &context,
+        vec![
+            // SP = 10
+            const_int(0, IntegerBitSize::U32, 10),
+            // register 5 = 3 (frame-size constant)
+            const_int(5, IntegerBitSize::U32, 3),
+            // slot 0 += register 5  → SP = 13
+            binary_int_op(0, BinaryIntOp::Add, IntegerBitSize::U32, 0, 5),
+            // Direct(13) = 42  (== Relative(0) once SP=13)
+            const_field(13, 42),
+            // Mov Relative(0) -> Direct(20)
+            BrilligOpcode::Mov {
+                destination: addr(20),
+                source: rel(0),
+            },
+            brillig_stop(),
+        ],
+    )
+    .expect("translation should succeed once SP prologue is folded");
+    assert!(module.as_operation().verify());
+
+    let ir = format!("{}", module.as_operation());
+    assert!(
+        ir.contains("arith.constant 13 : index"),
+        "IR should address slot 13 (Relative(0) + SP=13):\n{ir}"
+    );
+}
+
+#[test]
+fn sp_prologue_add_with_unknown_rhs_leaves_sp_invalid() {
+    // If the prologue's RHS isn't a tracked integer constant, the handler
+    // cannot fold and SP is left invalidated — any later `Relative(_)` access
+    // must error rather than resolve against a stale SP.
+    let context = LlzkContext::new();
+    let err = translate_body(
+        &context,
+        vec![
+            // SP = 10
+            const_int(0, IntegerBitSize::U32, 10),
+            // register 5 holds a computed (non-Const-tracked) value
+            const_field(5, 3),
+            // slot 0 += register 5  → can't fold; SP invalidated
+            binary_int_op(0, BinaryIntOp::Add, IntegerBitSize::U32, 0, 5),
+            // Mov Relative(0) -> Direct(20)  — should now fail
+            BrilligOpcode::Mov {
+                destination: addr(20),
+                source: rel(0),
+            },
+            brillig_stop(),
+        ],
+    )
+    .expect_err("Relative read after unfoldable SP prologue should fail");
+    assert!(
+        matches!(err, Error::UnresolvedStackPointer { offset: 0 }),
+        "expected UnresolvedStackPointer {{ offset: 0 }}, got {err:?}"
     );
 }
 
