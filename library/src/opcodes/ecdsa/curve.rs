@@ -1,9 +1,17 @@
-//! Secp256k1 affine point arithmetic over the base field Fp.
+//! Secp256k1 point arithmetic over the base field Fp.
 //!
-//! Points are represented as `(x, y)`, each a 4-limb little-endian
-//! non-native integer < p. Infinity is *not* representable here — these
-//! primitives assume finite, non-special inputs. Edge cases (P + (-P),
-//! doubling at y=0, infinity handling) will be layered on top later.
+//! Two representations:
+//!   - [`AffinePoint`]: `(x, y)` — finite points only, used for scalar mul inputs.
+//!   - [`CompletePoint`]: `(x, y, is_infinity)` — full group element, returned
+//!     by the complete ops.
+//!
+//! Primitives:
+//!   - [`emit_point_add_complete`]: handles O + P, P + O, P = ±Q, and the
+//!     regular formula via nested selects. Safe division tolerates x1 = x2.
+//!   - [`emit_point_double_complete`]: handles P = O; y = 0 is safe via
+//!     safe-div (result discarded by select).
+//!   - [`emit_scalar_mul_general`]: double-and-add starting from O, accepts
+//!     any 256-bit scalar.
 
 use acir::FieldElement;
 use llzk::prelude::Value;

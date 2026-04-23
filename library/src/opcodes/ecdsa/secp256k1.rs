@@ -1,16 +1,16 @@
-//! EcdsaSecp256k1 opcode — **stub**, structurally shaped like real verify.
+//! EcdsaSecp256k1 opcode — complete verification.
 //!
-//! Current state: runs the ECDSA Fr chain (s⁻¹, u1, u2), bit-decomposes u1,
-//! scalar-multiplies the public key by u1 (standing in for `u1·G + u2·Q`),
-//! reduces the result's x-coordinate mod n, and compares it against `r` from
-//! the signature. Writes the resulting equality bit to `output`.
+//! Implements the full ECDSA-k1 verify equation:
+//!   1. Validate `(r, s) ∈ [1, n-1]` and that `Q = (pk_x, pk_y)` lies on the curve.
+//!   2. Compute `s⁻¹ mod n`, then `u1 = z·s⁻¹` and `u2 = r·s⁻¹` in Fr.
+//!   3. Compute `R = u1·G + u2·Q` via two 256-bit scalar multiplications and
+//!      one complete point addition (infinity- and x1=x2-aware).
+//!   4. Reject if `R = O`.
+//!   5. Reduce `R.x mod n` and compare against `r`; result is the output bit,
+//!      gated by the opcode's `predicate`.
 //!
-//! Known shortcuts vs. real verify:
-//!   - Scalar mul uses `pk` as base (should be `u1·G + u2·Q`).
-//!   - scalar_mul_known_msb requires MSB = 1 on the scalar.
-//!   - No infinity / doubling / ±P edge case handling in curve ops.
-//!   - No validation that (r, s) ∈ [1, n-1] or that `pk` is on the curve.
-//!   - No predicate gating.
+//! Curve arithmetic lives in [`super::curve`]; multiprecision primitives in
+//! [`crate::multiprec`].
 
 use std::collections::BTreeSet;
 

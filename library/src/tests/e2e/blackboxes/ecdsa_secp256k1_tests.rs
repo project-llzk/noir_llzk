@@ -1,10 +1,13 @@
-//! End-to-end tests for the EcdsaSecp256k1 **stub** opcode.
+//! End-to-end tests for the EcdsaSecp256k1 verify opcode.
 //!
-//! The stub packs `(pk_x, pk_y)` and the first 64 bytes of `signature` into
-//! two secp256k1 affine points, runs `emit_point_add_affine`, and also
-//! exercises `emit_inv_mod_p` on `pk_x`. These tests drive the stub with real
-//! secp256k1 test vectors (G, 2G, 3G) and derive the full nondet sequence
-//! (~100 slots for the curve add + 18 for the standalone inv).
+//! Each test generates a valid ECDSA-k1 signature on a fresh (d, k, z) tuple
+//! using the textbook formulas and feeds it into the pipeline with a
+//! precomputed nondet oracle. The stub accepts the signature iff the
+//! `u1·G + u2·Q = R` equation and `R.x ≡ r (mod n)` check both hold.
+//!
+//! Tests also include a pair of sanity checks on the Rust-side oracle itself
+//! (`oracle_double_g_equals_2g`, `oracle_scalar_mul_3_equals_3g`) against
+//! canonical secp256k1 test vectors.
 
 use acir::FieldElement;
 use acir::circuit::Opcode;
@@ -639,13 +642,20 @@ fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
 }
 
 #[test]
-fn stub_verify_accepts_valid_signature() {
-    // Proper ECDSA setup: secret d, nonce k, message hash z generate a valid
-    // (pk, sig_r, sig_s) that the stub's u1·G + u2·Q = R verify accepts.
+fn verify_accepts_small_d_k_z() {
     let d = BigUint::from(7u32);
     let k = BigUint::from(1234u32);
     let z = BigUint::from(100u32);
     run_verify_test(d, k, z);
+}
+
+#[test]
+fn verify_accepts_larger_d_k_z() {
+    let d = BigUint::parse_bytes(b"DEADBEEFCAFE0000000000000000000000000000000000000000000000000001", 16).unwrap();
+    let k = BigUint::parse_bytes(b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF", 16).unwrap();
+    let z = BigUint::parse_bytes(b"AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899", 16).unwrap();
+    let n = secp256k1_n();
+    run_verify_test(&d % &n, &k % &n, &z % &n);
 }
 
 #[test]
