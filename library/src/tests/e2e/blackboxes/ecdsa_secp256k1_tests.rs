@@ -471,36 +471,52 @@ fn scalar_mul_general_execute(
     (acc, acc_inf, nondets)
 }
 
-/// Drives the restructured verify body. Given pk, sig_s, and a target u1
-/// (with MSB=1), derives sig_r = (u1·pk).x mod n such that the final check
-/// is satisfied, and exercises the full pipeline.
-fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
+fn biguint_to_bits_256(value: &BigUint) -> [u8; 256] {
+    let limbs = biguint_to_le_64_limbs(value);
+    std::array::from_fn(|i| ((limbs[i / 64] >> (i % 64)) & 1) as u8)
+}
+
+/// Drives the restructured verify body with a full ECDSA-style setup.
+/// Given secret scalar `d` and nonce `k`, generates a valid signature for
+/// message hash `z` and exercises the complete pipeline.
+fn run_verify_test(d: BigUint, k: BigUint, z: BigUint) {
     let p = secp256k1_p();
     let n = secp256k1_n();
-    assert!(sig_s < n && sig_s != BigUint::from(0u32));
-    assert!(pk.0 < n, "pk.x must be < n");
-    assert!(u1_target < n, "u1_target must be < n");
-
-    // Compute z so u1 = z · s_inv mod n = u1_target.
-    let s_inv = sig_s.modpow(&(&n - 2u32), &n);
-    let z = (&u1_target * &sig_s) % &n;
-    debug_assert_eq!((&z * &s_inv) % &n, u1_target);
-
-    // Simulate u1·G via the general (infinity-aware) scalar mul to derive
-    // the expected sig_r.
-    let u1_limbs = biguint_to_le_64_limbs(&u1_target);
-    let u1_bits: [u8; 256] = std::array::from_fn(|i| {
-        let limb = u1_limbs[i / 64];
-        ((limb >> (i % 64)) & 1) as u8
-    });
     let g = secp256k1_g();
-    let (r_point, r_inf, sm_nondets) = scalar_mul_general_execute(&g, &u1_bits, &p);
-    assert!(!r_inf, "u1 = 0 would give R = O — invalid signature");
-    assert!(
-        r_point.0 < n,
-        "R.x < n for this test vector (k=0 reduction path)"
-    );
-    let sig_r = r_point.0.clone();
+
+    // Q = d·G
+    let d_bits = biguint_to_bits_256(&d);
+    let (q, q_inf, _) = scalar_mul_general_execute(&g, &d_bits, &p);
+    assert!(!q_inf && q.0 < n, "pk Q.x must be < n for Fr arithmetic");
+
+    // R_k = k·G and sig_r = R_k.x mod n
+    let k_bits = biguint_to_bits_256(&k);
+    let (r_k, r_k_inf, _) = scalar_mul_general_execute(&g, &k_bits, &p);
+    assert!(!r_k_inf, "nonce k must produce a finite point");
+    let sig_r = &r_k.0 % &n;
+    assert!(sig_r != BigUint::from(0u32), "pick a nonce avoiding R_k.x ≡ 0 mod n");
+
+    // sig_s = k⁻¹ · (z + sig_r·d) mod n
+    let k_inv_n = k.modpow(&(&n - 2u32), &n);
+    let sig_s = (&k_inv_n * ((&z + &sig_r * &d) % &n)) % &n;
+    assert!(sig_s != BigUint::from(0u32), "sig_s must be nonzero");
+
+    // u1, u2
+    let s_inv = sig_s.modpow(&(&n - 2u32), &n);
+    let u1_target = (&z * &s_inv) % &n;
+    let u2_target = (&sig_r * &s_inv) % &n;
+
+    // Replay the two scalar muls and the point add.
+    let u1_bits = biguint_to_bits_256(&u1_target);
+    let u2_bits = biguint_to_bits_256(&u2_target);
+    let (r1, r1_inf, u1g_nondets) = scalar_mul_general_execute(&g, &u1_bits, &p);
+    let (r2, r2_inf, u2q_nondets) = scalar_mul_general_execute(&q, &u2_bits, &p);
+    let r_add_nondets =
+        point_add_complete_regular_nondets(&r1.0, &r1.1, &r2.0, &r2.1, &p);
+    let r_final = secp_add(&r1, &r2, &p);
+    assert!(!r1_inf && !r2_inf, "u1·G and u2·Q must both be finite for this stub");
+    assert!(r_final == r_k, "u1·G + u2·Q should equal k·G");
+    assert!(r_final.0 < n, "R.x must be < n for the k=0 reduction path");
 
     // Build circuit + inputs.
     let private: Vec<u32> = (0..=PREDICATE_W).collect();
@@ -511,30 +527,31 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
         &[OUTPUT_W],
         vec![ecdsa_secp256k1_opcode()],
     );
-    let inputs = inputs_from_pk_sig_z(&pk, &sig_r, &sig_s, &z);
+    let inputs = inputs_from_pk_sig_z(&q, &sig_r, &sig_s, &z);
 
     // Nondet sequence in emission order.
     let mut nondet = Vec::new();
 
-    // Q on curve: y² = x³ + 7 (mod p). Primitives now canonicalise internally,
-    // so no explicit assert_lt needed — just the 3 muls + 1 add.
-    let x_sq = (&pk.0 * &pk.0) % &p;
-    let x_cubed = (&x_sq * &pk.0) % &p;
-    nondet.extend(mul_mod_p_nondets(&pk.0, &pk.0, &p)); // x²
-    nondet.extend(mul_mod_p_nondets(&x_sq, &pk.0, &p)); // x³
-    nondet.extend(add_mod_p_nondets(&x_cubed, &BigUint::from(7u32), &p)); // x³ + 7
-    nondet.extend(mul_mod_p_nondets(&pk.1, &pk.1, &p)); // y²
+    // Q on curve: y² = x³ + 7 (mod p).
+    let x_sq = (&q.0 * &q.0) % &p;
+    let x_cubed = (&x_sq * &q.0) % &p;
+    nondet.extend(mul_mod_p_nondets(&q.0, &q.0, &p));
+    nondet.extend(mul_mod_p_nondets(&x_sq, &q.0, &p));
+    nondet.extend(add_mod_p_nondets(&x_cubed, &BigUint::from(7u32), &p));
+    nondet.extend(mul_mod_p_nondets(&q.1, &q.1, &p));
 
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));
-    // sig_r ≠ 0 check.
     nondet.extend(limbs_eq_boolean_nondets(&sig_r, &BigUint::from(0u32)));
-    nondet.extend(inv_mod_p_nondets(&sig_s, &n)); // s_inv
-    nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n)); // u1
-    nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, &n)); // u2 (value unused downstream)
+    nondet.extend(inv_mod_p_nondets(&sig_s, &n));
+    nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n));
+    nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, &n));
     nondet.extend(bit_decompose_256_nondets(&u1_target));
-    nondet.extend(sm_nondets);
-    nondet.extend(add_mod_p_nondets(&r_point.0, &BigUint::from(0u32), &n)); // R.x mod n
+    nondet.extend(u1g_nondets);
+    nondet.extend(bit_decompose_256_nondets(&u2_target));
+    nondet.extend(u2q_nondets);
+    nondet.extend(r_add_nondets);
+    nondet.extend(add_mod_p_nondets(&r_final.0, &BigUint::from(0u32), &n));
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
 
@@ -609,11 +626,13 @@ fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
 }
 
 #[test]
-fn stub_verify_accepts_consistent_sig_r() {
-    // Arbitrary u1 with bit 255 set (MSB precondition); arbitrary nonzero s < n.
-    let u1_target = (BigUint::from(1u32) << 255) + 1u32;
-    let sig_s = secp256k1_2g().1; // 2G.y — nonzero, < n.
-    run_verify_test(secp256k1_g(), sig_s, u1_target);
+fn stub_verify_accepts_valid_signature() {
+    // Proper ECDSA setup: secret d, nonce k, message hash z generate a valid
+    // (pk, sig_r, sig_s) that the stub's u1·G + u2·Q = R verify accepts.
+    let d = BigUint::from(7u32);
+    let k = BigUint::from(1234u32);
+    let z = BigUint::from(100u32);
+    run_verify_test(d, k, z);
 }
 
 #[test]

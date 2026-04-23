@@ -31,7 +31,8 @@ use crate::{
         emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
     },
     opcodes::{
-        OpcodeEmitter, collect_input_witness, ecdsa::curve::emit_scalar_mul_general,
+        OpcodeEmitter, collect_input_witness,
+        ecdsa::curve::{emit_point_add_complete, emit_scalar_mul_general},
         emit_blackbox_input,
     },
 };
@@ -119,7 +120,7 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
 
 impl EcdsaSecp256k1<'_> {
     /// Emits the verify body and returns a felt ∈ {0, 1} indicating validity.
-    /// Current shape: `scalar_mul(u1_bits, pk).x mod n == r`.
+    /// Shape: `R = u1·G + u2·Q` on secp256k1, then `R.x mod n == r`.
     fn emit_verify_body<'c, 'b>(
         &self,
         writer: &mut BlockWriter<'c, 'b>,
@@ -149,14 +150,15 @@ impl EcdsaSecp256k1<'_> {
         // Fr chain: s_inv = s⁻¹ mod n, u1 = z·s_inv, u2 = r·s_inv.
         let s_inv = emit_inv_mod_p(writer, &sig_s, &SECP256K1_N)?;
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
-        let _u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
+        let u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
 
-        // Scalar mul: R = u1·G (stand-in for the real u1·G + u2·Q).
-        // Uses the general (infinity-aware) implementation so any u1 ∈ [0, n)
-        // works — no more MSB=1 precondition.
+        // Full verify: R = u1·G + u2·Q.
         let g = emit_limbs_constant(writer, &SECP256K1_GX, &SECP256K1_GY)?;
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let (r_x, _r_y, r_inf) = emit_scalar_mul_general(writer, g, &u1_bits)?;
+        let r1 = emit_scalar_mul_general(writer, g, &u1_bits)?;
+        let u2_bits = emit_bit_decompose_256(writer, &u2)?;
+        let r2 = emit_scalar_mul_general(writer, (pk_x, pk_y), &u2_bits)?;
+        let (r_x, _r_y, r_inf) = emit_point_add_complete(writer, r1, r2)?;
         // R at infinity → invalid signature. Assert R is finite.
         writer.insert_constrain_eq(r_inf, zero);
 
