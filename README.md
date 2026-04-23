@@ -52,7 +52,7 @@ Clone at the commit used by the `llzk-rs` v1 release:
 
 ```sh
 git clone https://github.com/project-llzk/llzk-lib.git
-cd llzk-lib && git checkout d965a33d29b77efd53d312dc341e32997698dadd && cd ..
+cd llzk-lib && git checkout 030c16eeba535c5592d5cefc564a9101a3e2dc20 && cd ..
 ```
 
 Build and install with CMake:
