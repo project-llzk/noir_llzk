@@ -1,13 +1,7 @@
-//! End-to-end tests for the EcdsaSecp256k1 verify opcode.
+//! End-to-end tests for the EcdsaSecp256r1 verify opcode.
 //!
-//! Each test generates a valid ECDSA-k1 signature on a fresh (d, k, z) tuple
-//! using the textbook formulas and feeds it into the pipeline with a
-//! precomputed nondet oracle. The stub accepts the signature iff the
-//! `u1·G + u2·Q = R` equation and `R.x ≡ r (mod n)` check both hold.
-//!
-//! Tests also include a pair of sanity checks on the Rust-side oracle itself
-//! (`oracle_double_g_equals_2g`, `oracle_scalar_mul_3_equals_3g`) against
-//! canonical secp256k1 test vectors.
+//! Structure mirrors the k1 tests; only the curve constants differ:
+//! secp256r1 (NIST P-256) with p, n, G, a = -3 mod p, and its specific b.
 
 use acir::FieldElement;
 use acir::circuit::Opcode;
@@ -26,51 +20,44 @@ const HASH_START: u32 = 128;
 const PREDICATE_W: u32 = 160;
 const OUTPUT_W: u32 = 161;
 
-/// secp256k1 base field modulus: 2^256 - 2^32 - 977.
-fn secp256k1_p() -> BigUint {
-    let bytes: [u8; 32] = [
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF,
-        0xFC, 0x2F,
-    ];
-    BigUint::from_bytes_be(&bytes)
-}
-
-/// secp256k1 scalar field order `n`.
-fn secp256k1_n() -> BigUint {
+/// secp256r1 base field modulus: 2^256 - 2^224 + 2^192 + 2^96 - 1.
+fn secp256r1_p() -> BigUint {
     BigUint::parse_bytes(
-        b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+        b"FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
         16,
     )
     .unwrap()
 }
 
-fn secp256k1_g() -> (BigUint, BigUint) {
+/// secp256r1 scalar field order.
+fn secp256r1_n() -> BigUint {
+    BigUint::parse_bytes(
+        b"FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551",
+        16,
+    )
+    .unwrap()
+}
+
+fn secp256r1_g() -> (BigUint, BigUint) {
     let gx = BigUint::parse_bytes(
-        b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+        b"6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296",
         16,
     )
     .unwrap();
     let gy = BigUint::parse_bytes(
-        b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+        b"4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5",
         16,
     )
     .unwrap();
     (gx, gy)
 }
 
-fn secp256k1_2g() -> (BigUint, BigUint) {
-    let x = BigUint::parse_bytes(
-        b"C6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5",
+fn secp256r1_b() -> BigUint {
+    BigUint::parse_bytes(
+        b"5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B",
         16,
     )
-    .unwrap();
-    let y = BigUint::parse_bytes(
-        b"1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A",
-        16,
-    )
-    .unwrap();
-    (x, y)
+    .unwrap()
 }
 
 fn byte_inputs(start: u32, count: usize) -> Vec<FunctionInput<FieldElement>> {
@@ -79,12 +66,12 @@ fn byte_inputs(start: u32, count: usize) -> Vec<FunctionInput<FieldElement>> {
         .collect()
 }
 
-fn ecdsa_secp256k1_opcode() -> Opcode<FieldElement> {
+fn ecdsa_secp256r1_opcode() -> Opcode<FieldElement> {
     let pk_x: [FunctionInput<FieldElement>; 32] = byte_inputs(PK_X_START, 32).try_into().unwrap();
     let pk_y: [FunctionInput<FieldElement>; 32] = byte_inputs(PK_Y_START, 32).try_into().unwrap();
     let sig: [FunctionInput<FieldElement>; 64] = byte_inputs(SIG_START, 64).try_into().unwrap();
     let hash: [FunctionInput<FieldElement>; 32] = byte_inputs(HASH_START, 32).try_into().unwrap();
-    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256k1 {
+    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256r1 {
         public_key_x: Box::new(pk_x),
         public_key_y: Box::new(pk_y),
         signature: Box::new(sig),
@@ -379,7 +366,7 @@ fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-// ── Rust oracle for secp256k1 affine arithmetic ─────────────────────────
+// ── Rust oracle for affine point arithmetic (generic short Weierstrass) ─
 
 fn secp_add(p1: &(BigUint, BigUint), p2: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
     let (x1, y1) = p1;
@@ -397,13 +384,16 @@ fn secp_add(p1: &(BigUint, BigUint), p2: &(BigUint, BigUint), p: &BigUint) -> (B
     (x3, y3)
 }
 
+/// Short Weierstrass doubling with explicit `a` coefficient (a = -3 for r1).
 fn secp_double(pt: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
+    let a = (p - 3u32) % p;
     let (x, y) = pt;
     let x_sq = (x * x) % p;
     let three_x_sq = (&x_sq * 3u32) % p;
+    let numerator = (&three_x_sq + &a) % p;
     let two_y = (y * 2u32) % p;
     let two_y_inv = two_y.modpow(&(p - 2u32), p);
-    let lambda = (&three_x_sq * &two_y_inv) % p;
+    let lambda = (&numerator * &two_y_inv) % p;
     let lambda_sq = (&lambda * &lambda) % p;
     let two_x = (x * 2u32) % p;
     let x3 = (p + &lambda_sq - &two_x) % p;
@@ -504,10 +494,10 @@ fn biguint_to_bits_256(value: &BigUint) -> [u8; 256] {
 /// Given secret scalar `d` and nonce `k`, generates a valid signature for
 /// message hash `z` and exercises the complete pipeline.
 fn run_verify_test(d: BigUint, k: BigUint, z: BigUint) {
-    let p = secp256k1_p();
-    let n = secp256k1_n();
-    let g = secp256k1_g();
-    let a = BigUint::from(0u32); // secp256k1 curve a-coefficient
+    let p = secp256r1_p();
+    let n = secp256r1_n();
+    let g = secp256r1_g();
+    let a = (&p - 3u32) % &p; // secp256r1 curve a-coefficient: -3 mod p
 
     // Q = d·G
     let d_bits = biguint_to_bits_256(&d);
@@ -555,7 +545,7 @@ fn run_verify_test(d: BigUint, k: BigUint, z: BigUint) {
         &private,
         &[],
         &[OUTPUT_W],
-        vec![ecdsa_secp256k1_opcode()],
+        vec![ecdsa_secp256r1_opcode()],
     );
     let inputs = inputs_from_pk_sig_z(&q, &sig_r, &sig_s, &z);
 
@@ -563,7 +553,7 @@ fn run_verify_test(d: BigUint, k: BigUint, z: BigUint) {
     let mut nondet = Vec::new();
 
     // Q on curve: y² = x³ + a·x + b (mod p).
-    let b = BigUint::from(7u32);
+    let b = secp256r1_b();
     let x_sq = (&q.0 * &q.0) % &p;
     let x_cubed = (&x_sq * &q.0) % &p;
     let a_x = (&a * &q.0) % &p;
@@ -666,54 +656,4 @@ fn verify_accepts_small_d_k_z() {
     let k = BigUint::from(1234u32);
     let z = BigUint::from(100u32);
     run_verify_test(d, k, z);
-}
-
-#[test]
-fn verify_accepts_larger_d_k_z() {
-    let d = BigUint::parse_bytes(
-        b"DEADBEEFCAFE0000000000000000000000000000000000000000000000000001",
-        16,
-    )
-    .unwrap();
-    let k = BigUint::parse_bytes(
-        b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-        16,
-    )
-    .unwrap();
-    let z = BigUint::parse_bytes(
-        b"AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
-        16,
-    )
-    .unwrap();
-    let n = secp256k1_n();
-    run_verify_test(&d % &n, &k % &n, &z % &n);
-}
-
-#[test]
-fn oracle_double_g_equals_2g() {
-    // Cross-check our Rust oracle against the canonical secp256k1 2G vector.
-    let p = secp256k1_p();
-    let doubled = secp_double(&secp256k1_g(), &p);
-    assert_eq!(doubled, secp256k1_2g());
-}
-
-#[test]
-fn oracle_scalar_mul_3_equals_3g() {
-    // Cross-check scalar mul oracle: 3·G should equal the canonical 3G vector.
-    let p = secp256k1_p();
-    // Replay the algorithm in Rust: start with acc = G, 1 iteration (bit = 1).
-    let g = secp256k1_g();
-    let doubled = secp_double(&g, &p);
-    let added = secp_add(&doubled, &g, &p);
-    let expected_3g_x = BigUint::parse_bytes(
-        b"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9",
-        16,
-    )
-    .unwrap();
-    let expected_3g_y = BigUint::parse_bytes(
-        b"388F7B0F632DE8140FE337E62A37F3566500A99934C2231B6CB9FD7584B8E672",
-        16,
-    )
-    .unwrap();
-    assert_eq!(added, (expected_3g_x, expected_3g_y));
 }

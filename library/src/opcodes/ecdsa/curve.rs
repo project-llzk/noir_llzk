@@ -1,17 +1,19 @@
-//! Secp256k1 point arithmetic over the base field Fp.
+//! Generic short-Weierstrass point arithmetic over `y² = x³ + a·x + b (mod p)`.
 //!
 //! Two representations:
-//!   - [`AffinePoint`]: `(x, y)` — finite points only, used for scalar mul inputs.
-//!   - [`CompletePoint`]: `(x, y, is_infinity)` — full group element, returned
-//!     by the complete ops.
+//!   - [`AffinePoint`]: `(x, y)` — finite points only.
+//!   - [`CompletePoint`]: `(x, y, is_infinity)` — full group element.
 //!
 //! Primitives:
 //!   - [`emit_point_add_complete`]: handles O + P, P + O, P = ±Q, and the
 //!     regular formula via nested selects. Safe division tolerates x1 = x2.
-//!   - [`emit_point_double_complete`]: handles P = O; y = 0 is safe via
-//!     safe-div (result discarded by select).
+//!   - [`emit_point_double_complete`]: handles P = O and y = 0 via safe-div.
 //!   - [`emit_scalar_mul_general`]: double-and-add starting from O, accepts
 //!     any 256-bit scalar.
+//!
+//! All primitives take a [`CurveParams`] describing `(p, a)`. `b` isn't used
+//! in point arithmetic (only in the on-curve check, which lives at the
+//! opcode wrapper level).
 
 use acir::FieldElement;
 use llzk::prelude::Value;
@@ -20,12 +22,41 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     multiprec::{
-        Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_safe_div_mod_p,
-        emit_sub_mod_p, emit_zero_limbs, try_init_limbs,
+        LIMBS, Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
+        emit_safe_div_mod_p, emit_sub_mod_p, emit_zero_limbs, try_init_limbs,
     },
 };
 
-use super::secp256k1::SECP256K1_P;
+/// Short-Weierstrass curve parameters `y² = x³ + a·x + b (mod p)`.
+pub(super) struct CurveParams {
+    pub(super) p: [u64; LIMBS],
+    pub(super) a: [u64; LIMBS],
+    pub(super) b: [u64; LIMBS],
+}
+
+/// Asserts `(x, y)` lies on the curve `y² ≡ x³ + a·x + b (mod p)`. Both sides
+/// are already canonical (< p) since the multiprec primitives enforce it.
+pub(super) fn assert_on_curve<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    x: &Limbs256<'c, 'b>,
+    y: &Limbs256<'c, 'b>,
+    curve: &CurveParams,
+) -> Result<(), Error> {
+    let a_limbs =
+        try_init_limbs(|i| writer.emit_constant(&FieldElement::from(curve.a[i] as u128)))?;
+    let b_limbs =
+        try_init_limbs(|i| writer.emit_constant(&FieldElement::from(curve.b[i] as u128)))?;
+    let x_sq = emit_mul_mod_p(writer, x, x, &curve.p)?;
+    let x_cubed = emit_mul_mod_p(writer, &x_sq, x, &curve.p)?;
+    let a_x = emit_mul_mod_p(writer, &a_limbs, x, &curve.p)?;
+    let x_cubed_plus_ax = emit_add_mod_p(writer, &x_cubed, &a_x, &curve.p)?;
+    let rhs = emit_add_mod_p(writer, &x_cubed_plus_ax, &b_limbs, &curve.p)?;
+    let y_sq = emit_mul_mod_p(writer, y, y, &curve.p)?;
+    for (a, b) in y_sq.iter().zip(rhs.iter()) {
+        writer.insert_constrain_eq(*a, *b);
+    }
+    Ok(())
+}
 
 /// Affine point on secp256k1. Neither coordinate represents infinity.
 pub(super) type AffinePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>);
@@ -48,6 +79,7 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p1: CompletePoint<'c, 'a>,
     p2: CompletePoint<'c, 'a>,
+    curve: &CurveParams,
 ) -> Result<CompletePoint<'c, 'a>, Error> {
     let (x1, y1, inf1) = p1;
     let (x2, y2, inf2) = p2;
@@ -55,19 +87,19 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
 
     // Regular add via safe_div so we don't fail when x1 = x2.
-    let dy = emit_sub_mod_p(writer, &y2, &y1, &SECP256K1_P)?;
-    let dx = emit_sub_mod_p(writer, &x2, &x1, &SECP256K1_P)?;
-    let (lambda, _) = emit_safe_div_mod_p(writer, &dy, &dx, &SECP256K1_P)?;
-    let lambda_sq = emit_mul_mod_p(writer, &lambda, &lambda, &SECP256K1_P)?;
-    let x_sum = emit_add_mod_p(writer, &x1, &x2, &SECP256K1_P)?;
-    let x3_reg = emit_sub_mod_p(writer, &lambda_sq, &x_sum, &SECP256K1_P)?;
-    let x1_minus_x3 = emit_sub_mod_p(writer, &x1, &x3_reg, &SECP256K1_P)?;
-    let lambda_dx3 = emit_mul_mod_p(writer, &lambda, &x1_minus_x3, &SECP256K1_P)?;
-    let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y1, &SECP256K1_P)?;
+    let dy = emit_sub_mod_p(writer, &y2, &y1, &curve.p)?;
+    let dx = emit_sub_mod_p(writer, &x2, &x1, &curve.p)?;
+    let (lambda, _) = emit_safe_div_mod_p(writer, &dy, &dx, &curve.p)?;
+    let lambda_sq = emit_mul_mod_p(writer, &lambda, &lambda, &curve.p)?;
+    let x_sum = emit_add_mod_p(writer, &x1, &x2, &curve.p)?;
+    let x3_reg = emit_sub_mod_p(writer, &lambda_sq, &x_sum, &curve.p)?;
+    let x1_minus_x3 = emit_sub_mod_p(writer, &x1, &x3_reg, &curve.p)?;
+    let lambda_dx3 = emit_mul_mod_p(writer, &lambda, &x1_minus_x3, &curve.p)?;
+    let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y1, &curve.p)?;
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
     // x1 == x2 cases: either doubling (y1 == y2) or infinity (y1 ≠ y2).
-    let doubled = emit_point_double_complete(writer, p1)?;
+    let doubled = emit_point_double_complete(writer, p1, curve)?;
     let zero_limbs = emit_zero_limbs(writer)?;
     let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
     let x_eq = emit_limbs_eq_boolean(writer, &x1, &x2)?;
@@ -91,23 +123,28 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
 pub(super) fn emit_point_double_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p_pt: CompletePoint<'c, 'a>,
+    curve: &CurveParams,
 ) -> Result<CompletePoint<'c, 'a>, Error> {
     let (x, y, inf) = p_pt;
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
 
-    // Regular doubling via safe_div so y = 0 doesn't fail.
-    let x_sq = emit_mul_mod_p(writer, &x, &x, &SECP256K1_P)?;
-    let two_x_sq = emit_add_mod_p(writer, &x_sq, &x_sq, &SECP256K1_P)?;
-    let three_x_sq = emit_add_mod_p(writer, &two_x_sq, &x_sq, &SECP256K1_P)?;
-    let two_y = emit_add_mod_p(writer, &y, &y, &SECP256K1_P)?;
-    let (lambda, _) = emit_safe_div_mod_p(writer, &three_x_sq, &two_y, &SECP256K1_P)?;
-    let lambda_sq = emit_mul_mod_p(writer, &lambda, &lambda, &SECP256K1_P)?;
-    let two_x = emit_add_mod_p(writer, &x, &x, &SECP256K1_P)?;
-    let x3_reg = emit_sub_mod_p(writer, &lambda_sq, &two_x, &SECP256K1_P)?;
-    let x_minus_x3 = emit_sub_mod_p(writer, &x, &x3_reg, &SECP256K1_P)?;
-    let lambda_dx3 = emit_mul_mod_p(writer, &lambda, &x_minus_x3, &SECP256K1_P)?;
-    let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y, &SECP256K1_P)?;
+    // Slope = (3·x² + a) / (2·y). Regular doubling formula for short
+    // Weierstrass. safe_div tolerates y = 0.
+    let x_sq = emit_mul_mod_p(writer, &x, &x, &curve.p)?;
+    let two_x_sq = emit_add_mod_p(writer, &x_sq, &x_sq, &curve.p)?;
+    let three_x_sq = emit_add_mod_p(writer, &two_x_sq, &x_sq, &curve.p)?;
+    let a_limbs =
+        try_init_limbs(|i| writer.emit_constant(&FieldElement::from(curve.a[i] as u128)))?;
+    let numerator = emit_add_mod_p(writer, &three_x_sq, &a_limbs, &curve.p)?;
+    let two_y = emit_add_mod_p(writer, &y, &y, &curve.p)?;
+    let (lambda, _) = emit_safe_div_mod_p(writer, &numerator, &two_y, &curve.p)?;
+    let lambda_sq = emit_mul_mod_p(writer, &lambda, &lambda, &curve.p)?;
+    let two_x = emit_add_mod_p(writer, &x, &x, &curve.p)?;
+    let x3_reg = emit_sub_mod_p(writer, &lambda_sq, &two_x, &curve.p)?;
+    let x_minus_x3 = emit_sub_mod_p(writer, &x, &x3_reg, &curve.p)?;
+    let lambda_dx3 = emit_mul_mod_p(writer, &lambda, &x_minus_x3, &curve.p)?;
+    let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y, &curve.p)?;
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
     // If P infinite, result = infinity placeholder.
@@ -127,6 +164,7 @@ pub(super) fn emit_scalar_mul_general<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     point: AffinePoint<'c, 'a>,
     scalar_bits_lsb_first: &[Value<'c, 'a>],
+    curve: &CurveParams,
 ) -> Result<CompletePoint<'c, 'a>, Error> {
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
@@ -136,8 +174,8 @@ pub(super) fn emit_scalar_mul_general<'c, 'a>(
     let point_pt: CompletePoint = (point.0, point.1, zero);
 
     for bit in scalar_bits_lsb_first.iter().rev().copied() {
-        let doubled = emit_point_double_complete(writer, acc)?;
-        let added = emit_point_add_complete(writer, doubled, point_pt)?;
+        let doubled = emit_point_double_complete(writer, acc, curve)?;
+        let added = emit_point_add_complete(writer, doubled, point_pt, curve)?;
         acc = emit_select_complete(writer, bit, added, doubled)?;
     }
     Ok(acc)

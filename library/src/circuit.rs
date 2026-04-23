@@ -200,6 +200,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             return Ok(Box::new(ecdsa_k1_op));
         }
 
+        if let Some(ecdsa_r1_op) = ecdsa::secp256r1::from_opcode(opcode) {
+            return Ok(Box::new(ecdsa_r1_op));
+        }
+
         match opcode {
             Opcode::AssertZero(expr) => Ok(Box::new(AssertZero { expr, index })),
             Opcode::Call {
