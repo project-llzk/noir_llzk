@@ -447,6 +447,19 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
 
     // Nondet sequence in emission order.
     let mut nondet = Vec::new();
+
+    // Q on curve: y² = x³ + 7 (mod p). Canonicalise both sides, compare.
+    let x_sq = (&pk.0 * &pk.0) % &p;
+    let x_cubed = (&x_sq * &pk.0) % &p;
+    let rhs = (&x_cubed + 7u32) % &p;
+    let y_sq = (&pk.1 * &pk.1) % &p;
+    nondet.extend(mul_mod_p_nondets(&pk.0, &pk.0, &p)); // x²
+    nondet.extend(mul_mod_p_nondets(&x_sq, &pk.0, &p)); // x³
+    nondet.extend(add_mod_p_nondets(&x_cubed, &BigUint::from(7u32), &p)); // x³ + 7
+    nondet.extend(mul_mod_p_nondets(&pk.1, &pk.1, &p)); // y²
+    nondet.extend(assert_lt_modulus_nondets(&rhs, &p));
+    nondet.extend(assert_lt_modulus_nondets(&y_sq, &p));
+
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));
     nondet.extend(inv_mod_p_nondets(&sig_s, &n)); // s_inv

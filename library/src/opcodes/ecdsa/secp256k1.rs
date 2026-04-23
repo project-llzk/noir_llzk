@@ -102,6 +102,7 @@ impl EcdsaSecp256k1<'_> {
     ) -> Result<Value<'c, 'b>, Error> {
         let pk_x = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
         let pk_y = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
+        assert_on_curve(writer, &pk_x, &pk_y)?;
         let sig_r_bytes: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
             .try_into()
             .expect("signature has at least 32 bytes");
@@ -135,6 +136,31 @@ impl EcdsaSecp256k1<'_> {
         // Final equality: is_valid = (R.x mod n == sig_r).
         emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)
     }
+}
+
+/// Asserts `(x, y)` lies on secp256k1: `y² ≡ x³ + 7 (mod p)`.
+/// Canonicalises both sides via `emit_assert_lt_modulus` (so they're in
+/// [0, p)), then compares limb-wise.
+fn assert_on_curve<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    x: &Limbs256<'c, 'b>,
+    y: &Limbs256<'c, 'b>,
+) -> Result<(), Error> {
+    let seven = {
+        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+        let seven_val = writer.emit_constant(&FieldElement::from(7u128))?;
+        [seven_val, zero, zero, zero]
+    };
+    let x_sq = emit_mul_mod_p(writer, x, x, &SECP256K1_P)?;
+    let x_cubed = emit_mul_mod_p(writer, &x_sq, x, &SECP256K1_P)?;
+    let rhs = emit_add_mod_p(writer, &x_cubed, &seven, &SECP256K1_P)?;
+    let y_sq = emit_mul_mod_p(writer, y, y, &SECP256K1_P)?;
+    emit_assert_lt_modulus(writer, &rhs, &SECP256K1_P)?;
+    emit_assert_lt_modulus(writer, &y_sq, &SECP256K1_P)?;
+    for (a, b) in y_sq.iter().zip(rhs.iter()) {
+        writer.insert_constrain_eq(*a, *b);
+    }
+    Ok(())
 }
 
 /// Packs 32 big-endian bytes into 4 little-endian 64-bit limbs.
