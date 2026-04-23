@@ -284,22 +284,6 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-/// `[q_div0..q_div3, q_lt_d..q_lt_c, mul_nondets..]` for `emit_div_mod_p(a, b, p)`.
-/// `q = a · b⁻¹ mod p`; emitted quotient is canonicalised (+8), then the inner
-/// mul proves `b · q = a mod p` and itself canonicalises its output.
-fn div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
-    let b_inv = b.modpow(&(p - 2u32), p);
-    let q = (a * &b_inv) % p;
-    let q_limbs = biguint_to_le_64_limbs(&q);
-    let mut nondets = Vec::with_capacity(4 + 8 + 22);
-    for limb in q_limbs {
-        nondets.push(Felt::from_u64(limb));
-    }
-    nondets.extend(assert_lt_modulus_nondets(&q, p));
-    nondets.extend(mul_mod_p_nondets(b, &q, p));
-    nondets
-}
-
 /// Nondets for the regular-add portion of `emit_point_add_complete` on
 /// inputs (x1, y1, x2, y2) — identical to the affine add formula, just
 /// threaded through `emit_safe_div_mod_p` instead of `emit_div_mod_p`.
@@ -335,21 +319,25 @@ fn point_add_complete_regular_nondets(
 }
 
 /// `[b_is_zero, inv_hint, q0..q3, q_lt_nondets, mul_nondets]` for
-/// `emit_safe_div_mod_p(a, b, p)`. `b` must be nonzero for this oracle path.
+/// `emit_safe_div_mod_p(a, b, p)`. Handles both b ≠ 0 (normal division)
+/// and b = 0 (returns garbage q = 0 with b_is_zero = 1).
 fn safe_div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
-    assert!(b != &BigUint::from(0u32), "only the nonzero-b path is wired up");
-    // b_sum = Σ b_i (no wraparound, canonical).
-    let b_limbs = biguint_to_le_64_limbs(b);
-    let b_sum = b_limbs.iter().fold(BigUint::from(0u32), |acc, &x| acc + x);
-    let p_bn = bn254_prime();
-    let inv_hint = b_sum.modpow(&(&p_bn - 2u32), &p_bn);
-
-    let b_inv = b.modpow(&(p - 2u32), p);
-    let q = (a * &b_inv) % p;
+    let zero = BigUint::from(0u32);
+    let (b_is_zero, inv_hint, q) = if b == &zero {
+        (1u64, zero.clone(), zero.clone())
+    } else {
+        let b_limbs = biguint_to_le_64_limbs(b);
+        let b_sum = b_limbs.iter().fold(zero.clone(), |acc, &x| acc + x);
+        let p_bn = bn254_prime();
+        let inv = b_sum.modpow(&(&p_bn - 2u32), &p_bn);
+        let b_inv = b.modpow(&(p - 2u32), p);
+        let q_val = (a * &b_inv) % p;
+        (0u64, inv, q_val)
+    };
     let q_limbs = biguint_to_le_64_limbs(&q);
 
     let mut nondets = Vec::new();
-    nondets.push(Felt::from_u64(0)); // b_is_zero = 0
+    nondets.push(Felt::from_u64(b_is_zero));
     nondets.push(Felt::new(inv_hint));
     for limb in q_limbs {
         nondets.push(Felt::from_u64(limb));
@@ -371,72 +359,6 @@ fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     }
     nondets.extend(assert_lt_modulus_nondets(&a_inv, p));
     nondets.extend(mul_mod_p_nondets(a, &a_inv, p));
-    nondets
-}
-
-/// Full nondet sequence for `emit_point_add_affine(p1, p2)`, in emission order.
-/// ~100 slots: 4 subs, 1 add, 1 div, 2 muls.
-fn point_add_affine_nondets(
-    p1: &(BigUint, BigUint),
-    p2: &(BigUint, BigUint),
-    p: &BigUint,
-) -> Vec<Felt> {
-    let (x1, y1) = p1;
-    let (x2, y2) = p2;
-    let dy = (p + y2 - y1) % p;
-    let dx = (p + x2 - x1) % p;
-    let dx_inv = dx.modpow(&(p - 2u32), p);
-    let lambda = (&dy * &dx_inv) % p;
-    let lambda_sq = (&lambda * &lambda) % p;
-    let x_sum = (x1 + x2) % p;
-    let x3 = (p + &lambda_sq - &x_sum) % p;
-    let x1_minus_x3 = (p + x1 - &x3) % p;
-    let lambda_dx3 = (&lambda * &x1_minus_x3) % p;
-    let _y3 = (p + &lambda_dx3 - y1) % p;
-
-    let mut nondets = Vec::with_capacity(100);
-    nondets.extend(sub_mod_p_nondets(y2, y1, p));
-    nondets.extend(sub_mod_p_nondets(x2, x1, p));
-    nondets.extend(div_mod_p_nondets(&dy, &dx, p));
-    nondets.extend(mul_mod_p_nondets(&lambda, &lambda, p));
-    nondets.extend(add_mod_p_nondets(x1, x2, p));
-    nondets.extend(sub_mod_p_nondets(&lambda_sq, &x_sum, p));
-    nondets.extend(sub_mod_p_nondets(x1, &x3, p));
-    nondets.extend(mul_mod_p_nondets(&lambda, &x1_minus_x3, p));
-    nondets.extend(sub_mod_p_nondets(&lambda_dx3, y1, p));
-    nondets
-}
-
-/// Nondet sequence for `emit_point_double(p)` — ~123 slots: 1 mul (x²),
-/// 4 adds (2x², 3x², 2y, 2x), 1 div (λ), 1 mul (λ²), 3 subs (x3, x-x3, y3),
-/// 1 mul (λ·(x-x3)).
-fn point_double_nondets(p_pt: &(BigUint, BigUint), p: &BigUint) -> Vec<Felt> {
-    let (x, y) = p_pt;
-    let x_sq = (x * x) % p;
-    let two_x_sq = (&x_sq + &x_sq) % p;
-    let three_x_sq = (&two_x_sq + &x_sq) % p;
-    let two_y = (y + y) % p;
-    let two_y_inv = two_y.modpow(&(p - 2u32), p);
-    let lambda = (&three_x_sq * &two_y_inv) % p;
-    let lambda_sq = (&lambda * &lambda) % p;
-    let two_x = (x + x) % p;
-    let x3 = (p + &lambda_sq - &two_x) % p;
-    let x_minus_x3 = (p + x - &x3) % p;
-    let lambda_dx3 = (&lambda * &x_minus_x3) % p;
-    let _y3 = (p + &lambda_dx3 - y) % p;
-
-    let mut nondets = Vec::with_capacity(123);
-    nondets.extend(mul_mod_p_nondets(x, x, p));
-    nondets.extend(add_mod_p_nondets(&x_sq, &x_sq, p));
-    nondets.extend(add_mod_p_nondets(&two_x_sq, &x_sq, p));
-    nondets.extend(add_mod_p_nondets(y, y, p));
-    nondets.extend(div_mod_p_nondets(&three_x_sq, &two_y, p));
-    nondets.extend(mul_mod_p_nondets(&lambda, &lambda, p));
-    nondets.extend(add_mod_p_nondets(x, x, p));
-    nondets.extend(sub_mod_p_nondets(&lambda_sq, &two_x, p));
-    nondets.extend(sub_mod_p_nondets(x, &x3, p));
-    nondets.extend(mul_mod_p_nondets(&lambda, &x_minus_x3, p));
-    nondets.extend(sub_mod_p_nondets(&lambda_dx3, y, p));
     nondets
 }
 
@@ -474,25 +396,79 @@ fn secp_double(pt: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
     (x3, y3)
 }
 
-/// Replays `emit_scalar_mul_known_msb(point, bits_lsb_first)` to derive the
-/// nondet sequence and the final accumulator point. `bits_lsb_first` must
-/// have MSB = 1.
-fn scalar_mul_known_msb_execute(
+/// Nondets for the regular doubling portion of `emit_point_double_complete`.
+/// Always emitted regardless of whether the input is infinity (select handles
+/// the discard). Uses safe_div so y = 0 doesn't fail.
+fn point_double_complete_regular_nondets(x: &BigUint, y: &BigUint, p: &BigUint) -> Vec<Felt> {
+    let zero = BigUint::from(0u32);
+    let x_sq = (x * x) % p;
+    let two_x_sq = (&x_sq + &x_sq) % p;
+    let three_x_sq = (&two_x_sq + &x_sq) % p;
+    let two_y = (y + y) % p;
+    let lambda = if two_y == zero {
+        zero.clone()
+    } else {
+        let two_y_inv = two_y.modpow(&(p - 2u32), p);
+        (&three_x_sq * &two_y_inv) % p
+    };
+    let lambda_sq = (&lambda * &lambda) % p;
+    let two_x = (x + x) % p;
+    let x3 = (p + &lambda_sq - &two_x) % p;
+    let x_minus_x3 = (p + x - &x3) % p;
+    let lambda_dx3 = (&lambda * &x_minus_x3) % p;
+
+    let mut nondet = Vec::new();
+    nondet.extend(mul_mod_p_nondets(x, x, p));
+    nondet.extend(add_mod_p_nondets(&x_sq, &x_sq, p));
+    nondet.extend(add_mod_p_nondets(&two_x_sq, &x_sq, p));
+    nondet.extend(add_mod_p_nondets(y, y, p));
+    nondet.extend(safe_div_mod_p_nondets(&three_x_sq, &two_y, p));
+    nondet.extend(mul_mod_p_nondets(&lambda, &lambda, p));
+    nondet.extend(add_mod_p_nondets(x, x, p));
+    nondet.extend(sub_mod_p_nondets(&lambda_sq, &two_x, p));
+    nondet.extend(sub_mod_p_nondets(x, &x3, p));
+    nondet.extend(mul_mod_p_nondets(&lambda, &x_minus_x3, p));
+    nondet.extend(sub_mod_p_nondets(&lambda_dx3, y, p));
+    nondet
+}
+
+/// Replays `emit_scalar_mul_general(point, bits)` and returns
+/// (result_xy, result_is_infinity, nondets). Accepts any 256-bit scalar.
+fn scalar_mul_general_execute(
     point: &(BigUint, BigUint),
     bits_lsb_first: &[u8],
     p: &BigUint,
-) -> ((BigUint, BigUint), Vec<Felt>) {
-    assert!(!bits_lsb_first.is_empty() && *bits_lsb_first.last().unwrap() == 1);
-    let mut acc = point.clone();
+) -> ((BigUint, BigUint), bool, Vec<Felt>) {
+    let zero = BigUint::from(0u32);
+    let mut acc = (zero.clone(), zero.clone());
+    let mut acc_inf = true;
     let mut nondets = Vec::new();
-    for &bit in bits_lsb_first.iter().rev().skip(1) {
-        let doubled = secp_double(&acc, p);
-        let added = secp_add(&doubled, point, p);
-        nondets.extend(point_double_nondets(&acc, p));
-        nondets.extend(point_add_affine_nondets(&doubled, point, p));
-        acc = if bit == 1 { added } else { doubled };
+    for &bit in bits_lsb_first.iter().rev() {
+        // double_complete: regular formula always emitted on (acc.x, acc.y)
+        nondets.extend(point_double_complete_regular_nondets(&acc.0, &acc.1, p));
+        let (doubled, doubled_inf) = if acc_inf {
+            ((zero.clone(), zero.clone()), true)
+        } else {
+            (secp_double(&acc, p), false)
+        };
+        // add_complete: regular formula always emitted on (doubled, point)
+        nondets.extend(point_add_complete_regular_nondets(
+            &doubled.0, &doubled.1, &point.0, &point.1, p,
+        ));
+        let (added, added_inf) = if doubled_inf {
+            (point.clone(), false)
+        } else {
+            (secp_add(&doubled, point, p), false)
+        };
+        if bit == 1 {
+            acc = added;
+            acc_inf = added_inf;
+        } else {
+            acc = doubled;
+            acc_inf = doubled_inf;
+        }
     }
-    (acc, nondets)
+    (acc, acc_inf, nondets)
 }
 
 /// Drives the restructured verify body. Given pk, sig_s, and a target u1
@@ -510,14 +486,16 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     let z = (&u1_target * &sig_s) % &n;
     debug_assert_eq!((&z * &s_inv) % &n, u1_target);
 
-    // Simulate u1·G → derive expected sig_r.
+    // Simulate u1·G via the general (infinity-aware) scalar mul to derive
+    // the expected sig_r.
     let u1_limbs = biguint_to_le_64_limbs(&u1_target);
     let u1_bits: [u8; 256] = std::array::from_fn(|i| {
         let limb = u1_limbs[i / 64];
         ((limb >> (i % 64)) & 1) as u8
     });
     let g = secp256k1_g();
-    let (r_point, sm_nondets) = scalar_mul_known_msb_execute(&g, &u1_bits, &p);
+    let (r_point, r_inf, sm_nondets) = scalar_mul_general_execute(&g, &u1_bits, &p);
+    assert!(!r_inf, "u1 = 0 would give R = O — invalid signature");
     assert!(
         r_point.0 < n,
         "R.x < n for this test vector (k=0 reduction path)"
@@ -558,16 +536,6 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     nondet.extend(sm_nondets);
     nondet.extend(add_mod_p_nondets(&r_point.0, &BigUint::from(0u32), &n)); // R.x mod n
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
-    // Safe-div exercise: pk.y / pk.x mod p (pk.x nonzero for G).
-    nondet.extend(safe_div_mod_p_nondets(&pk.1, &pk.0, &p));
-
-    // emit_point_add_complete(O + pk) → pk. Oracle replays the regular add
-    // formula on x1=0, y1=0, x2=pk.x, y2=pk.y (producing garbage that's then
-    // discarded by the select on inf1=1).
-    let zero_bu = BigUint::from(0u32);
-    nondet.extend(point_add_complete_regular_nondets(
-        &zero_bu, &zero_bu, &pk.0, &pk.1, &p,
-    ));
     nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);

@@ -28,11 +28,10 @@ use crate::{
     error::Error,
     multiprec::{
         LIMBS, Limbs256, emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256,
-        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_safe_div_mod_p,
+        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
     },
     opcodes::{
-        OpcodeEmitter, collect_input_witness,
-        ecdsa::curve::{CompletePoint, emit_point_add_complete, emit_scalar_mul_known_msb},
+        OpcodeEmitter, collect_input_witness, ecdsa::curve::emit_scalar_mul_general,
         emit_blackbox_input,
     },
 };
@@ -153,28 +152,17 @@ impl EcdsaSecp256k1<'_> {
         let _u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
 
         // Scalar mul: R = u1·G (stand-in for the real u1·G + u2·Q).
-        // scalar_mul_known_msb requires bit 255 of the scalar to be 1; make
-        // that precondition explicit on u1. Restricts us to signatures where
-        // u1 ≥ 2^255 — a limitation of the current stub pending full
-        // edge-case handling.
+        // Uses the general (infinity-aware) implementation so any u1 ∈ [0, n)
+        // works — no more MSB=1 precondition.
         let g = emit_limbs_constant(writer, &SECP256K1_GX, &SECP256K1_GY)?;
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let one_c = writer.emit_constant(&FieldElement::from(1u128))?;
-        writer.insert_constrain_eq(u1_bits[255], one_c);
-        let (r_x, _r_y) = emit_scalar_mul_known_msb(writer, g, &u1_bits)?;
+        let (r_x, _r_y, r_inf) = emit_scalar_mul_general(writer, g, &u1_bits)?;
+        // R at infinity → invalid signature. Assert R is finite.
+        writer.insert_constrain_eq(r_inf, zero);
 
         // Reduce R.x mod n and assert < n.
         let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
-
-        // Exercise safe-div on a known-nonzero pair to pin its nondet shape.
-        let (_quot, _nonzero) = emit_safe_div_mod_p(writer, &pk_y, &pk_x, &SECP256K1_P)?;
-
-        // Exercise emit_point_add_complete on (O + pk) → pk path.
-        let one_c = writer.emit_constant(&FieldElement::from(1u128))?;
-        let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one_c);
-        let pk_pt: CompletePoint = (pk_x, pk_y, zero);
-        let _sum = emit_point_add_complete(writer, inf_pt, pk_pt)?;
 
         // Final equality: is_valid = (R.x mod n == sig_r).
         emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)
