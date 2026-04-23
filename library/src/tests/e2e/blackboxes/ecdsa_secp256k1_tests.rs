@@ -447,6 +447,8 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
 
     // Nondet sequence in emission order.
     let mut nondet = Vec::new();
+    nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
+    nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));
     nondet.extend(inv_mod_p_nondets(&sig_s, &n)); // s_inv
     nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n)); // u1
     nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, &n)); // u2 (value unused downstream)

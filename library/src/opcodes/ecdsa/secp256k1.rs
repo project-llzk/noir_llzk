@@ -112,6 +112,11 @@ impl EcdsaSecp256k1<'_> {
         let sig_s = pack_bytes_be_to_le_limbs(writer, sig_s_bytes)?;
         let z = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
 
+        // Input validation: r, s ∈ [0, n). (s ≠ 0 falls out of inv_mod_p's
+        // constraint `s · s_inv ≡ 1 mod n`, which is unsatisfiable for s = 0.)
+        emit_assert_lt_modulus(writer, &sig_r, &SECP256K1_N)?;
+        emit_assert_lt_modulus(writer, &sig_s, &SECP256K1_N)?;
+
         // Fr chain: s_inv = s⁻¹ mod n, u1 = z·s_inv, u2 = r·s_inv.
         let s_inv = emit_inv_mod_p(writer, &sig_s, &SECP256K1_N)?;
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
