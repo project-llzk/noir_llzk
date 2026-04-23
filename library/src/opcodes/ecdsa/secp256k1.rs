@@ -31,7 +31,8 @@ use crate::{
         emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_safe_div_mod_p,
     },
     opcodes::{
-        OpcodeEmitter, collect_input_witness, ecdsa::curve::emit_scalar_mul_known_msb,
+        OpcodeEmitter, collect_input_witness,
+        ecdsa::curve::{CompletePoint, emit_point_add_complete, emit_scalar_mul_known_msb},
         emit_blackbox_input,
     },
 };
@@ -166,9 +167,14 @@ impl EcdsaSecp256k1<'_> {
         let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
 
-        // Exercise safe-div on a known-nonzero pair to pin its nondet shape
-        // into the test sequence — foundation for upcoming complete curve ops.
+        // Exercise safe-div on a known-nonzero pair to pin its nondet shape.
         let (_quot, _nonzero) = emit_safe_div_mod_p(writer, &pk_y, &pk_x, &SECP256K1_P)?;
+
+        // Exercise emit_point_add_complete on (O + pk) → pk path.
+        let one_c = writer.emit_constant(&FieldElement::from(1u128))?;
+        let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one_c);
+        let pk_pt: CompletePoint = (pk_x, pk_y, zero);
+        let _sum = emit_point_add_complete(writer, inf_pt, pk_pt)?;
 
         // Final equality: is_valid = (R.x mod n == sig_r).
         emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)

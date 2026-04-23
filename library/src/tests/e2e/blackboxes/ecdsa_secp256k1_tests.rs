@@ -300,6 +300,40 @@ fn div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
+/// Nondets for the regular-add portion of `emit_point_add_complete` on
+/// inputs (x1, y1, x2, y2) — identical to the affine add formula, just
+/// threaded through `emit_safe_div_mod_p` instead of `emit_div_mod_p`.
+fn point_add_complete_regular_nondets(
+    x1: &BigUint,
+    y1: &BigUint,
+    x2: &BigUint,
+    y2: &BigUint,
+    p: &BigUint,
+) -> Vec<Felt> {
+    let dy = (p + y2 - y1) % p;
+    let dx = (p + x2 - x1) % p;
+    let dx_inv = dx.modpow(&(p - 2u32), p);
+    let lambda = (&dy * &dx_inv) % p;
+    let lambda_sq = (&lambda * &lambda) % p;
+    let x_sum = (x1 + x2) % p;
+    let x3 = (p + &lambda_sq - &x_sum) % p;
+    let x1_minus_x3 = (p + x1 - &x3) % p;
+    let lambda_dx3 = (&lambda * &x1_minus_x3) % p;
+    let _y3 = (p + &lambda_dx3 - y1) % p;
+
+    let mut nondet = Vec::new();
+    nondet.extend(sub_mod_p_nondets(y2, y1, p));
+    nondet.extend(sub_mod_p_nondets(x2, x1, p));
+    nondet.extend(safe_div_mod_p_nondets(&dy, &dx, p));
+    nondet.extend(mul_mod_p_nondets(&lambda, &lambda, p));
+    nondet.extend(add_mod_p_nondets(x1, x2, p));
+    nondet.extend(sub_mod_p_nondets(&lambda_sq, &x_sum, p));
+    nondet.extend(sub_mod_p_nondets(x1, &x3, p));
+    nondet.extend(mul_mod_p_nondets(&lambda, &x1_minus_x3, p));
+    nondet.extend(sub_mod_p_nondets(&lambda_dx3, y1, p));
+    nondet
+}
+
 /// `[b_is_zero, inv_hint, q0..q3, q_lt_nondets, mul_nondets]` for
 /// `emit_safe_div_mod_p(a, b, p)`. `b` must be nonzero for this oracle path.
 fn safe_div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
@@ -526,6 +560,14 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     // Safe-div exercise: pk.y / pk.x mod p (pk.x nonzero for G).
     nondet.extend(safe_div_mod_p_nondets(&pk.1, &pk.0, &p));
+
+    // emit_point_add_complete(O + pk) → pk. Oracle replays the regular add
+    // formula on x1=0, y1=0, x2=pk.x, y2=pk.y (producing garbage that's then
+    // discarded by the select on inf1=1).
+    let zero_bu = BigUint::from(0u32);
+    nondet.extend(point_add_complete_regular_nondets(
+        &zero_bu, &zero_bu, &pk.0, &pk.1, &p,
+    ));
     nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);

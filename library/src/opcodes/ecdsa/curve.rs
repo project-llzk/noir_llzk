@@ -11,13 +11,68 @@ use llzk::prelude::Value;
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    multiprec::{LIMBS, Limbs256, emit_add_mod_p, emit_div_mod_p, emit_mul_mod_p, emit_sub_mod_p},
+    multiprec::{
+        LIMBS, Limbs256, emit_add_mod_p, emit_div_mod_p, emit_mul_mod_p, emit_safe_div_mod_p,
+        emit_sub_mod_p,
+    },
 };
 
 use super::secp256k1::SECP256K1_P;
 
 /// Affine point on secp256k1. Neither coordinate represents infinity.
 pub(super) type AffinePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>);
+
+/// Point on secp256k1 with an explicit infinity flag.
+/// `is_infinity ∈ {0, 1}`; when 1, the x and y components are ignored.
+pub(super) type CompletePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>, Value<'c, 'a>);
+
+/// Emits `P1 + P2` on secp256k1, handling either input being the point at
+/// infinity via select. If both are finite this reduces to the regular add
+/// formula; edge cases `P1 = ±P2` (x1 = x2) are **not** handled — they
+/// produce garbage silently (future work: add x1==x2 case selection).
+pub(super) fn emit_point_add_complete<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    p1: CompletePoint<'c, 'a>,
+    p2: CompletePoint<'c, 'a>,
+) -> Result<CompletePoint<'c, 'a>, Error> {
+    let (x1, y1, inf1) = p1;
+    let (x2, y2, inf2) = p2;
+    let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+
+    // Regular add via safe_div so we don't fail when x1 = x2.
+    let dy = emit_sub_mod_p(writer, &y2, &y1, &SECP256K1_P)?;
+    let dx = emit_sub_mod_p(writer, &x2, &x1, &SECP256K1_P)?;
+    let (lambda, _) = emit_safe_div_mod_p(writer, &dy, &dx, &SECP256K1_P)?;
+    let lambda_sq = emit_mul_mod_p(writer, &lambda, &lambda, &SECP256K1_P)?;
+    let x_sum = emit_add_mod_p(writer, &x1, &x2, &SECP256K1_P)?;
+    let x3_reg = emit_sub_mod_p(writer, &lambda_sq, &x_sum, &SECP256K1_P)?;
+    let x1_minus_x3 = emit_sub_mod_p(writer, &x1, &x3_reg, &SECP256K1_P)?;
+    let lambda_dx3 = emit_mul_mod_p(writer, &lambda, &x1_minus_x3, &SECP256K1_P)?;
+    let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y1, &SECP256K1_P)?;
+    let reg: CompletePoint = (x3_reg, y3_reg, zero);
+
+    // if_inf2 = inf2 ? P1 : reg
+    let if_inf2 = emit_select_complete(writer, inf2, p1, reg)?;
+    // result = inf1 ? P2 : if_inf2
+    emit_select_complete(writer, inf1, p2, if_inf2)
+}
+
+/// Selects between two `CompletePoint`s based on `bit ∈ {0, 1}`.
+fn emit_select_complete<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    bit: Value<'c, 'a>,
+    if_one: CompletePoint<'c, 'a>,
+    if_zero: CompletePoint<'c, 'a>,
+) -> Result<CompletePoint<'c, 'a>, Error> {
+    let (x, y) = emit_point_select(writer, bit, (if_one.0, if_one.1), (if_zero.0, if_zero.1))?;
+    let one = writer.emit_constant(&FieldElement::from(1u128))?;
+    let neg_bit = writer.insert_neg(bit)?;
+    let one_minus_bit = writer.insert_add(one, neg_bit)?;
+    let from_one = writer.insert_mul(bit, if_one.2)?;
+    let from_zero = writer.insert_mul(one_minus_bit, if_zero.2)?;
+    let inf = writer.insert_add(from_one, from_zero)?;
+    Ok((x, y, inf))
+}
 
 /// Computes `P1 + P2` for two distinct finite points with `x1 ≠ x2`.
 ///
