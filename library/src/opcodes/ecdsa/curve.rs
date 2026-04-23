@@ -20,8 +20,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     multiprec::{
-        LIMBS, Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
-        emit_safe_div_mod_p, emit_sub_mod_p,
+        Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_safe_div_mod_p,
+        emit_sub_mod_p, emit_zero_limbs, try_init_limbs,
     },
 };
 
@@ -68,7 +68,7 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
 
     // x1 == x2 cases: either doubling (y1 == y2) or infinity (y1 ≠ y2).
     let doubled = emit_point_double_complete(writer, p1)?;
-    let zero_limbs: Limbs256 = [zero; LIMBS];
+    let zero_limbs = emit_zero_limbs(writer)?;
     let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
     let x_eq = emit_limbs_eq_boolean(writer, &x1, &x2)?;
     let y_eq = emit_limbs_eq_boolean(writer, &y1, &y2)?;
@@ -111,7 +111,7 @@ pub(super) fn emit_point_double_complete<'c, 'a>(
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
     // If P infinite, result = infinity placeholder.
-    let zero_limbs: Limbs256 = [zero; LIMBS];
+    let zero_limbs = emit_zero_limbs(writer)?;
     let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
     emit_select_complete(writer, inf, inf_pt, reg)
 }
@@ -130,7 +130,7 @@ pub(super) fn emit_scalar_mul_general<'c, 'a>(
 ) -> Result<CompletePoint<'c, 'a>, Error> {
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
-    let zero_limbs: Limbs256 = [zero; LIMBS];
+    let zero_limbs = emit_zero_limbs(writer)?;
 
     let mut acc: CompletePoint = (zero_limbs, zero_limbs, one);
     let point_pt: CompletePoint = (point.0, point.1, zero);
@@ -186,11 +186,9 @@ fn select_limbs<'c, 'a>(
     if_one: &Limbs256<'c, 'a>,
     if_zero: &Limbs256<'c, 'a>,
 ) -> Result<Limbs256<'c, 'a>, Error> {
-    let mut out: [Option<Value<'c, 'a>>; LIMBS] = [None; LIMBS];
-    for (i, slot) in out.iter_mut().enumerate() {
+    try_init_limbs(|i| {
         let from_one = writer.insert_mul(bit, if_one[i])?;
         let from_zero = writer.insert_mul(one_minus_bit, if_zero[i])?;
-        *slot = Some(writer.insert_add(from_one, from_zero)?);
-    }
-    Ok(out.map(|s| s.expect("all slots filled")))
+        writer.insert_add(from_one, from_zero)
+    })
 }

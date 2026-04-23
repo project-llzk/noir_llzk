@@ -28,7 +28,7 @@ use crate::{
     error::Error,
     multiprec::{
         LIMBS, Limbs256, emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256,
-        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
+        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_zero_limbs, try_init_limbs,
     },
     opcodes::{
         OpcodeEmitter, collect_input_witness,
@@ -143,7 +143,7 @@ impl EcdsaSecp256k1<'_> {
         emit_assert_lt_modulus(writer, &sig_r, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &sig_s, &SECP256K1_N)?;
         let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-        let zero_limbs: Limbs256 = [zero; LIMBS];
+        let zero_limbs = emit_zero_limbs(writer)?;
         let r_is_zero = emit_limbs_eq_boolean(writer, &sig_r, &zero_limbs)?;
         writer.insert_constrain_eq(r_is_zero, zero);
 
@@ -184,11 +184,7 @@ fn pack_u64_limbs<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     limbs: &[u64; LIMBS],
 ) -> Result<Limbs256<'c, 'b>, Error> {
-    let mut out: [Option<Value<'c, 'b>>; LIMBS] = [None; LIMBS];
-    for (slot, &limb) in out.iter_mut().zip(limbs.iter()) {
-        *slot = Some(writer.emit_constant(&FieldElement::from(limb as u128))?);
-    }
-    Ok(out.map(|s| s.expect("all slots filled")))
+    try_init_limbs(|i| writer.emit_constant(&FieldElement::from(limbs[i] as u128)))
 }
 
 /// Asserts `(x, y)` lies on secp256k1: `y² ≡ x³ + 7 (mod p)`. Both sides are
@@ -198,9 +194,8 @@ fn assert_on_curve<'c, 'b>(
     x: &Limbs256<'c, 'b>,
     y: &Limbs256<'c, 'b>,
 ) -> Result<(), Error> {
-    let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-    let seven_val = writer.emit_constant(&FieldElement::from(7u128))?;
-    let seven = [seven_val, zero, zero, zero];
+    let mut seven = emit_zero_limbs(writer)?;
+    seven[0] = writer.emit_constant(&FieldElement::from(7u128))?;
     let x_sq = emit_mul_mod_p(writer, x, x, &SECP256K1_P)?;
     let x_cubed = emit_mul_mod_p(writer, &x_sq, x, &SECP256K1_P)?;
     let rhs = emit_add_mod_p(writer, &x_cubed, &seven, &SECP256K1_P)?;
@@ -218,8 +213,7 @@ fn pack_bytes_be_to_le_limbs<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     bytes: &[FunctionInput<FieldElement>; 32],
 ) -> Result<Limbs256<'c, 'b>, Error> {
-    let mut limbs: [Option<Value<'c, 'b>>; LIMBS] = [None; LIMBS];
-    for (limb_idx, slot) in limbs.iter_mut().enumerate() {
+    try_init_limbs(|limb_idx| {
         let byte_start = (3 - limb_idx) * 8;
         let mut acc = writer.emit_constant(&FieldElement::from(0u128))?;
         for i in 0..8 {
@@ -229,9 +223,8 @@ fn pack_bytes_be_to_le_limbs<'c, 'b>(
             let term = writer.insert_mul(byte_value, coeff)?;
             acc = writer.insert_add(acc, term)?;
         }
-        *slot = Some(acc);
-    }
-    Ok(limbs.map(|s| s.expect("all slots filled")))
+        Ok(acc)
+    })
 }
 
 pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<EcdsaSecp256k1<'a>> {

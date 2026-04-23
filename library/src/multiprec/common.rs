@@ -27,14 +27,35 @@ pub(super) fn witness_result_limbs<'c, 'a>(
     let felt_ty = writer.felt_type();
     let bound = writer
         .emit_constant(&FieldElement::from(2u128).pow(&FieldElement::from(LIMB_BITS as u128)))?;
-    let mut limbs: [Option<Value<'c, 'a>>; LIMBS] = [None; LIMBS];
-    for slot in &mut limbs {
+    try_init_limbs(|_| {
         let limb = writer.insert_nondet(felt_ty)?;
         let ok = writer.insert_bool_lt(limb, bound)?;
         writer.insert_bool_assert(ok)?;
-        *slot = Some(limb);
+        Ok(limb)
+    })
+}
+
+/// Runs `f(i)` for i in 0..LIMBS and collects the results into a `Limbs256`.
+/// Propagates any `Error` from `f`.
+pub(crate) fn try_init_limbs<'c, 'a, F>(mut f: F) -> Result<Limbs256<'c, 'a>, Error>
+where
+    F: FnMut(usize) -> Result<Value<'c, 'a>, Error>,
+{
+    let mut out: [Option<Value<'c, 'a>>; LIMBS] = [None; LIMBS];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = Some(f(i)?);
     }
-    Ok(limbs.map(|slot| slot.expect("all slots filled")))
+    Ok(out.map(|s| s.expect("all slots filled")))
+}
+
+/// Emits a `Limbs256` of all zeros, sharing the felt `zero` constant across
+/// all four slots (the `BlockWriter` caches constants so no extra MLIR ops
+/// are emitted on repeat calls).
+pub(crate) fn emit_zero_limbs<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+) -> Result<Limbs256<'c, 'a>, Error> {
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    Ok([zero; LIMBS])
 }
 
 /// Enforces `c ∈ {-1, 0, 1}` via `c·(c+1)·(c-1) = 0`.
