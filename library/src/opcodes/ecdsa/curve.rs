@@ -12,7 +12,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     multiprec::{
-        LIMBS, Limbs256, emit_add_mod_p, emit_mul_mod_p, emit_safe_div_mod_p, emit_sub_mod_p,
+        LIMBS, Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
+        emit_safe_div_mod_p, emit_sub_mod_p,
     },
 };
 
@@ -25,10 +26,16 @@ pub(super) type AffinePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>);
 /// `is_infinity ∈ {0, 1}`; when 1, the x and y components are ignored.
 pub(super) type CompletePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>, Value<'c, 'a>);
 
-/// Emits `P1 + P2` on secp256k1, handling either input being the point at
-/// infinity via select. If both are finite this reduces to the regular add
-/// formula; edge cases `P1 = ±P2` (x1 = x2) are **not** handled — they
-/// produce garbage silently (future work: add x1==x2 case selection).
+/// Emits `P1 + P2` on secp256k1 as a fully complete addition:
+///   - P1 = O: returns P2
+///   - P2 = O: returns P1
+///   - x1 = x2 ∧ y1 = y2: doubling (P1 = P2)
+///   - x1 = x2 ∧ y1 ≠ y2: returns O (P1 = -P2)
+///   - otherwise: regular add formula
+///
+/// Everything is computed unconditionally and the cases are resolved by a
+/// chain of selects on infinity / x_eq / y_eq flags. Safe division tolerates
+/// x1 = x2 (garbage lambda discarded by the select).
 pub(super) fn emit_point_add_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p1: CompletePoint<'c, 'a>,
@@ -37,6 +44,7 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     let (x1, y1, inf1) = p1;
     let (x2, y2, inf2) = p2;
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+    let one = writer.emit_constant(&FieldElement::from(1u128))?;
 
     // Regular add via safe_div so we don't fail when x1 = x2.
     let dy = emit_sub_mod_p(writer, &y2, &y1, &SECP256K1_P)?;
@@ -50,8 +58,20 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y1, &SECP256K1_P)?;
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
-    // if_inf2 = inf2 ? P1 : reg
-    let if_inf2 = emit_select_complete(writer, inf2, p1, reg)?;
+    // x1 == x2 cases: either doubling (y1 == y2) or infinity (y1 ≠ y2).
+    let doubled = emit_point_double_complete(writer, p1)?;
+    let zero_limbs: Limbs256 = [zero; LIMBS];
+    let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
+    let x_eq = emit_limbs_eq_boolean(writer, &x1, &x2)?;
+    let y_eq = emit_limbs_eq_boolean(writer, &y1, &y2)?;
+
+    // when_x_eq = y_eq ? doubled : O
+    let when_x_eq = emit_select_complete(writer, y_eq, doubled, inf_pt)?;
+    // both_finite = x_eq ? when_x_eq : reg
+    let both_finite = emit_select_complete(writer, x_eq, when_x_eq, reg)?;
+
+    // Infinity handling: if_inf2 = inf2 ? P1 : both_finite
+    let if_inf2 = emit_select_complete(writer, inf2, p1, both_finite)?;
     // result = inf1 ? P2 : if_inf2
     emit_select_complete(writer, inf1, p2, if_inf2)
 }

@@ -284,9 +284,11 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-/// Nondets for the regular-add portion of `emit_point_add_complete` on
-/// inputs (x1, y1, x2, y2) — identical to the affine add formula, just
-/// threaded through `emit_safe_div_mod_p` instead of `emit_div_mod_p`.
+/// Full nondet sequence emitted by `emit_point_add_complete` on finite
+/// (x1, y1) + (x2, y2): the regular add formula + the internal
+/// emit_point_double_complete (for the x1==x2 doubling case) + two
+/// limbs_eq_boolean calls (for the x_eq / y_eq selectors). Always emitted
+/// regardless of actual cases; garbage is discarded by select.
 fn point_add_complete_regular_nondets(
     x1: &BigUint,
     y1: &BigUint,
@@ -296,8 +298,13 @@ fn point_add_complete_regular_nondets(
 ) -> Vec<Felt> {
     let dy = (p + y2 - y1) % p;
     let dx = (p + x2 - x1) % p;
-    let dx_inv = dx.modpow(&(p - 2u32), p);
-    let lambda = (&dy * &dx_inv) % p;
+    let zero = BigUint::from(0u32);
+    let lambda = if dx == zero {
+        zero.clone()
+    } else {
+        let dx_inv = dx.modpow(&(p - 2u32), p);
+        (&dy * &dx_inv) % p
+    };
     let lambda_sq = (&lambda * &lambda) % p;
     let x_sum = (x1 + x2) % p;
     let x3 = (p + &lambda_sq - &x_sum) % p;
@@ -306,6 +313,7 @@ fn point_add_complete_regular_nondets(
     let _y3 = (p + &lambda_dx3 - y1) % p;
 
     let mut nondet = Vec::new();
+    // Regular add.
     nondet.extend(sub_mod_p_nondets(y2, y1, p));
     nondet.extend(sub_mod_p_nondets(x2, x1, p));
     nondet.extend(safe_div_mod_p_nondets(&dy, &dx, p));
@@ -315,6 +323,11 @@ fn point_add_complete_regular_nondets(
     nondet.extend(sub_mod_p_nondets(x1, &x3, p));
     nondet.extend(mul_mod_p_nondets(&lambda, &x1_minus_x3, p));
     nondet.extend(sub_mod_p_nondets(&lambda_dx3, y1, p));
+    // Doubling branch (emit_point_double_complete on p1).
+    nondet.extend(point_double_complete_regular_nondets(x1, y1, p));
+    // x_eq / y_eq boolean checks.
+    nondet.extend(limbs_eq_boolean_nondets(x1, x2));
+    nondet.extend(limbs_eq_boolean_nondets(y1, y2));
     nondet
 }
 
