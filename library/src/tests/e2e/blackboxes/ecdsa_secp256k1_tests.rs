@@ -106,10 +106,26 @@ fn inputs_from_pk_sig_z(
     z: &BigUint,
 ) -> Vec<crate::tests::e2e::Value> {
     let mut inputs = Vec::with_capacity((PREDICATE_W + 1) as usize);
-    inputs.extend(biguint_to_be_bytes(&pk.0).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(&pk.1).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(sig_r).iter().map(|&b| felt_u64(b as u64)));
-    inputs.extend(biguint_to_be_bytes(sig_s).iter().map(|&b| felt_u64(b as u64)));
+    inputs.extend(
+        biguint_to_be_bytes(&pk.0)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(&pk.1)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(sig_r)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
+    inputs.extend(
+        biguint_to_be_bytes(sig_s)
+            .iter()
+            .map(|&b| felt_u64(b as u64)),
+    );
     inputs.extend(biguint_to_be_bytes(z).iter().map(|&b| felt_u64(b as u64)));
     inputs.push(felt_u64(1));
     inputs
@@ -420,7 +436,6 @@ fn scalar_mul_known_msb_execute(
     (acc, nondets)
 }
 
-
 /// Drives the restructured verify body. Given pk, sig_s, and a target u1
 /// (with MSB=1), derives sig_r = (u1·pk).x mod n such that the final check
 /// is satisfied, and exercises the full pipeline.
@@ -436,14 +451,18 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     let z = (&u1_target * &sig_s) % &n;
     debug_assert_eq!((&z * &s_inv) % &n, u1_target);
 
-    // Simulate u1·pk → derive expected sig_r.
+    // Simulate u1·G → derive expected sig_r.
     let u1_limbs = biguint_to_le_64_limbs(&u1_target);
     let u1_bits: [u8; 256] = std::array::from_fn(|i| {
         let limb = u1_limbs[i / 64];
         ((limb >> (i % 64)) & 1) as u8
     });
-    let (r_point, sm_nondets) = scalar_mul_known_msb_execute(&pk, &u1_bits, &p);
-    assert!(r_point.0 < n, "R.x < n for this test vector (k=0 reduction path)");
+    let g = secp256k1_g();
+    let (r_point, sm_nondets) = scalar_mul_known_msb_execute(&g, &u1_bits, &p);
+    assert!(
+        r_point.0 < n,
+        "R.x < n for this test vector (k=0 reduction path)"
+    );
     let sig_r = r_point.0.clone();
 
     // Build circuit + inputs.
@@ -460,17 +479,14 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     // Nondet sequence in emission order.
     let mut nondet = Vec::new();
 
-    // Q on curve: y² = x³ + 7 (mod p). Canonicalise both sides, compare.
+    // Q on curve: y² = x³ + 7 (mod p). Primitives now canonicalise internally,
+    // so no explicit assert_lt needed — just the 3 muls + 1 add.
     let x_sq = (&pk.0 * &pk.0) % &p;
     let x_cubed = (&x_sq * &pk.0) % &p;
-    let rhs = (&x_cubed + 7u32) % &p;
-    let y_sq = (&pk.1 * &pk.1) % &p;
     nondet.extend(mul_mod_p_nondets(&pk.0, &pk.0, &p)); // x²
     nondet.extend(mul_mod_p_nondets(&x_sq, &pk.0, &p)); // x³
     nondet.extend(add_mod_p_nondets(&x_cubed, &BigUint::from(7u32), &p)); // x³ + 7
     nondet.extend(mul_mod_p_nondets(&pk.1, &pk.1, &p)); // y²
-    nondet.extend(assert_lt_modulus_nondets(&rhs, &p));
-    nondet.extend(assert_lt_modulus_nondets(&y_sq, &p));
 
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));

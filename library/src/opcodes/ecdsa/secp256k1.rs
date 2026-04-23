@@ -53,6 +53,22 @@ pub(super) const SECP256K1_N: [u64; 4] = [
     0xFFFF_FFFF_FFFF_FFFF,
 ];
 
+/// secp256k1 generator G.x = 0x79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798.
+pub(super) const SECP256K1_GX: [u64; 4] = [
+    0x59F2_815B_16F8_1798,
+    0x029B_FCDB_2DCE_28D9,
+    0x55A0_6295_CE87_0B07,
+    0x79BE_667E_F9DC_BBAC,
+];
+
+/// secp256k1 generator G.y = 0x483ADA77 26A3C465 5DA4FBFC 0E1108A8 FD17B448 A6855419 9C47D08F FB10D4B8.
+pub(super) const SECP256K1_GY: [u64; 4] = [
+    0x9C47_D08F_FB10_D4B8,
+    0xFD17_B448_A685_5419,
+    0x5DA4_FBFC_0E11_08A8,
+    0x483A_DA77_26A3_C465,
+];
+
 pub(crate) struct EcdsaSecp256k1<'a> {
     public_key_x: &'a [FunctionInput<FieldElement>; 32],
     public_key_y: &'a [FunctionInput<FieldElement>; 32],
@@ -135,9 +151,16 @@ impl EcdsaSecp256k1<'_> {
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
         let _u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
 
-        // Scalar mul: R = u1·pk (stand-in for the real u1·G + u2·Q).
+        // Scalar mul: R = u1·G (stand-in for the real u1·G + u2·Q).
+        // scalar_mul_known_msb requires bit 255 of the scalar to be 1; make
+        // that precondition explicit on u1. Restricts us to signatures where
+        // u1 ≥ 2^255 — a limitation of the current stub pending full
+        // edge-case handling.
+        let g = emit_limbs_constant(writer, &SECP256K1_GX, &SECP256K1_GY)?;
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let (r_x, _r_y) = emit_scalar_mul_known_msb(writer, (pk_x, pk_y), &u1_bits)?;
+        let one_c = writer.emit_constant(&FieldElement::from(1u128))?;
+        writer.insert_constrain_eq(u1_bits[255], one_c);
+        let (r_x, _r_y) = emit_scalar_mul_known_msb(writer, g, &u1_bits)?;
 
         // Reduce R.x mod n and assert < n.
         let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
@@ -148,25 +171,40 @@ impl EcdsaSecp256k1<'_> {
     }
 }
 
-/// Asserts `(x, y)` lies on secp256k1: `y² ≡ x³ + 7 (mod p)`.
-/// Canonicalises both sides via `emit_assert_lt_modulus` (so they're in
-/// [0, p)), then compares limb-wise.
+/// Emits an affine point from two 4-limb constants.
+fn emit_limbs_constant<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    x: &[u64; LIMBS],
+    y: &[u64; LIMBS],
+) -> Result<(Limbs256<'c, 'b>, Limbs256<'c, 'b>), Error> {
+    Ok((pack_u64_limbs(writer, x)?, pack_u64_limbs(writer, y)?))
+}
+
+fn pack_u64_limbs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    limbs: &[u64; LIMBS],
+) -> Result<Limbs256<'c, 'b>, Error> {
+    let mut out: [Option<Value<'c, 'b>>; LIMBS] = [None; LIMBS];
+    for (slot, &limb) in out.iter_mut().zip(limbs.iter()) {
+        *slot = Some(writer.emit_constant(&FieldElement::from(limb as u128))?);
+    }
+    Ok(out.map(|s| s.expect("all slots filled")))
+}
+
+/// Asserts `(x, y)` lies on secp256k1: `y² ≡ x³ + 7 (mod p)`. Both sides are
+/// already canonical since the multiprec primitives enforce `r < p`.
 fn assert_on_curve<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     x: &Limbs256<'c, 'b>,
     y: &Limbs256<'c, 'b>,
 ) -> Result<(), Error> {
-    let seven = {
-        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-        let seven_val = writer.emit_constant(&FieldElement::from(7u128))?;
-        [seven_val, zero, zero, zero]
-    };
+    let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+    let seven_val = writer.emit_constant(&FieldElement::from(7u128))?;
+    let seven = [seven_val, zero, zero, zero];
     let x_sq = emit_mul_mod_p(writer, x, x, &SECP256K1_P)?;
     let x_cubed = emit_mul_mod_p(writer, &x_sq, x, &SECP256K1_P)?;
     let rhs = emit_add_mod_p(writer, &x_cubed, &seven, &SECP256K1_P)?;
     let y_sq = emit_mul_mod_p(writer, y, y, &SECP256K1_P)?;
-    emit_assert_lt_modulus(writer, &rhs, &SECP256K1_P)?;
-    emit_assert_lt_modulus(writer, &y_sq, &SECP256K1_P)?;
     for (a, b) in y_sq.iter().zip(rhs.iter()) {
         writer.insert_constrain_eq(*a, *b);
     }
