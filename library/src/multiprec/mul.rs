@@ -6,6 +6,7 @@ use crate::{block_writer::BlockWriter, error::Error};
 use super::{
     LIMBS, Limbs256,
     common::{two_pow_64, witness_result_limbs},
+    compare::emit_assert_lt_modulus,
 };
 
 /// Width (in bits) of the unsigned range check applied to each carry after
@@ -66,6 +67,7 @@ pub(crate) fn emit_mul_mod_p<'c, 'a>(
         }
     }
 
+    emit_assert_lt_modulus(writer, &r, p)?;
     Ok(r)
 }
 

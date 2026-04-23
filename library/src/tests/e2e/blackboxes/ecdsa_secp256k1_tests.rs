@@ -151,22 +151,27 @@ fn signed_felt_big(value: &BigInt) -> Felt {
     }
 }
 
-/// `[k, r0..r3, c1..c4]` for `emit_add_mod_p(a, b, p)`.
+/// `[k, r0..r3, c1..c4, d0..d3, c1..c4]` for `emit_add_mod_p(a, b, p)` —
+/// the 9-element identity + the 8-element `r < p` canonicalisation.
 fn add_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let sum = a + b;
     let k = if &sum >= p { 1u64 } else { 0u64 };
     let r = &sum - k * p;
-    mod_p_nondets_from_identity(a, b, &r, p, k, 1)
+    let mut out = mod_p_nondets_from_identity(a, b, &r, p, k, 1);
+    out.extend(assert_lt_modulus_nondets(&r, p));
+    out
 }
 
-/// `[k, r0..r3, c1..c4]` for `emit_sub_mod_p(a, b, p)`.
+/// `[k, r0..r3, c1..c4, d0..d3, c1..c4]` for `emit_sub_mod_p(a, b, p)`.
 fn sub_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let (k, r) = if a >= b {
         (0u64, a - b)
     } else {
         (1u64, (a + p) - b)
     };
-    mod_p_nondets_from_identity(a, b, &r, p, k, -1)
+    let mut out = mod_p_nondets_from_identity(a, b, &r, p, k, -1);
+    out.extend(assert_lt_modulus_nondets(&r, p));
+    out
 }
 
 fn mod_p_nondets_from_identity(
@@ -248,7 +253,7 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
             carry_in = carry_out;
         }
     }
-    let mut nondets = Vec::with_capacity(14);
+    let mut nondets = Vec::with_capacity(14 + 8);
     for limb in q_limbs {
         nondets.push(Felt::from_u64(limb));
     }
@@ -258,31 +263,38 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     for carry in &carries {
         nondets.push(signed_felt_big(carry));
     }
+    // Canonicalisation: r < p.
+    nondets.extend(assert_lt_modulus_nondets(&r, p));
     nondets
 }
 
-/// `[q_div0..q_div3, mul_nondets..]` for `emit_div_mod_p(a, b, p)`.
-/// Result: `q = a · b⁻¹ mod p`. The inner mul proves `b · q = a mod p`.
+/// `[q_div0..q_div3, q_lt_d..q_lt_c, mul_nondets..]` for `emit_div_mod_p(a, b, p)`.
+/// `q = a · b⁻¹ mod p`; emitted quotient is canonicalised (+8), then the inner
+/// mul proves `b · q = a mod p` and itself canonicalises its output.
 fn div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let b_inv = b.modpow(&(p - 2u32), p);
     let q = (a * &b_inv) % p;
     let q_limbs = biguint_to_le_64_limbs(&q);
-    let mut nondets = Vec::with_capacity(4 + 14);
+    let mut nondets = Vec::with_capacity(4 + 8 + 22);
     for limb in q_limbs {
         nondets.push(Felt::from_u64(limb));
     }
+    nondets.extend(assert_lt_modulus_nondets(&q, p));
     nondets.extend(mul_mod_p_nondets(b, &q, p));
     nondets
 }
 
-/// `[a_inv0..a_inv3, mul_nondets..]` for `emit_inv_mod_p(a, p)`.
+/// `[a_inv0..a_inv3, a_inv_lt_nondets, mul_nondets..]` for `emit_inv_mod_p(a, p)`.
+/// a_inv is witnessed and canonicalised (+8) before the internal mul verifies
+/// `a · a_inv ≡ 1 mod p` (the mul itself also canonicalises its result).
 fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     let a_inv = a.modpow(&(p - 2u32), p);
     let a_inv_limbs = biguint_to_le_64_limbs(&a_inv);
-    let mut nondets = Vec::with_capacity(4 + 14);
+    let mut nondets = Vec::with_capacity(4 + 8 + 22);
     for limb in a_inv_limbs {
         nondets.push(Felt::from_u64(limb));
     }
+    nondets.extend(assert_lt_modulus_nondets(&a_inv, p));
     nondets.extend(mul_mod_p_nondets(a, &a_inv, p));
     nondets
 }

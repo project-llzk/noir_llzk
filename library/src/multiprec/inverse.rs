@@ -2,7 +2,10 @@ use acir::{AcirField, FieldElement};
 
 use crate::{block_writer::BlockWriter, error::Error};
 
-use super::{LIMBS, Limbs256, common::witness_result_limbs, mul::emit_mul_mod_p};
+use super::{
+    LIMBS, Limbs256, common::witness_result_limbs, compare::emit_assert_lt_modulus,
+    mul::emit_mul_mod_p,
+};
 
 /// Emits `a_inv` such that `a · a_inv ≡ 1 (mod p)`, witnessing `a_inv`
 /// non-deterministically and enforcing the product via `emit_mul_mod_p`.
@@ -14,6 +17,7 @@ pub(crate) fn emit_inv_mod_p<'c, 'a>(
     p: &[u64; LIMBS],
 ) -> Result<Limbs256<'c, 'a>, Error> {
     let a_inv = witness_result_limbs(writer)?;
+    emit_assert_lt_modulus(writer, &a_inv, p)?;
     let product = emit_mul_mod_p(writer, a, &a_inv, p)?;
 
     let one = writer.emit_constant(&FieldElement::one())?;
