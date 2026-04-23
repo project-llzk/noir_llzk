@@ -300,6 +300,31 @@ fn div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
+/// `[b_is_zero, inv_hint, q0..q3, q_lt_nondets, mul_nondets]` for
+/// `emit_safe_div_mod_p(a, b, p)`. `b` must be nonzero for this oracle path.
+fn safe_div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+    assert!(b != &BigUint::from(0u32), "only the nonzero-b path is wired up");
+    // b_sum = Σ b_i (no wraparound, canonical).
+    let b_limbs = biguint_to_le_64_limbs(b);
+    let b_sum = b_limbs.iter().fold(BigUint::from(0u32), |acc, &x| acc + x);
+    let p_bn = bn254_prime();
+    let inv_hint = b_sum.modpow(&(&p_bn - 2u32), &p_bn);
+
+    let b_inv = b.modpow(&(p - 2u32), p);
+    let q = (a * &b_inv) % p;
+    let q_limbs = biguint_to_le_64_limbs(&q);
+
+    let mut nondets = Vec::new();
+    nondets.push(Felt::from_u64(0)); // b_is_zero = 0
+    nondets.push(Felt::new(inv_hint));
+    for limb in q_limbs {
+        nondets.push(Felt::from_u64(limb));
+    }
+    nondets.extend(assert_lt_modulus_nondets(&q, p));
+    nondets.extend(mul_mod_p_nondets(b, &q, p));
+    nondets
+}
+
 /// `[a_inv0..a_inv3, a_inv_lt_nondets, mul_nondets..]` for `emit_inv_mod_p(a, p)`.
 /// a_inv is witnessed and canonicalised (+8) before the internal mul verifies
 /// `a · a_inv ≡ 1 mod p` (the mul itself also canonicalises its result).
@@ -499,6 +524,8 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     nondet.extend(sm_nondets);
     nondet.extend(add_mod_p_nondets(&r_point.0, &BigUint::from(0u32), &n)); // R.x mod n
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
+    // Safe-div exercise: pk.y / pk.x mod p (pk.x nonzero for G).
+    nondet.extend(safe_div_mod_p_nondets(&pk.1, &pk.0, &p));
     nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);

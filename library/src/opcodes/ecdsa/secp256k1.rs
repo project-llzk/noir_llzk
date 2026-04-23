@@ -28,7 +28,7 @@ use crate::{
     error::Error,
     multiprec::{
         LIMBS, Limbs256, emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256,
-        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
+        emit_inv_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p, emit_safe_div_mod_p,
     },
     opcodes::{
         OpcodeEmitter, collect_input_witness, ecdsa::curve::emit_scalar_mul_known_msb,
@@ -165,6 +165,10 @@ impl EcdsaSecp256k1<'_> {
         // Reduce R.x mod n and assert < n.
         let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
+
+        // Exercise safe-div on a known-nonzero pair to pin its nondet shape
+        // into the test sequence — foundation for upcoming complete curve ops.
+        let (_quot, _nonzero) = emit_safe_div_mod_p(writer, &pk_y, &pk_x, &SECP256K1_P)?;
 
         // Final equality: is_valid = (R.x mod n == sig_r).
         emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)
