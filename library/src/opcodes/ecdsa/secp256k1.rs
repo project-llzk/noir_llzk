@@ -88,7 +88,15 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let is_valid = self.emit_verify_body(writer)?;
         let actual = writer.read_witness(self.output.0)?;
-        writer.insert_constrain_eq(actual, is_valid);
+        // Predicate gating: predicate · (output − is_valid) = 0. When
+        // predicate = 1, forces output = is_valid. When predicate = 0, the
+        // output is unconstrained.
+        let predicate = emit_blackbox_input(writer, self.predicate)?;
+        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+        let neg_valid = writer.insert_neg(is_valid)?;
+        let diff = writer.insert_add(actual, neg_valid)?;
+        let gated = writer.insert_mul(predicate, diff)?;
+        writer.insert_constrain_eq(gated, zero);
         Ok(())
     }
 }
@@ -113,10 +121,14 @@ impl EcdsaSecp256k1<'_> {
         let sig_s = pack_bytes_be_to_le_limbs(writer, sig_s_bytes)?;
         let z = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
 
-        // Input validation: r, s ∈ [0, n). (s ≠ 0 falls out of inv_mod_p's
-        // constraint `s · s_inv ≡ 1 mod n`, which is unsatisfiable for s = 0.)
+        // Input validation: r, s ∈ [1, n). s ≠ 0 falls out of inv_mod_p
+        // (s · s_inv ≡ 1 mod n is unsatisfiable for s = 0); r ≠ 0 is explicit.
         emit_assert_lt_modulus(writer, &sig_r, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &sig_s, &SECP256K1_N)?;
+        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
+        let zero_limbs: Limbs256 = [zero; LIMBS];
+        let r_is_zero = emit_limbs_eq_boolean(writer, &sig_r, &zero_limbs)?;
+        writer.insert_constrain_eq(r_is_zero, zero);
 
         // Fr chain: s_inv = s⁻¹ mod n, u1 = z·s_inv, u2 = r·s_inv.
         let s_inv = emit_inv_mod_p(writer, &sig_s, &SECP256K1_N)?;
@@ -128,8 +140,6 @@ impl EcdsaSecp256k1<'_> {
         let (r_x, _r_y) = emit_scalar_mul_known_msb(writer, (pk_x, pk_y), &u1_bits)?;
 
         // Reduce R.x mod n and assert < n.
-        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-        let zero_limbs: Limbs256 = [zero; LIMBS];
         let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
 

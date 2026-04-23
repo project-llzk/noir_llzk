@@ -462,6 +462,8 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
 
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
     nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));
+    // sig_r ≠ 0 check.
+    nondet.extend(limbs_eq_boolean_nondets(&sig_r, &BigUint::from(0u32)));
     nondet.extend(inv_mod_p_nondets(&sig_s, &n)); // s_inv
     nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n)); // u1
     nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, &n)); // u2 (value unused downstream)
@@ -469,22 +471,30 @@ fn run_verify_test(pk: (BigUint, BigUint), sig_s: BigUint, u1_target: BigUint) {
     nondet.extend(sm_nondets);
     nondet.extend(add_mod_p_nondets(&r_point.0, &BigUint::from(0u32), &n)); // R.x mod n
     nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
-    nondet.extend(limbs_eq_boolean_nondets(true));
+    nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
 /// Nondet sequence for `emit_limbs_eq_boolean(a, b)`: `[is_eq, inv_hint]`.
-/// When a == b, `is_eq = 1` and `inv_hint` is ignored — use 0.
-/// When a != b, `is_eq = 0` and `inv_hint = sum_of_squared_diffs⁻¹ mod p_bn254`.
-fn limbs_eq_boolean_nondets(equal: bool) -> Vec<Felt> {
-    if equal {
+/// When a == b, `is_eq = 1` and inv_hint is ignored (use 0).
+/// When a != b, `is_eq = 0` and inv_hint = (Σ (a_i - b_i)²)⁻¹ mod p_bn254.
+fn limbs_eq_boolean_nondets(a: &BigUint, b: &BigUint) -> Vec<Felt> {
+    if a == b {
         vec![Felt::from_u64(1), Felt::from_u64(0)]
     } else {
-        // Not used by current tests — would need to compute inverse of
-        // Σ (a_i - b_i)² over BN254 Fr.
-        unimplemented!("unequal path oracle not needed yet")
+        let a_limbs = biguint_to_le_64_limbs(a);
+        let b_limbs = biguint_to_le_64_limbs(b);
+        let p_bn = bn254_prime();
+        let mut sum_sq = BigUint::from(0u32);
+        for i in 0..4 {
+            let d = a_limbs[i].abs_diff(b_limbs[i]);
+            let d_bu = BigUint::from(d);
+            sum_sq += &d_bu * &d_bu;
+        }
+        let inv = sum_sq.modpow(&(&p_bn - 2u32), &p_bn);
+        vec![Felt::from_u64(0), Felt::new(inv)]
     }
 }
 
