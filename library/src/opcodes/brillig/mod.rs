@@ -10,6 +10,7 @@
 //! construction in [`crate::circuit::CircuitTranslator`] so that the
 //! registry only ever sees well-formed entries.
 
+pub(crate) mod cfg;
 mod memory;
 mod opcodes;
 pub(crate) mod registry;
