@@ -16,7 +16,7 @@ use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::memory::Memory;
-use super::opcodes::build_handler;
+use super::opcodes::{build_handler, require_const};
 
 // ── Core types ─────────────────────────────────────────────────────────
 
@@ -166,25 +166,20 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             return Ok(Vec::new());
         }
 
-        let size =
-            self.memory
-                .get_const(return_data.size)?
-                .ok_or_else(|| Error::UnsupportedBrillig {
-                    reason: format!(
-                        "Stop at bytecode index {opcode_index}: return_data size register {} \
-                     is not a known integer constant",
-                        return_data.size.to_u32()
-                    ),
-                })?;
-        let pointer = self.memory.get_const(return_data.pointer)?.ok_or_else(|| {
-            Error::UnsupportedBrillig {
-                reason: format!(
-                    "Stop at bytecode index {opcode_index}: return_data pointer register {} \
-                     is not a known integer constant",
-                    return_data.pointer.to_u32()
-                ),
-            }
-        })?;
+        let size = require_const(
+            self,
+            return_data.size,
+            "Stop",
+            "return_data size",
+            opcode_index,
+        )?;
+        let pointer = require_const(
+            self,
+            return_data.pointer,
+            "Stop",
+            "return_data pointer",
+            opcode_index,
+        )?;
 
         if size != self.expected_output_count {
             return Err(Error::UnsupportedBrillig {

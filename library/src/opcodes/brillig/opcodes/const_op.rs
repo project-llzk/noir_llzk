@@ -22,9 +22,9 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         // `write` clears any stale integer-constant tracking for this slot;
         // `record_const` then re-establishes it with the fresh value.
         ctx.memory.write(ctx.writer, self.destination, ssa)?;
-        // Noir emits pointers and lengths as U32 (BRILLIG_MEMORY_ADDRESSING_BIT_SIZE),
-        // and those are the only values any `get_const` consumer uses.
-        if let BitSize::Integer(IntegerBitSize::U32) = self.bit_size
+        // Later shape-sensitive opcodes need these registers statically known.
+        if let BitSize::Integer(bs) = self.bit_size
+            && matches!(bs, IntegerBitSize::U1 | IntegerBitSize::U32)
             && let Some(v) = self.value.try_to_u32()
         {
             ctx.memory.record_const(self.destination, v as usize)?;

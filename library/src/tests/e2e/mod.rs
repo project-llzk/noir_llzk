@@ -3,16 +3,18 @@
 use std::collections::BTreeMap;
 
 use acir::circuit::Circuit;
+use acir::circuit::brillig::BrilligBytecode;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::LlzkContext;
 pub(super) use llzk_interpreter::Interpreter;
 use llzk_interpreter::{Felt, StructInstance, Value};
 use num_bigint::BigUint;
 
-use super::make_program;
+use super::{make_program, make_program_with_brillig};
 use crate::program::translate_program;
 
 mod blackboxes;
+mod brillig_to_radix_tests;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
@@ -41,6 +43,20 @@ pub(super) fn felt_u64(v: u64) -> Value {
 /// Runs the full pipeline: translate, compute, constrain. Returns the computed struct.
 pub(super) fn run_e2e(circuit: Circuit<FieldElement>, inputs: &[Value]) -> StructInstance {
     run_e2e_with_nondet(circuit, inputs, &[])
+}
+
+pub(super) fn run_e2e_with_brillig(
+    circuit: Circuit<FieldElement>,
+    brillig_bytecodes: Vec<BrilligBytecode<FieldElement>>,
+    inputs: &[Value],
+) -> StructInstance {
+    let program = make_program_with_brillig(vec![circuit], brillig_bytecodes);
+    let context = LlzkContext::new();
+    let module = translate_program(&context, &program).expect("translation should succeed");
+    let mut interpreter = Interpreter::new(&module);
+    interpreter
+        .run_compute("Circuit0", inputs)
+        .expect("compute should succeed")
 }
 
 /// Like [`run_e2e`], but supplies pre-computed values for `llzk.nondet` ops.

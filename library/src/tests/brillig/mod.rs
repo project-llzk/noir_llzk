@@ -25,6 +25,7 @@ mod dispatch_tests;
 mod heap_tests;
 mod register_tests;
 mod relative_addressing_tests;
+mod to_radix_tests;
 
 // ── Bytecode / opcode constructors ─────────────────────────────────────
 
@@ -162,6 +163,22 @@ pub(super) fn store(ptr: u32, src: u32) -> BrilligOpcode<FieldElement> {
         destination_pointer: addr(ptr),
         source: addr(src),
     }
+}
+
+pub(super) fn to_radix(
+    input: u32,
+    radix: u32,
+    output_pointer: u32,
+    num_limbs: u32,
+    output_bits: u32,
+) -> BrilligOpcode<FieldElement> {
+    BrilligOpcode::BlackBox(acir::brillig::BlackBoxOp::ToRadix {
+        input: addr(input),
+        radix: addr(radix),
+        output_pointer: addr(output_pointer),
+        num_limbs: addr(num_limbs),
+        output_bits: addr(output_bits),
+    })
 }
 
 // ── @compute lookup helpers ────────────────────────────────────────────

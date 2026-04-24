@@ -7,7 +7,7 @@
 //! `Box<dyn OpcodeEmitter>` pattern used for ACIR opcodes.
 
 use acir::FieldElement;
-use acir::brillig::Opcode as B;
+use acir::brillig::{MemoryAddress, Opcode as B};
 
 use crate::error::Error;
 
@@ -15,6 +15,7 @@ use super::translator::{OpcodeAction, TranslationCtx};
 
 mod binary_field_op;
 mod binary_int_op;
+mod black_box;
 mod calldata_copy;
 mod cast;
 mod conditional_mov;
@@ -28,6 +29,7 @@ mod store;
 
 use self::binary_field_op::BinaryFieldOpHandler;
 use self::binary_int_op::BinaryIntOpHandler;
+use self::black_box::BlackBoxHandler;
 use self::calldata_copy::CalldataCopyHandler;
 use self::cast::CastHandler;
 use self::conditional_mov::ConditionalMovHandler;
@@ -38,6 +40,24 @@ use self::mov::MovHandler;
 use self::not::NotHandler;
 use self::stop::StopHandler;
 use self::store::StoreHandler;
+
+pub(super) fn require_const(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
+    addr: MemoryAddress,
+    op_name: &str,
+    field_name: &str,
+    opcode_index: usize,
+) -> Result<usize, Error> {
+    ctx.memory
+        .get_const(addr)?
+        .ok_or_else(|| Error::UnsupportedBrillig {
+            reason: format!(
+                "{op_name} at bytecode index {opcode_index}: {field_name} register {} is not a \
+                 known integer constant",
+                addr.to_u32()
+            ),
+        })
+}
 
 /// Trait that each Brillig opcode handler implements.
 ///
@@ -172,6 +192,8 @@ pub(super) fn build_handler<'a>(
             source_b: *source_b,
             condition: *condition,
         })),
+
+        B::BlackBox(bbox) => Ok(Box::new(BlackBoxHandler { op: bbox })),
 
         other => Err(Error::UnsupportedBrillig {
             reason: format!(
