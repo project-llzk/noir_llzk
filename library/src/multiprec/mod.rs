@@ -20,7 +20,9 @@ mod sub;
 pub(crate) use add::emit_add_mod_p;
 pub(crate) use bits::emit_bit_decompose_256;
 pub(crate) use common::{emit_zero_limbs, try_init_limbs};
-pub(crate) use compare::{emit_assert_lt_modulus, emit_limbs_eq_boolean};
+pub(crate) use compare::{
+    emit_assert_lt_modulus, emit_limbs_eq_boolean, emit_limbs_lt_modulus_boolean,
+};
 pub(crate) use div::emit_safe_div_mod_p;
 pub(crate) use inverse::emit_inv_mod_p;
 pub(crate) use mul::emit_mul_mod_p;

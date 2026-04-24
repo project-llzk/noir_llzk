@@ -36,12 +36,10 @@ fn emit_bit_decompose_u64<'c, 'a>(
     let mut reconstruction = zero;
     for i in 0..LIMB_BITS {
         let bit = writer.insert_nondet(felt_ty)?;
-        // bit ∈ {0, 1}: bit · (1 - bit) = 0.
         let neg_bit = writer.insert_neg(bit)?;
         let one_minus_bit = writer.insert_add(one, neg_bit)?;
         let boolean = writer.insert_mul(bit, one_minus_bit)?;
         writer.insert_constrain_eq(boolean, zero);
-        // Accumulate bit · 2^i into the reconstruction.
         if i == 0 {
             reconstruction = bit;
         } else {

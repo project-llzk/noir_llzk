@@ -35,8 +35,6 @@ pub(super) fn witness_result_limbs<'c, 'a>(
     })
 }
 
-/// Runs `f(i)` for i in 0..LIMBS and collects the results into a `Limbs256`.
-/// Propagates any `Error` from `f`.
 pub(crate) fn try_init_limbs<'c, 'a, F>(mut f: F) -> Result<Limbs256<'c, 'a>, Error>
 where
     F: FnMut(usize) -> Result<Value<'c, 'a>, Error>,
@@ -48,9 +46,6 @@ where
     Ok(out.map(|s| s.expect("all slots filled")))
 }
 
-/// Emits a `Limbs256` of all zeros, sharing the felt `zero` constant across
-/// all four slots (the `BlockWriter` caches constants so no extra MLIR ops
-/// are emitted on repeat calls).
 pub(crate) fn emit_zero_limbs<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
 ) -> Result<Limbs256<'c, 'a>, Error> {
@@ -74,7 +69,6 @@ pub(super) fn constrain_signed_trit<'c, 'a>(
     Ok(())
 }
 
-/// Emits `2^64` as a cached felt constant.
 pub(super) fn two_pow_64<'c, 'a>(writer: &mut BlockWriter<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
     writer.emit_constant(&FieldElement::from(2u128).pow(&FieldElement::from(LIMB_BITS as u128)))
 }

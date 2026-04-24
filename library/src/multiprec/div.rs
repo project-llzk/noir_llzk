@@ -32,7 +32,6 @@ pub(crate) fn emit_safe_div_mod_p<'c, 'a>(
         b_sum = writer.insert_add(b_sum, *limb)?;
     }
 
-    // Nondet b_is_zero ∈ {0, 1}, forced to reflect b_sum's nullity.
     let b_is_zero = witness_bool(writer)?;
     let gate_zero = writer.insert_mul(b_is_zero, b_sum)?;
     writer.insert_constrain_eq(gate_zero, zero);
@@ -49,7 +48,6 @@ pub(crate) fn emit_safe_div_mod_p<'c, 'a>(
     let gate_nonzero = writer.insert_mul(b_nonzero, prod_minus_one)?;
     writer.insert_constrain_eq(gate_nonzero, zero);
 
-    // Witness q canonical, gate the "b·q ≡ a" check by b_nonzero.
     let q = witness_result_limbs(writer)?;
     emit_assert_lt_modulus(writer, &q, p)?;
     let bq = emit_mul_mod_p(writer, b, &q, p)?;

@@ -1,16 +1,4 @@
-//! EcdsaSecp256k1 opcode — complete verification.
-//!
-//! Implements the full ECDSA-k1 verify equation:
-//!   1. Validate `(r, s) ∈ [1, n-1]` and that `Q = (pk_x, pk_y)` lies on the curve.
-//!   2. Compute `s⁻¹ mod n`, then `u1 = z·s⁻¹` and `u2 = r·s⁻¹` in Fr.
-//!   3. Compute `R = u1·G + u2·Q` via two 256-bit scalar multiplications and
-//!      one complete point addition (infinity- and x1=x2-aware).
-//!   4. Reject if `R = O`.
-//!   5. Reduce `R.x mod n` and compare against `r`; result is the output bit,
-//!      gated by the opcode's `predicate`.
-//!
-//! Curve arithmetic lives in [`super::curve`]; multiprecision primitives in
-//! [`crate::multiprec`].
+//! `EcdsaSecp256k1` verify.
 
 use std::collections::BTreeSet;
 
@@ -27,16 +15,17 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     multiprec::{
-        emit_add_mod_p, emit_assert_lt_modulus, emit_bit_decompose_256, emit_inv_mod_p,
-        emit_limbs_eq_boolean, emit_mul_mod_p, emit_zero_limbs,
+        emit_assert_lt_modulus, emit_bit_decompose_256, emit_inv_mod_p, emit_limbs_eq_boolean,
+        emit_limbs_lt_modulus_boolean, emit_mul_mod_p, emit_zero_limbs,
     },
     opcodes::{
         OpcodeEmitter, collect_input_witness,
         ecdsa::{
-            curve::{
-                CurveParams, assert_on_curve, emit_point_add_complete, emit_scalar_mul_general,
+            curve::{CurveParams, assert_on_curve, emit_joint_scalar_mul},
+            shared::{
+                emit_limbs_constant, emit_not, emit_select_limbs, emit_select_value,
+                pack_bytes_be_to_le_limbs, pack_u64_limbs,
             },
-            shared::{emit_limbs_constant, pack_bytes_be_to_le_limbs},
         },
         emit_blackbox_input,
     },
@@ -57,6 +46,14 @@ pub(super) const SECP256K1_N: [u64; 4] = [
     0xBAAE_DCE6_AF48_A03B,
     0xFFFF_FFFF_FFFF_FFFE,
     0xFFFF_FFFF_FFFF_FFFF,
+];
+
+/// floor(n / 2) + 1. Low-S signatures must satisfy s < this value.
+const SECP256K1_HALF_N_PLUS_ONE: [u64; 4] = [
+    0xDFE9_2F46_681B_20A1,
+    0x5D57_6E73_57A4_501D,
+    0xFFFF_FFFF_FFFF_FFFF,
+    0x7FFF_FFFF_FFFF_FFFF,
 ];
 
 /// secp256k1 generator G.x = 0x79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798.
@@ -115,30 +112,28 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let is_valid = self.emit_verify_body(writer)?;
+        let expected = self.emit_verify_body(writer)?;
         let actual = writer.read_witness(self.output.0)?;
-        // Predicate gating: predicate · (output − is_valid) = 0. When
-        // predicate = 1, forces output = is_valid. When predicate = 0, the
-        // output is unconstrained.
-        let predicate = emit_blackbox_input(writer, self.predicate)?;
-        let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-        let neg_valid = writer.insert_neg(is_valid)?;
-        let diff = writer.insert_add(actual, neg_valid)?;
-        let gated = writer.insert_mul(predicate, diff)?;
-        writer.insert_constrain_eq(gated, zero);
+        writer.insert_constrain_eq(actual, expected);
         Ok(())
     }
 }
 
 impl EcdsaSecp256k1<'_> {
-    /// Emits the verify body and returns a felt ∈ {0, 1} indicating validity.
-    /// Shape: `R = u1·G + u2·Q` on secp256k1, then `R.x mod n == r`.
     fn emit_verify_body<'c, 'b>(
         &self,
         writer: &mut BlockWriter<'c, 'b>,
     ) -> Result<Value<'c, 'b>, Error> {
-        let pk_x = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
-        let pk_y = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
+        let predicate = emit_blackbox_input(writer, self.predicate)?;
+        let one = writer.emit_constant(&FieldElement::from(1u128))?;
+
+        let pk_x_raw = pack_bytes_be_to_le_limbs(writer, self.public_key_x)?;
+        let pk_y_raw = pack_bytes_be_to_le_limbs(writer, self.public_key_y)?;
+        let safe_pk = emit_limbs_constant(writer, &SECP256K1_GX, &SECP256K1_GY)?;
+        let pk_x = emit_select_limbs(writer, predicate, &pk_x_raw, &safe_pk.0)?;
+        let pk_y = emit_select_limbs(writer, predicate, &pk_y_raw, &safe_pk.1)?;
+        emit_assert_lt_modulus(writer, &pk_x, &SECP256K1_P)?;
+        emit_assert_lt_modulus(writer, &pk_y, &SECP256K1_P)?;
         assert_on_curve(writer, &pk_x, &pk_y, &SECP256K1_PARAMS)?;
         let sig_r_bytes: &[FunctionInput<FieldElement>; 32] = self.signature[..32]
             .try_into()
@@ -146,40 +141,45 @@ impl EcdsaSecp256k1<'_> {
         let sig_s_bytes: &[FunctionInput<FieldElement>; 32] = self.signature[32..64]
             .try_into()
             .expect("signature has 64 bytes");
-        let sig_r = pack_bytes_be_to_le_limbs(writer, sig_r_bytes)?;
-        let sig_s = pack_bytes_be_to_le_limbs(writer, sig_s_bytes)?;
-        let z = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
+        let sig_r_raw = pack_bytes_be_to_le_limbs(writer, sig_r_bytes)?;
+        let sig_s_raw = pack_bytes_be_to_le_limbs(writer, sig_s_bytes)?;
+        let z_raw = pack_bytes_be_to_le_limbs(writer, self.hashed_message)?;
+        let zero_limbs = emit_zero_limbs(writer)?;
+        let one_limbs = pack_u64_limbs(writer, &[1, 0, 0, 0])?;
+        let sig_r = emit_select_limbs(writer, predicate, &sig_r_raw, &one_limbs)?;
+        let sig_s = emit_select_limbs(writer, predicate, &sig_s_raw, &one_limbs)?;
+        let z = emit_select_limbs(writer, predicate, &z_raw, &zero_limbs)?;
 
-        // Input validation: r, s ∈ [1, n). s ≠ 0 falls out of inv_mod_p
-        // (s · s_inv ≡ 1 mod n is unsatisfiable for s = 0); r ≠ 0 is explicit.
         emit_assert_lt_modulus(writer, &sig_r, &SECP256K1_N)?;
         emit_assert_lt_modulus(writer, &sig_s, &SECP256K1_N)?;
         let zero = writer.emit_constant(&FieldElement::from(0u128))?;
-        let zero_limbs = emit_zero_limbs(writer)?;
         let r_is_zero = emit_limbs_eq_boolean(writer, &sig_r, &zero_limbs)?;
         writer.insert_constrain_eq(r_is_zero, zero);
+        let s_is_low = emit_limbs_lt_modulus_boolean(writer, &sig_s, &SECP256K1_HALF_N_PLUS_ONE)?;
 
-        // Fr chain: s_inv = s⁻¹ mod n, u1 = z·s_inv, u2 = r·s_inv.
         let s_inv = emit_inv_mod_p(writer, &sig_s, &SECP256K1_N)?;
         let u1 = emit_mul_mod_p(writer, &z, &s_inv, &SECP256K1_N)?;
         let u2 = emit_mul_mod_p(writer, &sig_r, &s_inv, &SECP256K1_N)?;
 
-        // Full verify: R = u1·G + u2·Q.
         let g = emit_limbs_constant(writer, &SECP256K1_GX, &SECP256K1_GY)?;
         let u1_bits = emit_bit_decompose_256(writer, &u1)?;
-        let r1 = emit_scalar_mul_general(writer, g, &u1_bits, &SECP256K1_PARAMS)?;
         let u2_bits = emit_bit_decompose_256(writer, &u2)?;
-        let r2 = emit_scalar_mul_general(writer, (pk_x, pk_y), &u2_bits, &SECP256K1_PARAMS)?;
-        let (r_x, _r_y, r_inf) = emit_point_add_complete(writer, r1, r2, &SECP256K1_PARAMS)?;
-        // R at infinity → invalid signature. Assert R is finite.
-        writer.insert_constrain_eq(r_inf, zero);
+        let (r_x, _r_y, r_inf) = emit_joint_scalar_mul(
+            writer,
+            g,
+            &u1_bits,
+            (pk_x, pk_y),
+            &u2_bits,
+            &SECP256K1_PARAMS,
+        )?;
+        let r_is_finite = emit_not(writer, r_inf)?;
+        let r_x_lt_n = emit_limbs_lt_modulus_boolean(writer, &r_x, &SECP256K1_N)?;
 
-        // Reduce R.x mod n and assert < n.
-        let r_x_mod_n = emit_add_mod_p(writer, &r_x, &zero_limbs, &SECP256K1_N)?;
-        emit_assert_lt_modulus(writer, &r_x_mod_n, &SECP256K1_N)?;
-
-        // Final equality: is_valid = (R.x mod n == sig_r).
-        emit_limbs_eq_boolean(writer, &r_x_mod_n, &sig_r)
+        let r_eq = emit_limbs_eq_boolean(writer, &r_x, &sig_r)?;
+        let valid = writer.insert_mul(r_eq, r_is_finite)?;
+        let valid = writer.insert_mul(valid, r_x_lt_n)?;
+        let valid = writer.insert_mul(valid, s_is_low)?;
+        emit_select_value(writer, predicate, valid, one)
     }
 }
 

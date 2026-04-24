@@ -1,19 +1,4 @@
-//! Generic short-Weierstrass point arithmetic over `y² = x³ + a·x + b (mod p)`.
-//!
-//! Two representations:
-//!   - [`AffinePoint`]: `(x, y)` — finite points only.
-//!   - [`CompletePoint`]: `(x, y, is_infinity)` — full group element.
-//!
-//! Primitives:
-//!   - [`emit_point_add_complete`]: handles O + P, P + O, P = ±Q, and the
-//!     regular formula via nested selects. Safe division tolerates x1 = x2.
-//!   - [`emit_point_double_complete`]: handles P = O and y = 0 via safe-div.
-//!   - [`emit_scalar_mul_general`]: double-and-add starting from O, accepts
-//!     any 256-bit scalar.
-//!
-//! All primitives take a [`CurveParams`] describing `(p, a)`. `b` isn't used
-//! in point arithmetic (only in the on-curve check, which lives at the
-//! opcode wrapper level).
+//! Short-Weierstrass point arithmetic over `y² = x³ + a·x + b (mod p)`.
 
 use acir::FieldElement;
 use llzk::prelude::Value;
@@ -27,15 +12,12 @@ use crate::{
     },
 };
 
-/// Short-Weierstrass curve parameters `y² = x³ + a·x + b (mod p)`.
 pub(super) struct CurveParams {
     pub(super) p: [u64; LIMBS],
     pub(super) a: [u64; LIMBS],
     pub(super) b: [u64; LIMBS],
 }
 
-/// Asserts `(x, y)` lies on the curve `y² ≡ x³ + a·x + b (mod p)`. Both sides
-/// are already canonical (< p) since the multiprec primitives enforce it.
 pub(super) fn assert_on_curve<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     x: &Limbs256<'c, 'b>,
@@ -58,23 +40,22 @@ pub(super) fn assert_on_curve<'c, 'b>(
     Ok(())
 }
 
-/// Affine point on secp256k1. Neither coordinate represents infinity.
 pub(super) type AffinePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>);
 
-/// Point on secp256k1 with an explicit infinity flag.
-/// `is_infinity ∈ {0, 1}`; when 1, the x and y components are ignored.
+/// `(x, y, is_infinity)` — when `is_infinity = 1`, x and y are ignored.
 pub(super) type CompletePoint<'c, 'a> = (Limbs256<'c, 'a>, Limbs256<'c, 'a>, Value<'c, 'a>);
 
-/// Emits `P1 + P2` on secp256k1 as a fully complete addition:
-///   - P1 = O: returns P2
-///   - P2 = O: returns P1
-///   - x1 = x2 ∧ y1 = y2: doubling (P1 = P2)
-///   - x1 = x2 ∧ y1 ≠ y2: returns O (P1 = -P2)
-///   - otherwise: regular add formula
-///
-/// Everything is computed unconditionally and the cases are resolved by a
-/// chain of selects on infinity / x_eq / y_eq flags. Safe division tolerates
-/// x1 = x2 (garbage lambda discarded by the select).
+const JOINT_WINDOW_BITS: usize = 2;
+const JOINT_WINDOW_SIZE: usize = 1 << JOINT_WINDOW_BITS;
+
+struct JointWindowTable<'c, 'a> {
+    x: Limbs256<'c, 'a>,
+    y: Limbs256<'c, 'a>,
+    inf: Value<'c, 'a>,
+}
+
+/// Complete addition: handles O + P, P + O, P ± Q, and the regular formula.
+/// All branches emit unconditionally; case dispatch is done with selects.
 pub(super) fn emit_point_add_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p1: CompletePoint<'c, 'a>,
@@ -86,7 +67,7 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
 
-    // Regular add via safe_div so we don't fail when x1 = x2.
+    // safe_div tolerates x1 = x2; garbage lambda discarded by the case selects below.
     let dy = emit_sub_mod_p(writer, &y2, &y1, &curve.p)?;
     let dx = emit_sub_mod_p(writer, &x2, &x1, &curve.p)?;
     let (lambda, _) = emit_safe_div_mod_p(writer, &dy, &dx, &curve.p)?;
@@ -98,28 +79,20 @@ pub(super) fn emit_point_add_complete<'c, 'a>(
     let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y1, &curve.p)?;
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
-    // x1 == x2 cases: either doubling (y1 == y2) or infinity (y1 ≠ y2).
     let doubled = emit_point_double_complete(writer, p1, curve)?;
     let zero_limbs = emit_zero_limbs(writer)?;
     let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
     let x_eq = emit_limbs_eq_boolean(writer, &x1, &x2)?;
     let y_eq = emit_limbs_eq_boolean(writer, &y1, &y2)?;
 
-    // when_x_eq = y_eq ? doubled : O
     let when_x_eq = emit_select_complete(writer, y_eq, doubled, inf_pt)?;
-    // both_finite = x_eq ? when_x_eq : reg
     let both_finite = emit_select_complete(writer, x_eq, when_x_eq, reg)?;
-
-    // Infinity handling: if_inf2 = inf2 ? P1 : both_finite
     let if_inf2 = emit_select_complete(writer, inf2, p1, both_finite)?;
-    // result = inf1 ? P2 : if_inf2
     emit_select_complete(writer, inf1, p2, if_inf2)
 }
 
-/// Emits `2·P` on secp256k1 handling P = infinity via select. For finite P
-/// with y ≠ 0 this reduces to the regular doubling formula. When y = 0 the
-/// safe_div returns garbage that gets discarded iff P is also flagged as
-/// infinity (order-2 case — doesn't happen for secp256k1-G-derived points).
+/// `2·P` with the infinity case selected in. safe_div tolerates y = 0;
+/// the resulting garbage is unreachable for secp-G-derived points (no order-2 elements).
 pub(super) fn emit_point_double_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     p_pt: CompletePoint<'c, 'a>,
@@ -129,8 +102,7 @@ pub(super) fn emit_point_double_complete<'c, 'a>(
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
 
-    // Slope = (3·x² + a) / (2·y). Regular doubling formula for short
-    // Weierstrass. safe_div tolerates y = 0.
+    // Slope = (3·x² + a) / (2·y).
     let x_sq = emit_mul_mod_p(writer, &x, &x, &curve.p)?;
     let two_x_sq = emit_add_mod_p(writer, &x_sq, &x_sq, &curve.p)?;
     let three_x_sq = emit_add_mod_p(writer, &two_x_sq, &x_sq, &curve.p)?;
@@ -147,41 +119,139 @@ pub(super) fn emit_point_double_complete<'c, 'a>(
     let y3_reg = emit_sub_mod_p(writer, &lambda_dx3, &y, &curve.p)?;
     let reg: CompletePoint = (x3_reg, y3_reg, zero);
 
-    // If P infinite, result = infinity placeholder.
     let zero_limbs = emit_zero_limbs(writer)?;
     let inf_pt: CompletePoint = (zero_limbs, zero_limbs, one);
     emit_select_complete(writer, inf, inf_pt, reg)
 }
 
-/// General double-and-add scalar multiplication `k · P` for any 256-bit
-/// scalar. Accumulator starts at infinity; each iteration doubles then
-/// conditionally adds, using `emit_point_double_complete` and
-/// `emit_point_add_complete` for infinity-aware ops.
-///
-/// Returns the result as a `CompletePoint`. If it's infinity, downstream
-/// code must treat the signature as invalid.
-pub(super) fn emit_scalar_mul_general<'c, 'a>(
+/// `k1·P1 + k2·P2` via windowed Shamir: 2 bits per step, 16-entry table
+/// `{i·P1 + j·P2 | i, j ∈ [0, 3]}`.
+pub(super) fn emit_joint_scalar_mul<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
-    point: AffinePoint<'c, 'a>,
-    scalar_bits_lsb_first: &[Value<'c, 'a>],
+    p1: AffinePoint<'c, 'a>,
+    p1_bits_lsb_first: &[Value<'c, 'a>],
+    p2: AffinePoint<'c, 'a>,
+    p2_bits_lsb_first: &[Value<'c, 'a>],
     curve: &CurveParams,
 ) -> Result<CompletePoint<'c, 'a>, Error> {
+    debug_assert_eq!(p1_bits_lsb_first.len(), p2_bits_lsb_first.len());
+    debug_assert_eq!(p1_bits_lsb_first.len() % JOINT_WINDOW_BITS, 0);
+
     let zero = writer.emit_constant(&FieldElement::from(0u128))?;
     let one = writer.emit_constant(&FieldElement::from(1u128))?;
     let zero_limbs = emit_zero_limbs(writer)?;
+    let infinity: CompletePoint = (zero_limbs, zero_limbs, one);
+    let p1_pt: CompletePoint = (p1.0, p1.1, zero);
+    let p2_pt: CompletePoint = (p2.0, p2.1, zero);
+    let table = emit_joint_window_table(writer, infinity, p1_pt, p2_pt, curve)?;
 
-    let mut acc: CompletePoint = (zero_limbs, zero_limbs, one);
-    let point_pt: CompletePoint = (point.0, point.1, zero);
+    let mut acc = infinity;
+    for window in (0..p1_bits_lsb_first.len() / JOINT_WINDOW_BITS).rev() {
+        for _ in 0..JOINT_WINDOW_BITS {
+            acc = emit_point_double_complete(writer, acc, curve)?;
+        }
 
-    for bit in scalar_bits_lsb_first.iter().rev().copied() {
-        let doubled = emit_point_double_complete(writer, acc, curve)?;
-        let added = emit_point_add_complete(writer, doubled, point_pt, curve)?;
-        acc = emit_select_complete(writer, bit, added, doubled)?;
+        let start = window * JOINT_WINDOW_BITS;
+        let addend = emit_select_joint_window_addend(
+            writer,
+            p1_bits_lsb_first[start],
+            p1_bits_lsb_first[start + 1],
+            p2_bits_lsb_first[start],
+            p2_bits_lsb_first[start + 1],
+            &table,
+        )?;
+        acc = emit_point_add_complete(writer, acc, addend, curve)?;
     }
     Ok(acc)
 }
 
-/// Selects between two `CompletePoint`s based on `bit ∈ {0, 1}`.
+fn emit_joint_window_table<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    infinity: CompletePoint<'c, 'a>,
+    p1: CompletePoint<'c, 'a>,
+    p2: CompletePoint<'c, 'a>,
+    curve: &CurveParams,
+) -> Result<JointWindowTable<'c, 'a>, Error> {
+    let p1_multiples = emit_window_multiples(writer, infinity, p1, curve)?;
+    let p2_multiples = emit_window_multiples(writer, infinity, p2, curve)?;
+
+    let mut table = Vec::with_capacity(JOINT_WINDOW_SIZE * JOINT_WINDOW_SIZE);
+    for (i, p1_multiple) in p1_multiples.iter().copied().enumerate() {
+        for (j, p2_multiple) in p2_multiples.iter().copied().enumerate() {
+            let entry = if i == 0 {
+                p2_multiple
+            } else if j == 0 {
+                p1_multiple
+            } else {
+                emit_point_add_complete(writer, p1_multiple, p2_multiple, curve)?
+            };
+            table.push(entry);
+        }
+    }
+    emit_joint_window_arrays(writer, &table)
+}
+
+fn emit_joint_window_arrays<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    table: &[CompletePoint<'c, 'a>],
+) -> Result<JointWindowTable<'c, 'a>, Error> {
+    debug_assert_eq!(table.len(), JOINT_WINDOW_SIZE * JOINT_WINDOW_SIZE);
+
+    let table_len = JOINT_WINDOW_SIZE * JOINT_WINDOW_SIZE;
+    let x = try_init_limbs(|_| writer.insert_new_array(table_len))?;
+    let y = try_init_limbs(|_| writer.insert_new_array(table_len))?;
+    let inf = writer.insert_new_array(table_len)?;
+
+    for (table_idx, point) in table.iter().enumerate() {
+        let idx = writer.insert_integer(table_idx)?;
+        for limb in 0..LIMBS {
+            writer.insert_array_write(x[limb], &[idx], point.0[limb]);
+            writer.insert_array_write(y[limb], &[idx], point.1[limb]);
+        }
+        writer.insert_array_write(inf, &[idx], point.2);
+    }
+
+    Ok(JointWindowTable { x, y, inf })
+}
+
+fn emit_window_multiples<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    infinity: CompletePoint<'c, 'a>,
+    point: CompletePoint<'c, 'a>,
+    curve: &CurveParams,
+) -> Result<[CompletePoint<'c, 'a>; JOINT_WINDOW_SIZE], Error> {
+    // Hard-coded for size 4; larger windows need a new addition chain.
+    const _: () = assert!(JOINT_WINDOW_SIZE == 4);
+    let double = emit_point_double_complete(writer, point, curve)?;
+    let triple = emit_point_add_complete(writer, double, point, curve)?;
+    Ok([infinity, point, double, triple])
+}
+
+fn emit_select_joint_window_addend<'c, 'a>(
+    writer: &mut BlockWriter<'c, 'a>,
+    p1_bit0: Value<'c, 'a>,
+    p1_bit1: Value<'c, 'a>,
+    p2_bit0: Value<'c, 'a>,
+    p2_bit1: Value<'c, 'a>,
+    table: &JointWindowTable<'c, 'a>,
+) -> Result<CompletePoint<'c, 'a>, Error> {
+    let two = writer.emit_constant(&FieldElement::from(2u128))?;
+    let four = writer.emit_constant(&FieldElement::from(4u128))?;
+
+    let p1_high = writer.insert_mul(p1_bit1, two)?;
+    let p1_window = writer.insert_add(p1_bit0, p1_high)?;
+    let p2_high = writer.insert_mul(p2_bit1, two)?;
+    let p2_window = writer.insert_add(p2_bit0, p2_high)?;
+    let p1_scaled = writer.insert_mul(p1_window, four)?;
+    let idx_felt = writer.insert_add(p1_scaled, p2_window)?;
+    let idx = writer.insert_cast_to_index(idx_felt)?;
+
+    let x = try_init_limbs(|i| writer.insert_array_read(table.x[i], idx))?;
+    let y = try_init_limbs(|i| writer.insert_array_read(table.y[i], idx))?;
+    let inf = writer.insert_array_read(table.inf, idx)?;
+    Ok((x, y, inf))
+}
+
 fn emit_select_complete<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     bit: Value<'c, 'a>,
@@ -198,11 +268,7 @@ fn emit_select_complete<'c, 'a>(
     Ok((x, y, inf))
 }
 
-/// Computes `P1 + P2` for two distinct finite points with `x1 ≠ x2`.
-///
-/// Selects `if_one` when `bit = 1`, `if_zero` when `bit = 0`.
-/// Per limb: `out = bit · if_one + (1 - bit) · if_zero`.
-/// Caller must have constrained `bit ∈ {0, 1}`.
+/// `bit ? if_one : if_zero`. Caller must have constrained `bit ∈ {0, 1}`.
 pub(super) fn emit_point_select<'c, 'a>(
     writer: &mut BlockWriter<'c, 'a>,
     bit: Value<'c, 'a>,

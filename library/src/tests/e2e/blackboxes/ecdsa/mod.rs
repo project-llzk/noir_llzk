@@ -1,97 +1,45 @@
-//! End-to-end tests for the EcdsaSecp256k1 verify opcode.
-//!
-//! Each test generates a valid ECDSA-k1 signature on a fresh (d, k, z) tuple
-//! using the textbook formulas and feeds it into the pipeline with a
-//! precomputed nondet oracle. The stub accepts the signature iff the
-//! `u1·G + u2·Q = R` equation and `R.x ≡ r (mod n)` check both hold.
-//!
-//! Tests also include a pair of sanity checks on the Rust-side oracle itself
-//! (`oracle_double_g_equals_2g`, `oracle_scalar_mul_3_equals_3g`) against
-//! canonical secp256k1 test vectors.
+//! Shared driver and nondet oracle for ECDSA e2e tests. Per-curve files
+//! supply only constants + the opcode constructor.
+
+mod secp256k1_tests;
+mod secp256r1_tests;
 
 use acir::FieldElement;
 use acir::circuit::Opcode;
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::circuit::opcodes::FunctionInput;
 use acir::native_types::Witness;
 use llzk_interpreter::Felt;
 use num_bigint::{BigInt, BigUint, Sign};
 
-use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_with_nondet};
+use crate::tests::e2e::{Value, assert_witness_eq, felt_u64, run_e2e_with_nondet};
 use crate::tests::make_circuit_with_opcodes;
 
-const PK_X_START: u32 = 0;
-const PK_Y_START: u32 = 32;
-const SIG_START: u32 = 64;
-const HASH_START: u32 = 128;
-const PREDICATE_W: u32 = 160;
-const OUTPUT_W: u32 = 161;
+pub(super) const PK_X_START: u32 = 0;
+pub(super) const PK_Y_START: u32 = 32;
+pub(super) const SIG_START: u32 = 64;
+pub(super) const HASH_START: u32 = 128;
+pub(super) const PREDICATE_W: u32 = 160;
+pub(super) const OUTPUT_W: u32 = 161;
 
-/// secp256k1 base field modulus: 2^256 - 2^32 - 977.
-fn secp256k1_p() -> BigUint {
-    let bytes: [u8; 32] = [
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF,
-        0xFC, 0x2F,
-    ];
-    BigUint::from_bytes_be(&bytes)
+pub(super) struct Curve {
+    pub p: BigUint,
+    pub n: BigUint,
+    pub g: (BigUint, BigUint),
+    pub a: BigUint,
+    pub b: BigUint,
+    pub opcode: fn() -> Opcode<FieldElement>,
 }
 
-/// secp256k1 scalar field order `n`.
-fn secp256k1_n() -> BigUint {
-    BigUint::parse_bytes(
-        b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
-        16,
-    )
-    .unwrap()
+impl Curve {
+    pub fn half_n_plus_one(&self) -> BigUint {
+        &self.n / 2u32 + 1u32
+    }
 }
 
-fn secp256k1_g() -> (BigUint, BigUint) {
-    let gx = BigUint::parse_bytes(
-        b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
-        16,
-    )
-    .unwrap();
-    let gy = BigUint::parse_bytes(
-        b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
-        16,
-    )
-    .unwrap();
-    (gx, gy)
-}
-
-fn secp256k1_2g() -> (BigUint, BigUint) {
-    let x = BigUint::parse_bytes(
-        b"C6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5",
-        16,
-    )
-    .unwrap();
-    let y = BigUint::parse_bytes(
-        b"1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A",
-        16,
-    )
-    .unwrap();
-    (x, y)
-}
-
-fn byte_inputs(start: u32, count: usize) -> Vec<FunctionInput<FieldElement>> {
+pub(super) fn byte_inputs(start: u32, count: usize) -> Vec<FunctionInput<FieldElement>> {
     (0..count)
         .map(|i| FunctionInput::Witness(Witness(start + i as u32)))
         .collect()
-}
-
-fn ecdsa_secp256k1_opcode() -> Opcode<FieldElement> {
-    let pk_x: [FunctionInput<FieldElement>; 32] = byte_inputs(PK_X_START, 32).try_into().unwrap();
-    let pk_y: [FunctionInput<FieldElement>; 32] = byte_inputs(PK_Y_START, 32).try_into().unwrap();
-    let sig: [FunctionInput<FieldElement>; 64] = byte_inputs(SIG_START, 64).try_into().unwrap();
-    let hash: [FunctionInput<FieldElement>; 32] = byte_inputs(HASH_START, 32).try_into().unwrap();
-    Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256k1 {
-        public_key_x: Box::new(pk_x),
-        public_key_y: Box::new(pk_y),
-        signature: Box::new(sig),
-        hashed_message: Box::new(hash),
-        predicate: FunctionInput::Witness(Witness(PREDICATE_W)),
-        output: Witness(OUTPUT_W),
-    })
 }
 
 fn biguint_to_be_bytes(value: &BigUint) -> [u8; 32] {
@@ -107,7 +55,17 @@ fn inputs_from_pk_sig_z(
     sig_r: &BigUint,
     sig_s: &BigUint,
     z: &BigUint,
-) -> Vec<crate::tests::e2e::Value> {
+) -> Vec<Value> {
+    inputs_from_pk_sig_z_with_predicate(pk, sig_r, sig_s, z, 1)
+}
+
+fn inputs_from_pk_sig_z_with_predicate(
+    pk: &(BigUint, BigUint),
+    sig_r: &BigUint,
+    sig_s: &BigUint,
+    z: &BigUint,
+    predicate: u64,
+) -> Vec<Value> {
     let mut inputs = Vec::with_capacity((PREDICATE_W + 1) as usize);
     inputs.extend(
         biguint_to_be_bytes(&pk.0)
@@ -130,7 +88,7 @@ fn inputs_from_pk_sig_z(
             .map(|&b| felt_u64(b as u64)),
     );
     inputs.extend(biguint_to_be_bytes(z).iter().map(|&b| felt_u64(b as u64)));
-    inputs.push(felt_u64(1));
+    inputs.push(felt_u64(predicate));
     inputs
 }
 
@@ -172,7 +130,7 @@ fn signed_felt_big(value: &BigInt) -> Felt {
 
 /// `[k, r0..r3, c1..c4, d0..d3, c1..c4]` for `emit_add_mod_p(a, b, p)` —
 /// the 9-element identity + the 8-element `r < p` canonicalisation.
-fn add_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+pub(super) fn add_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let sum = a + b;
     let k = if &sum >= p { 1u64 } else { 0u64 };
     let r = &sum - k * p;
@@ -233,7 +191,7 @@ fn mod_p_nondets_from_identity(
 }
 
 /// `[q0..q3, r0..r3, c1..c6]` for `emit_mul_mod_p(a, b, p)`.
-fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
+pub(super) fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     let prod = a * b;
     let q = &prod / p;
     let r = &prod - &q * p;
@@ -282,16 +240,12 @@ fn mul_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
     for carry in &carries {
         nondets.push(signed_felt_big(carry));
     }
-    // Canonicalisation: r < p.
     nondets.extend(assert_lt_modulus_nondets(&r, p));
     nondets
 }
 
-/// Full nondet sequence emitted by `emit_point_add_complete` on finite
-/// (x1, y1) + (x2, y2): the regular add formula + the internal
-/// emit_point_double_complete (for the x1==x2 doubling case) + two
-/// limbs_eq_boolean calls (for the x_eq / y_eq selectors). Always emitted
-/// regardless of actual cases; garbage is discarded by select.
+/// Nondets for `emit_point_add_complete`. All branches' nondets are emitted
+/// regardless of the actual case — selects discard the unused ones.
 fn point_add_complete_regular_nondets(
     x1: &BigUint,
     y1: &BigUint,
@@ -317,7 +271,6 @@ fn point_add_complete_regular_nondets(
     let _y3 = (p + &lambda_dx3 - y1) % p;
 
     let mut nondet = Vec::new();
-    // Regular add.
     nondet.extend(sub_mod_p_nondets(y2, y1, p));
     nondet.extend(sub_mod_p_nondets(x2, x1, p));
     nondet.extend(safe_div_mod_p_nondets(&dy, &dx, p));
@@ -327,9 +280,7 @@ fn point_add_complete_regular_nondets(
     nondet.extend(sub_mod_p_nondets(x1, &x3, p));
     nondet.extend(mul_mod_p_nondets(&lambda, &x1_minus_x3, p));
     nondet.extend(sub_mod_p_nondets(&lambda_dx3, y1, p));
-    // Doubling branch (emit_point_double_complete on p1).
     nondet.extend(point_double_complete_regular_nondets(x1, y1, p, a));
-    // x_eq / y_eq boolean checks.
     nondet.extend(limbs_eq_boolean_nondets(x1, x2));
     nondet.extend(limbs_eq_boolean_nondets(y1, y2));
     nondet
@@ -365,8 +316,6 @@ fn safe_div_mod_p_nondets(a: &BigUint, b: &BigUint, p: &BigUint) -> Vec<Felt> {
 }
 
 /// `[a_inv0..a_inv3, a_inv_lt_nondets, mul_nondets..]` for `emit_inv_mod_p(a, p)`.
-/// a_inv is witnessed and canonicalised (+8) before the internal mul verifies
-/// `a · a_inv ≡ 1 mod p` (the mul itself also canonicalises its result).
 fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     let a_inv = a.modpow(&(p - 2u32), p);
     let a_inv_limbs = biguint_to_le_64_limbs(&a_inv);
@@ -379,9 +328,13 @@ fn inv_mod_p_nondets(a: &BigUint, p: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-// ── Rust oracle for secp256k1 affine arithmetic ─────────────────────────
+// ── Generic short Weierstrass affine arithmetic ─────────────────────────
 
-fn secp_add(p1: &(BigUint, BigUint), p2: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
+pub(super) fn secp_add(
+    p1: &(BigUint, BigUint),
+    p2: &(BigUint, BigUint),
+    p: &BigUint,
+) -> (BigUint, BigUint) {
     let (x1, y1) = p1;
     let (x2, y2) = p2;
     let dy = (p + y2 - y1) % p;
@@ -397,13 +350,14 @@ fn secp_add(p1: &(BigUint, BigUint), p2: &(BigUint, BigUint), p: &BigUint) -> (B
     (x3, y3)
 }
 
-fn secp_double(pt: &(BigUint, BigUint), p: &BigUint) -> (BigUint, BigUint) {
+pub(super) fn secp_double(pt: &(BigUint, BigUint), p: &BigUint, a: &BigUint) -> (BigUint, BigUint) {
     let (x, y) = pt;
     let x_sq = (x * x) % p;
     let three_x_sq = (&x_sq * 3u32) % p;
+    let numerator = (&three_x_sq + a) % p;
     let two_y = (y * 2u32) % p;
     let two_y_inv = two_y.modpow(&(p - 2u32), p);
-    let lambda = (&three_x_sq * &two_y_inv) % p;
+    let lambda = (&numerator * &two_y_inv) % p;
     let lambda_sq = (&lambda * &lambda) % p;
     let two_x = (x * 2u32) % p;
     let x3 = (p + &lambda_sq - &two_x) % p;
@@ -455,8 +409,6 @@ fn point_double_complete_regular_nondets(
     nondet
 }
 
-/// Replays `emit_scalar_mul_general(point, bits)` and returns
-/// (result_xy, result_is_infinity, nondets). Accepts any 256-bit scalar.
 fn scalar_mul_general_execute(
     point: &(BigUint, BigUint),
     bits_lsb_first: &[u8],
@@ -468,14 +420,12 @@ fn scalar_mul_general_execute(
     let mut acc_inf = true;
     let mut nondets = Vec::new();
     for &bit in bits_lsb_first.iter().rev() {
-        // double_complete: regular formula always emitted on (acc.x, acc.y)
         nondets.extend(point_double_complete_regular_nondets(&acc.0, &acc.1, p, a));
         let (doubled, doubled_inf) = if acc_inf {
             ((zero.clone(), zero.clone()), true)
         } else {
-            (secp_double(&acc, p), false)
+            (secp_double(&acc, p, a), false)
         };
-        // add_complete: regular formula always emitted on (doubled, point)
         nondets.extend(point_add_complete_regular_nondets(
             &doubled.0, &doubled.1, &point.0, &point.1, p, a,
         ));
@@ -495,108 +445,336 @@ fn scalar_mul_general_execute(
     (acc, acc_inf, nondets)
 }
 
+type MaybePoint = ((BigUint, BigUint), bool);
+
+fn complete_double_execute(
+    point: &(BigUint, BigUint),
+    is_infinity: bool,
+    p: &BigUint,
+    a: &BigUint,
+) -> MaybePoint {
+    if is_infinity {
+        ((BigUint::from(0u32), BigUint::from(0u32)), true)
+    } else {
+        (secp_double(point, p, a), false)
+    }
+}
+
+fn complete_add_execute(
+    p1: &(BigUint, BigUint),
+    p1_inf: bool,
+    p2: &(BigUint, BigUint),
+    p2_inf: bool,
+    p: &BigUint,
+    a: &BigUint,
+) -> MaybePoint {
+    if p1_inf {
+        return (p2.clone(), p2_inf);
+    }
+    if p2_inf {
+        return (p1.clone(), p1_inf);
+    }
+    if p1.0 == p2.0 {
+        if p1.1 == p2.1 {
+            (secp_double(p1, p, a), false)
+        } else {
+            ((BigUint::from(0u32), BigUint::from(0u32)), true)
+        }
+    } else {
+        (secp_add(p1, p2, p), false)
+    }
+}
+
+fn joint_scalar_mul_execute(
+    p1: &(BigUint, BigUint),
+    p1_bits_lsb_first: &[u8],
+    p2: &(BigUint, BigUint),
+    p2_bits_lsb_first: &[u8],
+    p: &BigUint,
+    a: &BigUint,
+) -> ((BigUint, BigUint), bool, Vec<Felt>) {
+    let zero_point = (BigUint::from(0u32), BigUint::from(0u32));
+    let (p1_multiples, mut nondets) = window_multiples_execute(p1, p, a);
+    let (p2_multiples, p2_multiples_nondets) = window_multiples_execute(p2, p, a);
+    nondets.extend(p2_multiples_nondets);
+
+    // Mirrors the i==0 / j==0 shortcut in `emit_joint_window_table`: the circuit
+    // only emits add-nondets for entries with i≥1 ∧ j≥1, so we skip the rest.
+    let mut table = Vec::with_capacity(16);
+    for (i, p1_multiple) in p1_multiples.iter().enumerate() {
+        for (j, p2_multiple) in p2_multiples.iter().enumerate() {
+            let entry = if i == 0 {
+                p2_multiple.clone()
+            } else if j == 0 {
+                p1_multiple.clone()
+            } else {
+                nondets.extend(point_add_complete_regular_nondets(
+                    &p1_multiple.0.0,
+                    &p1_multiple.0.1,
+                    &p2_multiple.0.0,
+                    &p2_multiple.0.1,
+                    p,
+                    a,
+                ));
+                complete_add_execute(
+                    &p1_multiple.0,
+                    p1_multiple.1,
+                    &p2_multiple.0,
+                    p2_multiple.1,
+                    p,
+                    a,
+                )
+            };
+            table.push(entry);
+        }
+    }
+
+    let mut acc = zero_point;
+    let mut acc_inf = true;
+    for window in (0..p1_bits_lsb_first.len() / 2).rev() {
+        for _ in 0..2 {
+            nondets.extend(point_double_complete_regular_nondets(&acc.0, &acc.1, p, a));
+            let (doubled, doubled_inf) = complete_double_execute(&acc, acc_inf, p, a);
+            acc = doubled;
+            acc_inf = doubled_inf;
+        }
+
+        let start = window * 2;
+        let p1_index =
+            p1_bits_lsb_first[start] as usize + 2 * p1_bits_lsb_first[start + 1] as usize;
+        let p2_index =
+            p2_bits_lsb_first[start] as usize + 2 * p2_bits_lsb_first[start + 1] as usize;
+        let (addend, addend_inf) = &table[p1_index * 4 + p2_index];
+        nondets.extend(point_add_complete_regular_nondets(
+            &acc.0, &acc.1, &addend.0, &addend.1, p, a,
+        ));
+        let (added, added_inf) = complete_add_execute(&acc, acc_inf, addend, *addend_inf, p, a);
+        acc = added;
+        acc_inf = added_inf;
+    }
+    (acc, acc_inf, nondets)
+}
+
+fn window_multiples_execute(
+    point: &(BigUint, BigUint),
+    p: &BigUint,
+    a: &BigUint,
+) -> (Vec<MaybePoint>, Vec<Felt>) {
+    let zero_point = (BigUint::from(0u32), BigUint::from(0u32));
+    let mut nondets = Vec::new();
+
+    nondets.extend(point_double_complete_regular_nondets(
+        &point.0, &point.1, p, a,
+    ));
+    let (double, double_inf) = complete_double_execute(point, false, p, a);
+
+    nondets.extend(point_add_complete_regular_nondets(
+        &double.0, &double.1, &point.0, &point.1, p, a,
+    ));
+    let (triple, triple_inf) = complete_add_execute(&double, double_inf, point, false, p, a);
+
+    (
+        vec![
+            (zero_point, true),
+            (point.clone(), false),
+            (double, double_inf),
+            (triple, triple_inf),
+        ],
+        nondets,
+    )
+}
+
 fn biguint_to_bits_256(value: &BigUint) -> [u8; 256] {
     let limbs = biguint_to_le_64_limbs(value);
     std::array::from_fn(|i| ((limbs[i / 64] >> (i % 64)) & 1) as u8)
 }
 
-/// Drives the restructured verify body with a full ECDSA-style setup.
-/// Given secret scalar `d` and nonce `k`, generates a valid signature for
-/// message hash `z` and exercises the complete pipeline.
-fn run_verify_test(d: BigUint, k: BigUint, z: BigUint) {
-    let p = secp256k1_p();
-    let n = secp256k1_n();
-    let g = secp256k1_g();
-    let a = BigUint::from(0u32); // secp256k1 curve a-coefficient
+/// Generates a valid signature for `(d, k, z)` and runs verify.
+pub(super) fn run_verify_test(curve: &Curve, d: BigUint, k: BigUint, z: BigUint) {
+    run_verify_test_with_s_mode(curve, d, k, z, false);
+}
 
-    // Q = d·G
+pub(super) fn run_verify_test_with_s_mode(
+    curve: &Curve,
+    d: BigUint,
+    k: BigUint,
+    z: BigUint,
+    use_high_s: bool,
+) {
+    let Curve { p, n, g, a, .. } = curve;
+
     let d_bits = biguint_to_bits_256(&d);
-    let (q, q_inf, _) = scalar_mul_general_execute(&g, &d_bits, &p, &a);
-    assert!(!q_inf && q.0 < n, "pk Q.x must be < n for Fr arithmetic");
+    let (q, q_inf, _) = scalar_mul_general_execute(g, &d_bits, p, a);
+    assert!(!q_inf && &q.0 < n, "pk Q.x must be < n for Fr arithmetic");
 
-    // R_k = k·G and sig_r = R_k.x mod n
     let k_bits = biguint_to_bits_256(&k);
-    let (r_k, r_k_inf, _) = scalar_mul_general_execute(&g, &k_bits, &p, &a);
+    let (r_k, r_k_inf, _) = scalar_mul_general_execute(g, &k_bits, p, a);
     assert!(!r_k_inf, "nonce k must produce a finite point");
-    let sig_r = &r_k.0 % &n;
+    let sig_r = &r_k.0 % n;
     assert!(
         sig_r != BigUint::from(0u32),
         "pick a nonce avoiding R_k.x ≡ 0 mod n"
     );
 
-    // sig_s = k⁻¹ · (z + sig_r·d) mod n
-    let k_inv_n = k.modpow(&(&n - 2u32), &n);
-    let sig_s = (&k_inv_n * ((&z + &sig_r * &d) % &n)) % &n;
+    let k_inv_n = k.modpow(&(n - 2u32), n);
+    let mut sig_s = (&k_inv_n * ((&z + &sig_r * &d) % n)) % n;
     assert!(sig_s != BigUint::from(0u32), "sig_s must be nonzero");
+    let half_n_plus_one = curve.half_n_plus_one();
+    if sig_s >= half_n_plus_one {
+        sig_s = n - &sig_s;
+    }
+    if use_high_s {
+        sig_s = n - &sig_s;
+    }
 
-    // u1, u2
-    let s_inv = sig_s.modpow(&(&n - 2u32), &n);
-    let u1_target = (&z * &s_inv) % &n;
-    let u2_target = (&sig_r * &s_inv) % &n;
+    run_verify_input_test(curve, &q, &sig_r, &sig_s, &z);
+}
 
-    // Replay the two scalar muls and the point add.
+/// Predicate=0 with deliberately invalid inputs. Output must be 1 since
+/// the verifier short-circuits when predicate is disabled.
+pub(super) fn run_predicate_false_test(curve: &Curve) {
+    let Curve { p, n, g, a, .. } = curve;
+    let zero = BigUint::from(0u32);
+    let sig_r = BigUint::from(1u32);
+    let sig_s = BigUint::from(1u32);
+    let z = zero.clone();
+    let s_inv = BigUint::from(1u32);
+    let u1_target = zero.clone();
+    let u2_target = BigUint::from(1u32);
+
     let u1_bits = biguint_to_bits_256(&u1_target);
     let u2_bits = biguint_to_bits_256(&u2_target);
-    let (r1, r1_inf, u1g_nondets) = scalar_mul_general_execute(&g, &u1_bits, &p, &a);
-    let (r2, r2_inf, u2q_nondets) = scalar_mul_general_execute(&q, &u2_bits, &p, &a);
-    let r_add_nondets = point_add_complete_regular_nondets(&r1.0, &r1.1, &r2.0, &r2.1, &p, &a);
-    let r_final = secp_add(&r1, &r2, &p);
-    assert!(
-        !r1_inf && !r2_inf,
-        "u1·G and u2·Q must both be finite for this stub"
-    );
-    assert!(r_final == r_k, "u1·G + u2·Q should equal k·G");
-    assert!(r_final.0 < n, "R.x must be < n for the k=0 reduction path");
+    let (r_final, r_inf, joint_mul_nondets) =
+        joint_scalar_mul_execute(g, &u1_bits, g, &u2_bits, p, a);
+    assert!(!r_inf, "0·G + 1·G should be finite");
+    assert!(&r_final.0 < n, "R.x must be canonical in Fr");
 
-    // Build circuit + inputs.
     let private: Vec<u32> = (0..=PREDICATE_W).collect();
-    let circuit = make_circuit_with_opcodes(
-        OUTPUT_W,
-        &private,
-        &[],
-        &[OUTPUT_W],
-        vec![ecdsa_secp256k1_opcode()],
-    );
-    let inputs = inputs_from_pk_sig_z(&q, &sig_r, &sig_s, &z);
+    let circuit =
+        make_circuit_with_opcodes(OUTPUT_W, &private, &[], &[OUTPUT_W], vec![(curve.opcode)()]);
+    let raw_invalid_pk = (p.clone(), p.clone());
+    let inputs = inputs_from_pk_sig_z_with_predicate(&raw_invalid_pk, &zero, &zero, &zero, 0);
 
-    // Nondet sequence in emission order.
     let mut nondet = Vec::new();
-
-    // Q on curve: y² = x³ + a·x + b (mod p).
-    let b = BigUint::from(7u32);
-    let x_sq = (&q.0 * &q.0) % &p;
-    let x_cubed = (&x_sq * &q.0) % &p;
-    let a_x = (&a * &q.0) % &p;
-    let x_cubed_plus_ax = (&x_cubed + &a_x) % &p;
-    nondet.extend(mul_mod_p_nondets(&q.0, &q.0, &p)); // x²
-    nondet.extend(mul_mod_p_nondets(&x_sq, &q.0, &p)); // x³
-    nondet.extend(mul_mod_p_nondets(&a, &q.0, &p)); // a·x
-    nondet.extend(add_mod_p_nondets(&x_cubed, &a_x, &p)); // x³ + a·x
-    nondet.extend(add_mod_p_nondets(&x_cubed_plus_ax, &b, &p)); // + b
-    nondet.extend(mul_mod_p_nondets(&q.1, &q.1, &p)); // y²
-
-    nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
-    nondet.extend(assert_lt_modulus_nondets(&sig_s, &n));
-    nondet.extend(limbs_eq_boolean_nondets(&sig_r, &BigUint::from(0u32)));
-    nondet.extend(inv_mod_p_nondets(&sig_s, &n));
-    nondet.extend(mul_mod_p_nondets(&z, &s_inv, &n));
-    nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, &n));
+    nondet.extend(assert_lt_modulus_nondets(&g.0, p));
+    nondet.extend(assert_lt_modulus_nondets(&g.1, p));
+    nondet.extend(on_curve_check_nondets(g, p, a, &curve.b));
+    nondet.extend(assert_lt_modulus_nondets(&sig_r, n));
+    nondet.extend(assert_lt_modulus_nondets(&sig_s, n));
+    nondet.extend(limbs_eq_boolean_nondets(&sig_r, &zero));
+    nondet.extend(lt_modulus_boolean_nondets(&sig_s, &curve.half_n_plus_one()));
+    nondet.extend(inv_mod_p_nondets(&sig_s, n));
+    nondet.extend(mul_mod_p_nondets(&z, &s_inv, n));
+    nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, n));
     nondet.extend(bit_decompose_256_nondets(&u1_target));
-    nondet.extend(u1g_nondets);
     nondet.extend(bit_decompose_256_nondets(&u2_target));
-    nondet.extend(u2q_nondets);
-    nondet.extend(r_add_nondets);
-    nondet.extend(add_mod_p_nondets(&r_final.0, &BigUint::from(0u32), &n));
-    nondet.extend(assert_lt_modulus_nondets(&sig_r, &n));
-    nondet.extend(limbs_eq_boolean_nondets(&sig_r, &sig_r));
+    nondet.extend(joint_mul_nondets);
+    nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
+    nondet.extend(limbs_eq_boolean_nondets(&r_final.0, &sig_r));
 
     let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
+pub(super) fn run_verify_input_test(
+    curve: &Curve,
+    pk: &(BigUint, BigUint),
+    sig_r: &BigUint,
+    sig_s: &BigUint,
+    z: &BigUint,
+) {
+    let Curve { p, n, g, a, b, .. } = curve;
+    let zero = BigUint::from(0u32);
+    let half_n_plus_one = curve.half_n_plus_one();
+
+    assert!(pk.0 < *p && pk.1 < *p, "pk coords must be canonical");
+    assert!(is_on_curve(pk, p, a, b), "pk must be on curve");
+    assert!(sig_r < n && sig_r != &zero, "sig_r must be in [1, n)");
+    assert!(sig_s < n && sig_s != &zero, "sig_s must be in [1, n)");
+
+    let s_inv = sig_s.modpow(&(n - 2u32), n);
+    let u1_target = (z * &s_inv) % n;
+    let u2_target = (sig_r * &s_inv) % n;
+    let u1_bits = biguint_to_bits_256(&u1_target);
+    let u2_bits = biguint_to_bits_256(&u2_target);
+    let (r_final, r_inf, joint_mul_nondets) =
+        joint_scalar_mul_execute(g, &u1_bits, pk, &u2_bits, p, a);
+
+    let private: Vec<u32> = (0..=PREDICATE_W).collect();
+    let circuit =
+        make_circuit_with_opcodes(OUTPUT_W, &private, &[], &[OUTPUT_W], vec![(curve.opcode)()]);
+    let inputs = inputs_from_pk_sig_z(pk, sig_r, sig_s, z);
+
+    let mut nondet = Vec::new();
+    nondet.extend(assert_lt_modulus_nondets(&pk.0, p));
+    nondet.extend(assert_lt_modulus_nondets(&pk.1, p));
+    nondet.extend(on_curve_check_nondets(pk, p, a, b));
+    nondet.extend(assert_lt_modulus_nondets(sig_r, n));
+    nondet.extend(assert_lt_modulus_nondets(sig_s, n));
+    nondet.extend(limbs_eq_boolean_nondets(sig_r, &zero));
+    nondet.extend(lt_modulus_boolean_nondets(sig_s, &half_n_plus_one));
+    nondet.extend(inv_mod_p_nondets(sig_s, n));
+    nondet.extend(mul_mod_p_nondets(z, &s_inv, n));
+    nondet.extend(mul_mod_p_nondets(sig_r, &s_inv, n));
+    nondet.extend(bit_decompose_256_nondets(&u1_target));
+    nondet.extend(bit_decompose_256_nondets(&u2_target));
+    nondet.extend(joint_mul_nondets);
+    nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
+    nondet.extend(limbs_eq_boolean_nondets(&r_final.0, sig_r));
+
+    let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
+    let expected = !r_inf && r_final.0 < *n && r_final.0 == *sig_r && sig_s < &half_n_plus_one;
+    assert_witness_eq(
+        &computed.members,
+        &format!("w{OUTPUT_W}"),
+        if expected { "1" } else { "0" },
+    );
+}
+
+pub(super) fn run_result_at_infinity_test(curve: &Curve) {
+    let Curve { p, n, g, a, .. } = curve;
+    let d = BigUint::from(7u32);
+    let d_bits = biguint_to_bits_256(&d);
+    let (pk, pk_inf, _) = scalar_mul_general_execute(g, &d_bits, p, a);
+    assert!(!pk_inf);
+
+    let sig_r = BigUint::from(1u32);
+    let sig_s = BigUint::from(1u32);
+    let z = n - &d;
+    run_verify_input_test(curve, &pk, &sig_r, &sig_s, &z);
+}
+
+/// Nondets emitted by `assert_on_curve(point)`.
+fn on_curve_check_nondets(
+    point: &(BigUint, BigUint),
+    p: &BigUint,
+    a: &BigUint,
+    b: &BigUint,
+) -> Vec<Felt> {
+    let mut nondet = Vec::new();
+    let x_sq = (&point.0 * &point.0) % p;
+    let x_cubed = (&x_sq * &point.0) % p;
+    let a_x = (a * &point.0) % p;
+    let x_cubed_plus_ax = (&x_cubed + &a_x) % p;
+    nondet.extend(mul_mod_p_nondets(&point.0, &point.0, p)); // x²
+    nondet.extend(mul_mod_p_nondets(&x_sq, &point.0, p)); // x³
+    nondet.extend(mul_mod_p_nondets(a, &point.0, p)); // a·x
+    nondet.extend(add_mod_p_nondets(&x_cubed, &a_x, p)); // x³ + a·x
+    nondet.extend(add_mod_p_nondets(&x_cubed_plus_ax, b, p)); // + b
+    nondet.extend(mul_mod_p_nondets(&point.1, &point.1, p)); // y²
+    nondet
+}
+
+fn is_on_curve(point: &(BigUint, BigUint), p: &BigUint, a: &BigUint, b: &BigUint) -> bool {
+    let x_sq = (&point.0 * &point.0) % p;
+    let x_cubed = (&x_sq * &point.0) % p;
+    let a_x = (a * &point.0) % p;
+    let rhs = (&x_cubed + &a_x + b) % p;
+    let y_sq = (&point.1 * &point.1) % p;
+    y_sq == rhs
+}
+
 /// Nondet sequence for `emit_limbs_eq_boolean(a, b)`: `[is_eq, inv_hint]`.
-/// When a == b, `is_eq = 1` and inv_hint is ignored (use 0).
-/// When a != b, `is_eq = 0` and inv_hint = (Σ (a_i - b_i)²)⁻¹ mod p_bn254.
 fn limbs_eq_boolean_nondets(a: &BigUint, b: &BigUint) -> Vec<Felt> {
     if a == b {
         vec![Felt::from_u64(1), Felt::from_u64(0)]
@@ -625,7 +803,6 @@ fn assert_lt_modulus_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
     let m_limbs = biguint_to_le_64_limbs(&m_minus_1);
     let v_limbs = biguint_to_le_64_limbs(value);
 
-    // Replay: v_i + d_i - m_i + carry_in = carry_out · 2^64.
     let two_64 = 1i128 << 64;
     let mut carries = [0i128; 4];
     let mut carry_in: i128 = 0;
@@ -648,7 +825,49 @@ fn assert_lt_modulus_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-/// Emits the 256 nondet bit values for `emit_bit_decompose_256(value)`.
+fn ge_modulus_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
+    assert!(value >= modulus, "value must be >= modulus");
+    let d = value - modulus;
+    let d_limbs = biguint_to_le_64_limbs(&d);
+    let m_limbs = biguint_to_le_64_limbs(modulus);
+    let v_limbs = biguint_to_le_64_limbs(value);
+
+    let two_64 = 1i128 << 64;
+    let mut carries = [0i128; 4];
+    let mut carry_in: i128 = 0;
+    for i in 0..4 {
+        let lhs = (v_limbs[i] as i128) - (m_limbs[i] as i128) - (d_limbs[i] as i128) + carry_in;
+        let carry_out = lhs / two_64;
+        assert_eq!(carry_out * two_64, lhs, "limb {i} not divisible by 2^64");
+        carries[i] = carry_out;
+        carry_in = carry_out;
+    }
+    assert_eq!(carry_in, 0, "final carry must be zero");
+
+    let mut nondets = Vec::with_capacity(8);
+    for limb in d_limbs {
+        nondets.push(Felt::from_u64(limb));
+    }
+    for carry in carries {
+        nondets.push(signed_felt(carry));
+    }
+    nondets
+}
+
+fn lt_modulus_boolean_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
+    let mut nondets = Vec::with_capacity(1 + 8 + 8);
+    if value < modulus {
+        nondets.push(Felt::from_u64(1));
+        nondets.extend(assert_lt_modulus_nondets(value, modulus));
+        nondets.extend((0..8).map(|_| Felt::from_u64(0)));
+    } else {
+        nondets.push(Felt::from_u64(0));
+        nondets.extend((0..8).map(|_| Felt::from_u64(0)));
+        nondets.extend(ge_modulus_nondets(value, modulus));
+    }
+    nondets
+}
+
 fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
     let limbs = biguint_to_le_64_limbs(value);
     let mut bits = Vec::with_capacity(256);
@@ -658,62 +877,4 @@ fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
         }
     }
     bits
-}
-
-#[test]
-fn verify_accepts_small_d_k_z() {
-    let d = BigUint::from(7u32);
-    let k = BigUint::from(1234u32);
-    let z = BigUint::from(100u32);
-    run_verify_test(d, k, z);
-}
-
-#[test]
-fn verify_accepts_larger_d_k_z() {
-    let d = BigUint::parse_bytes(
-        b"DEADBEEFCAFE0000000000000000000000000000000000000000000000000001",
-        16,
-    )
-    .unwrap();
-    let k = BigUint::parse_bytes(
-        b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-        16,
-    )
-    .unwrap();
-    let z = BigUint::parse_bytes(
-        b"AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
-        16,
-    )
-    .unwrap();
-    let n = secp256k1_n();
-    run_verify_test(&d % &n, &k % &n, &z % &n);
-}
-
-#[test]
-fn oracle_double_g_equals_2g() {
-    // Cross-check our Rust oracle against the canonical secp256k1 2G vector.
-    let p = secp256k1_p();
-    let doubled = secp_double(&secp256k1_g(), &p);
-    assert_eq!(doubled, secp256k1_2g());
-}
-
-#[test]
-fn oracle_scalar_mul_3_equals_3g() {
-    // Cross-check scalar mul oracle: 3·G should equal the canonical 3G vector.
-    let p = secp256k1_p();
-    // Replay the algorithm in Rust: start with acc = G, 1 iteration (bit = 1).
-    let g = secp256k1_g();
-    let doubled = secp_double(&g, &p);
-    let added = secp_add(&doubled, &g, &p);
-    let expected_3g_x = BigUint::parse_bytes(
-        b"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9",
-        16,
-    )
-    .unwrap();
-    let expected_3g_y = BigUint::parse_bytes(
-        b"388F7B0F632DE8140FE337E62A37F3566500A99934C2231B6CB9FD7584B8E672",
-        16,
-    )
-    .unwrap();
-    assert_eq!(added, (expected_3g_x, expected_3g_y));
 }

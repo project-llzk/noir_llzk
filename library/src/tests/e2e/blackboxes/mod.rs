@@ -1,5 +1,4 @@
 mod cipher;
-mod ecdsa_secp256k1_tests;
-mod ecdsa_secp256r1_tests;
+mod ecdsa;
 mod grumpkin;
 mod hash;
