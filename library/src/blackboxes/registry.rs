@@ -8,6 +8,7 @@ use llzk::prelude::{FuncDefOp, LlzkContext, Type};
 
 use crate::error::Error;
 
+use super::cipher::aes128::{aes128_helper_name, emit_aes128_helper};
 use super::common::felt_type;
 use super::grumpkin::embedded_curve_add::{
     EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper,
@@ -36,6 +37,7 @@ pub(crate) enum BlackboxFunction {
     Blake3 { num_blocks: usize },
     Sha256Compression,
     Keccakf1600,
+    Aes128Encrypt { num_inputs: usize },
 }
 
 impl BlackboxFunction {
@@ -54,6 +56,7 @@ impl BlackboxFunction {
             Self::Blake3 { num_blocks } => blake3_helper_name(num_blocks),
             Self::Sha256Compression => SHA256_HELPER_NAME.to_string(),
             Self::Keccakf1600 => KECCAK_HELPER_NAME.to_string(),
+            Self::Aes128Encrypt { num_inputs } => aes128_helper_name(num_inputs),
         }
     }
 
@@ -68,6 +71,7 @@ impl BlackboxFunction {
             Self::Blake3 { num_blocks } => emit_blake3_helper(context, num_blocks),
             Self::Sha256Compression => emit_sha256_helper(context),
             Self::Keccakf1600 => emit_keccak_helper(context),
+            Self::Aes128Encrypt { num_inputs } => emit_aes128_helper(context, num_inputs),
         }
     }
 
@@ -80,6 +84,7 @@ impl BlackboxFunction {
             Self::Blake3 { .. } => vec![felt; BLAKE3_DIGEST_BYTES],
             Self::Sha256Compression => vec![felt; SHA256_STATE_WORDS],
             Self::Keccakf1600 => vec![felt; KECCAK_STATE_WORDS],
+            Self::Aes128Encrypt { num_inputs } => vec![felt; num_inputs],
         }
     }
 }
@@ -129,6 +134,7 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
 
     let mut blake2s_input_lengths = BTreeSet::new();
     let mut blake3_input_lengths = BTreeSet::new();
+    let mut aes_input_lengths = BTreeSet::new();
     for circuit in &program.functions {
         for opcode in &circuit.opcodes {
             match opcode {
@@ -137,6 +143,9 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
                 }
                 Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake3 { inputs, .. }) => {
                     blake3_input_lengths.insert(blake3_num_blocks_for_len(inputs.len()));
+                }
+                Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AES128Encrypt { inputs, .. }) => {
+                    aes_input_lengths.insert(inputs.len());
                 }
                 _ => {}
             }
@@ -151,6 +160,11 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
         blake3_input_lengths
             .into_iter()
             .map(|num_blocks| BlackboxFunction::Blake3 { num_blocks }),
+    );
+    helpers.extend(
+        aes_input_lengths
+            .into_iter()
+            .map(|num_inputs| BlackboxFunction::Aes128Encrypt { num_inputs }),
     );
 
     helpers

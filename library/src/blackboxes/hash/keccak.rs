@@ -4,11 +4,9 @@ use llzk::prelude::{
 };
 
 use crate::{
-    blackboxes::common::{block_args, felt_type},
+    blackboxes::common::{ConstantCache, block_args, emit_and, emit_rotl64, emit_xor, felt_type},
     error::Error,
 };
-
-use super::common::{ConstantCache, emit_and, emit_rotl64, emit_xor};
 
 pub(crate) const KECCAK_STATE_WORDS: usize = 25;
 const KECCAK_ROUNDS: usize = 24;

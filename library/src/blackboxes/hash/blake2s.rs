@@ -3,9 +3,14 @@ use llzk::prelude::{
     Value, dialect,
 };
 
-use crate::{blackboxes::common::felt_type, error::Error};
+use crate::{
+    blackboxes::common::{
+        ConstantCache, emit_message_words, emit_word_to_bytes, emit_xor, felt_type,
+    },
+    error::Error,
+};
 
-use super::common::{ConstantCache, IV, emit_round, emit_word_to_bytes, emit_xor, iv_values};
+use super::common::{IV, emit_round, iv_values};
 
 pub(crate) const BLAKE2S_DIGEST_BYTES: usize = 32;
 const BLAKE2S_BLOCK_BYTES: usize = 64;
@@ -98,7 +103,7 @@ fn emit_blake2s_hash<'c, 'a>(
         let end = start + BLAKE2S_BLOCK_BYTES;
         let mut block_bytes = [zero; BLAKE2S_BLOCK_BYTES];
         block_bytes[..end - start].copy_from_slice(&inputs[start..end]);
-        let message_vec = super::common::emit_message_words(&mut cache, &block_bytes)?;
+        let message_vec = emit_message_words(&mut cache, &block_bytes)?;
         let message: [Value<'c, 'a>; 16] = message_vec
             .try_into()
             .expect("exactly sixteen message words");
