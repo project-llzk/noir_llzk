@@ -8,6 +8,7 @@ use std::process::Command;
 
 use llzk::prelude::{LlzkContext, OperationLike};
 
+use crate::opcodes::brillig::cfg::Cfg;
 use crate::{load_program, program::translate_program};
 
 /// Returns the path to the `noir_examples` directory.
@@ -143,4 +144,34 @@ fn noir_sha256() {
 #[test]
 fn noir_keccak() {
     run_noir_test("keccak");
+}
+
+/// Scoped regression for Brillig CFG recovery on `provekit_basic`. Full
+/// translation of this fixture isn't wired up yet, so this test only checks
+/// that [`Cfg::build`] succeeds on every unconstrained function.
+#[test]
+fn noir_provekit_basic_cfg_recovery() {
+    assert!(nargo_available(), "nargo not found on PATH");
+
+    let project_dir = circuits_dir().join("provekit_basic");
+    assert!(
+        project_dir.exists(),
+        "test circuit directory not found: {}",
+        project_dir.display()
+    );
+
+    let artifact = nargo_compile(&project_dir);
+    let program = load_program_from_file(&artifact);
+    assert!(
+        !program.unconstrained_functions.is_empty(),
+        "provekit_basic should contain Brillig functions"
+    );
+
+    for (i, func) in program.unconstrained_functions.iter().enumerate() {
+        let cfg = Cfg::build(&func.bytecode).unwrap_or_else(|e| {
+            panic!("CFG recovery failed for unconstrained function {i}: {e}")
+        });
+        println!("── unconstrained function {i} ──");
+        println!("{cfg:?}");
+    }
 }

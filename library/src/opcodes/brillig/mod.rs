@@ -11,6 +11,8 @@
 //! registry only ever sees well-formed entries.
 
 pub(crate) mod cfg;
+mod cfg_display;
+mod flow;
 mod memory;
 mod opcodes;
 pub(crate) mod registry;
