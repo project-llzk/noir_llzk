@@ -2,19 +2,7 @@
 //!
 //! Recovers basic blocks, successor/predecessor edges, dominator and
 //! post-dominator trees, natural loops, and procedure regions from flat
-//! Brillig bytecode. The output is consumed by the Phase 3 structurer.
-//!
-//! **Call handling (editorial extension of the plan).** The plan models
-//! `Call L` as a single forward edge to `L`, with the return edge to the
-//! post-`Call` continuation deferred to Phase 3. That leaves continuation
-//! blocks unreachable from the entry in Phase 2's CFG, which prevents
-//! dominator analysis of the caller's structure after a `Call`. This
-//! module instead models `Call` as a terminator with successors
-//! `[target, continuation]` — the `target` edge is the real forward edge;
-//! the `continuation` edge is a synthetic stand-in for the future
-//! return-edge, giving a single connected CFG the structurer can walk.
-//! Procedure bodies are identified separately via forward reachability
-//! from each `Call` target *without* traversing nested `Call` targets.
+//! Brillig bytecode. The output is consumed by the structurer.
 
 use std::collections::{BTreeSet, HashMap};
 
