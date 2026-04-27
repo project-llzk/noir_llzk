@@ -25,7 +25,7 @@ use crate::{
         bitwise, blake2s, blake3,
         brillig::{BrilligCall, registry::BrilligRegistry},
         call::Call,
-        grumpkin, keccak,
+        ecdsa, grumpkin, keccak,
         memory_ops::{self, MemoryInit},
         poseidon2, sha256,
     },
@@ -194,6 +194,14 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
 
         if let Some(poseidon2_op) = poseidon2::from_opcode(opcode)? {
             return Ok(Box::new(poseidon2_op));
+        }
+
+        if let Some(ecdsa_k1_op) = ecdsa::secp256k1::from_opcode(opcode) {
+            return Ok(Box::new(ecdsa_k1_op));
+        }
+
+        if let Some(ecdsa_r1_op) = ecdsa::secp256r1::from_opcode(opcode) {
+            return Ok(Box::new(ecdsa_r1_op));
         }
 
         match opcode {

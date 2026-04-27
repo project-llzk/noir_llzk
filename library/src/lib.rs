@@ -5,6 +5,7 @@ mod brillig_writer;
 mod circuit;
 mod common;
 mod error;
+mod multiprec;
 mod opcodes;
 pub mod program;
 
