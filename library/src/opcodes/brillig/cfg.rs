@@ -137,11 +137,8 @@ impl Cfg {
 
         // Blocks from which every forward path bottoms out at a
         // divergent leaf (`Trap`/`TrapReturn`/`Call`-divergent), with
-        // no escape via `Return` or `Stop`. The structurer keys
-        // half-joining `IfThenElse` detection off this when the
-        // post-dominator is `None`: the divergent arm of the if takes
-        // the panic, the non-divergent arm carries the continuation.
-        let always_divergent =
+        // no escape via `Return` or `Stop`.
+        let divergent_blocks =
             compute_always_divergent(&blocks, &caller_succ, &caller_pred, &divergent_entries);
 
         Ok(Cfg {
@@ -152,7 +149,7 @@ impl Cfg {
             post_dominators,
             loops,
             procedures,
-            divergent_blocks: always_divergent,
+            divergent_blocks,
         })
     }
 }
