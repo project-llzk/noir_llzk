@@ -16,9 +16,11 @@ pub(crate) fn compute_successors(blocks: &[Block]) -> Vec<Vec<BlockId>> {
                 target,
                 continuation,
             } => vec![target, continuation],
-            Terminator::Return | Terminator::Stop | Terminator::Trap | Terminator::TrapReturn => {
-                Vec::new()
-            }
+            Terminator::Return
+            | Terminator::Stop
+            | Terminator::Trap
+            | Terminator::TrapReturn
+            | Terminator::Unreachable => Vec::new(),
         })
         .collect()
 }

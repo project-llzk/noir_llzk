@@ -16,16 +16,36 @@ pub(crate) struct DomTree {
 }
 
 impl DomTree {
-    /// Dominator tree rooted at `entry`, using the Cooper-Harvey-Kennedy
-    /// fixed-point algorithm.
-    pub(crate) fn build(
-        successors: &[Vec<BlockId>],
-        predecessors: &[Vec<BlockId>],
-        entry: BlockId,
+    /// Dominator tree over the *caller's* view of the CFG, rooted at a
+    /// virtual super-entry `S` with edges to every block in `roots`. After
+    /// the fixed-point converges, `S` is stripped: a `roots` block whose
+    /// only dominator was `S` comes back with `idom = None`.
+    pub(crate) fn build_with_super_entry(
+        caller_succ: &[Vec<BlockId>],
+        caller_pred: &[Vec<BlockId>],
+        roots: &[BlockId],
     ) -> Self {
-        let n = successors.len();
-        let rpo = reverse_postorder(successors, entry, n);
-        Self::build_from_rpo(predecessors, &rpo, entry, n)
+        let n = caller_succ.len();
+        let virt = BlockId(n);
+
+        let mut succ_ext: Vec<Vec<BlockId>> = caller_succ.to_vec();
+        succ_ext.push(roots.to_vec());
+        let mut pred_ext: Vec<Vec<BlockId>> = caller_pred.to_vec();
+        pred_ext.push(Vec::new());
+        for &r in roots {
+            pred_ext[r.0].push(virt);
+        }
+
+        let rpo = reverse_postorder(&succ_ext, virt, n + 1);
+        let dom = Self::build_from_rpo(&pred_ext, &rpo, virt, n + 1);
+
+        DomTree {
+            idom: dom.idom[..n]
+                .iter()
+                .map(|s| s.filter(|&b| b != virt))
+                .collect(),
+            rpo_index: dom.rpo_index[..n].to_vec(),
+        }
     }
 
     /// Post-dominator tree. A virtual exit `V` post-dominates every block

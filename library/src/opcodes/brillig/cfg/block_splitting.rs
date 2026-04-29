@@ -64,6 +64,8 @@ pub(crate) enum Terminator {
     /// jump/call target lands at the next index, splitting an implicit
     /// fall-through edge.
     Fallthrough(BlockId),
+    /// Statically-dead block.
+    Unreachable,
 }
 
 // ── Block splitter ──────────────────────────────────────────────────────

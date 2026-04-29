@@ -10,7 +10,7 @@ use divergence::{
 };
 use dom_tree::{DomTree, check_reducible};
 use loops::detect_natural_loops;
-use procedures::{Procedure, check_call_graph_acyclic, identify_procedures};
+use procedures::{Procedure, identify_procedures};
 use utils::{compute_successors, invert_edges};
 
 // Re-exports for the sibling `structurer` module. `BlockId` and
@@ -78,13 +78,18 @@ impl Cfg {
             .collect();
         let caller_pred = invert_edges(&caller_succ);
 
-        let dominators = DomTree::build(&successors, &predecessors, BlockId(0));
-        let post_dominators = DomTree::build_post(&blocks, &caller_succ, &caller_pred);
-        let loops = detect_natural_loops(&predecessors, &dominators, blocks.len());
-
         let procedures = identify_procedures(&blocks, &successors, &caller_succ)?;
-        check_call_graph_acyclic(&blocks, &procedures)?;
-        check_reducible(&successors, &dominators)?;
+
+        // Forward dom tree uses the caller-view edge set with a virtual
+        // super-entry seeded from `BlockId(0)` plus every procedure entry.
+        let mut roots = Vec::with_capacity(procedures.len() + 1);
+        roots.push(BlockId(0));
+        roots.extend(procedures.iter().map(|p| p.entry));
+        let dominators = DomTree::build_with_super_entry(&caller_succ, &caller_pred, &roots);
+        let post_dominators = DomTree::build_post(&blocks, &caller_succ, &caller_pred);
+        let loops = detect_natural_loops(&caller_pred, &dominators, blocks.len());
+
+        check_reducible(&caller_succ, &dominators)?;
 
         // Blocks from which every forward path bottoms out at a
         // divergent leaf (`Trap`/`TrapReturn`/`Call`-divergent), with

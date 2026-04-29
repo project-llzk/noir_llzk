@@ -322,9 +322,8 @@ fn procedure_identified_with_single_return() {
 
 // The following tests hand-craft bytecode that violates invariants
 // Noir's emitter preserves (Call as last opcode is never emitted;
-// `compile_procedure` emits exactly one Return; user recursion is inlined
-// before Brillig codegen). Any `Return`-count other than one is rejected
-// as unsupported.
+// `compile_procedure` emits exactly one Return). Any `Return`-count
+// other than one is rejected as unsupported.
 
 #[test]
 fn procedure_with_multiple_returns_is_rejected() {
@@ -358,19 +357,24 @@ fn procedure_with_no_return_is_rejected() {
 }
 
 #[test]
-fn call_graph_with_mutual_recursion_is_rejected() {
+fn call_graph_with_mutual_recursion() {
+    // Recursive call graph: main → A, A → B, B → A. The forward dom tree
+    // is built over the caller-view edge set (`Call→target` edges removed),
+    // so the cycle through procedure entries doesn't appear. Each procedure
+    // is its own dom-tree component rooted at a virtual super-entry.
     //   0: Call 2         (main → A)
     //   1: Stop
     //   2: Call 4         (A → B)
     //   3: Return         (A's exit)
-    //   4: Call 2         (B → A, cycle!)
+    //   4: Call 2         (B → A, cycle in the call graph)
     //   5: Return         (B's exit)
-    let err = Cfg::build(&[call(2), brillig_stop(), call(4), ret(), call(2), ret()])
-        .expect_err("cyclic call graph should be rejected");
-    assert!(
-        unsupported_reason(err).contains("call graph contains a cycle"),
-        "expected cycle rejection"
-    );
+    let cfg = Cfg::build(&[call(2), brillig_stop(), call(4), ret(), call(2), ret()])
+        .expect("cyclic call graph should now be accepted");
+    let entries: Vec<_> = cfg.procedures.iter().map(|p| p.entry).collect();
+    assert_eq!(entries, vec![BlockId(2), BlockId(4)]);
+    // Procedure entries are roots in the multi-root forward dom tree.
+    assert_eq!(cfg.dominators.idom(BlockId(2)), None);
+    assert_eq!(cfg.dominators.idom(BlockId(4)), None);
 }
 
 #[test]

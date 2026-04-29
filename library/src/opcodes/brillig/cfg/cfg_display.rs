@@ -41,20 +41,22 @@ impl fmt::Debug for Cfg {
 
         writeln!(f, "\nDominator tree:")?;
         let dk = dom_kids(&self.dominators, n);
-        walk(f, BlockId(0), &dk, "", "")?;
-        let u: Vec<_> = (1..n)
+        // The forward dom tree is a forest: `BlockId(0)` plus every
+        // procedure entry is a root (idom is None). Render each root as
+        // its own subtree.
+        let is_live = |b: BlockId| !matches!(self.blocks[b.0].terminator, Terminator::Unreachable);
+        for r in (0..n)
             .map(BlockId)
-            .filter(|&b| self.dominators.idom(b).is_none())
-            .collect();
-        if !u.is_empty() {
-            writeln!(f, "  (unreachable: {})", ids(&u, '[', ']'))?;
+            .filter(|&b| self.dominators.idom(b).is_none() && is_live(b))
+        {
+            walk(f, r, &dk, "", "")?;
         }
 
         writeln!(f, "\nPost-dominator tree:")?;
         let pk = dom_kids(&self.post_dominators, n);
         for r in (0..n)
             .map(BlockId)
-            .filter(|&b| self.post_dominators.idom(b).is_none())
+            .filter(|&b| self.post_dominators.idom(b).is_none() && is_live(b))
         {
             walk(f, r, &pk, "", "")?;
         }
@@ -111,6 +113,7 @@ fn kind(t: &Terminator) -> &'static str {
         Terminator::Stop => "stop",
         Terminator::Trap => "trap",
         Terminator::TrapReturn => "trap-return",
+        Terminator::Unreachable => "unreachable",
     }
 }
 

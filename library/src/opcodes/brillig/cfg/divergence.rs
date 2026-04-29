@@ -28,6 +28,7 @@ pub(super) fn compute_always_divergent(
         let is_divergent_leaf = match block.terminator {
             Terminator::Trap | Terminator::TrapReturn => true,
             Terminator::Call { target, .. } => divergent_entries.contains(&target),
+            // `Unreachable` blocks are dead, not divergent.
             _ => false,
         };
         if is_divergent_leaf {
@@ -52,7 +53,8 @@ pub(super) fn compute_always_divergent(
 }
 
 /// Retags the `Trap` followed by an orphan `Return` as
-/// [`Terminator::TrapReturn`].
+/// [`Terminator::TrapReturn`], and retags the orphan `Return` itself as
+/// [`Terminator::Unreachable`].
 ///
 /// This shape is currently emitted by the Noir `RevertWithString`
 /// procedure
@@ -71,6 +73,7 @@ pub(crate) fn rewrite_trap_return_pattern(blocks: &mut [Block], predecessors: &[
             && predecessors[next_idx].is_empty();
         if is_orphan_return {
             blocks[i].terminator = Terminator::TrapReturn;
+            blocks[next_idx].terminator = Terminator::Unreachable;
         }
     }
 }

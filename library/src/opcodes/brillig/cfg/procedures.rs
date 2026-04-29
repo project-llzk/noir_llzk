@@ -1,7 +1,7 @@
 use super::block_splitting::{Block, BlockId, Terminator};
 use super::utils::unique_call_targets;
 use crate::Error;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 /// A Brillig procedure: the region of blocks reachable from a
 /// [`Terminator::Call`] target. Either ends in a single `Return` (normal
@@ -101,80 +101,3 @@ fn procedure_body(entry: BlockId, caller_succ: &[Vec<BlockId>]) -> BTreeSet<Bloc
     body
 }
 
-/// Checks that the procedure call graph is acyclic. Nodes are every
-/// procedure plus a synthetic `main` root; edges are `Call`-site → callee-entry
-/// pairs. Noir rules out recursion through procedures (user functions are
-/// inlined by default; procedures are fixed helpers with a max-depth-2 DAG),
-/// so a cycle here means we're looking at bytecode the structurer cannot
-/// handle.
-pub(super) fn check_call_graph_acyclic(
-    blocks: &[Block],
-    procedures: &[Procedure],
-) -> Result<(), Error> {
-    let entry_to_proc: HashMap<BlockId, usize> = procedures
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.entry, i))
-        .collect();
-
-    let n_functions = procedures.len() + 1;
-    let main_idx = procedures.len();
-    let function_of = |b: BlockId| -> usize {
-        procedures
-            .iter()
-            .position(|p| p.body.contains(&b))
-            .unwrap_or(main_idx)
-    };
-
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n_functions];
-    for (i, block) in blocks.iter().enumerate() {
-        if let Terminator::Call { target, .. } = block.terminator {
-            let caller = function_of(BlockId(i));
-            // `identify_procedures` registers a procedure for every distinct
-            // `Call` target in `blocks`, so the lookup is guaranteed to hit.
-            let callee = *entry_to_proc
-                .get(&target)
-                .expect("identify_procedures guarantees every Call target has a procedure entry");
-            adj[caller].push(callee);
-        }
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Status {
-        Unvisited,
-        OnStack,
-        Done,
-    }
-    let mut status = vec![Status::Unvisited; n_functions];
-    for root in 0..n_functions {
-        if status[root] != Status::Unvisited {
-            continue;
-        }
-        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
-        status[root] = Status::OnStack;
-        while let Some((node, next_edge)) = stack.last().copied() {
-            if next_edge < adj[node].len() {
-                let succ = adj[node][next_edge];
-                stack.last_mut().unwrap().1 = next_edge + 1;
-                match status[succ] {
-                    Status::Unvisited => {
-                        status[succ] = Status::OnStack;
-                        stack.push((succ, 0));
-                    }
-                    Status::OnStack => {
-                        return Err(Error::UnsupportedBrillig {
-                            reason: "Brillig procedure call graph contains a cycle \
-                                     (recursion through procedures is not supported)"
-                                .to_string(),
-                        });
-                    }
-                    Status::Done => {}
-                }
-            } else {
-                status[node] = Status::Done;
-                stack.pop();
-            }
-        }
-    }
-    Ok(())
-}
