@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use super::cfg::{BlockId, Cfg, DomTree, Terminator};
+use super::{BlockId, Cfg, DomTree, Terminator};
 
 impl fmt::Debug for Cfg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -76,7 +76,11 @@ impl fmt::Debug for Cfg {
         writeln!(
             f,
             "\nProcedures:{}",
-            if self.procedures.is_empty() { " none" } else { "" },
+            if self.procedures.is_empty() {
+                " none"
+            } else {
+                ""
+            },
         )?;
         for (i, p) in self.procedures.iter().enumerate() {
             if i > 0 {
@@ -139,7 +143,17 @@ fn walk(
     let pp = format!("{p}{}", cont(c));
     let ks = &k[b.0];
     for (i, &x) in ks.iter().enumerate() {
-        walk(f, x, k, &pp, if i + 1 == ks.len() { "└── " } else { "├── " })?;
+        walk(
+            f,
+            x,
+            k,
+            &pp,
+            if i + 1 == ks.len() {
+                "└── "
+            } else {
+                "├── "
+            },
+        )?;
     }
     Ok(())
 }
@@ -172,7 +186,11 @@ fn dfs(
             body,
             seen,
             &pp,
-            if i + 1 == ks.len() { "└── " } else { "├── " },
+            if i + 1 == ks.len() {
+                "└── "
+            } else {
+                "├── "
+            },
         )?;
     }
     Ok(())
