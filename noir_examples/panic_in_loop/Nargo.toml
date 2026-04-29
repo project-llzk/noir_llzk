@@ -1,0 +1,6 @@
+[package]
+name = "panic_in_loop"
+type = "bin"
+authors = []
+
+[dependencies]

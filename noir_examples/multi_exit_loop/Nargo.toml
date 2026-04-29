@@ -1,0 +1,6 @@
+[package]
+name = "multi_exit_loop"
+type = "bin"
+authors = [""]
+
+[dependencies]
