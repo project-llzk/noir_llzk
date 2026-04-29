@@ -82,7 +82,10 @@ impl fmt::Debug for Cfg {
             if i > 0 {
                 writeln!(f)?;
             }
-            writeln!(f, "  entry=b{}  return=b{}", p.entry.0, p.return_block.0)?;
+            match p.return_block {
+                Some(b) => writeln!(f, "  entry=b{}  return=b{}", p.entry.0, b.0)?,
+                None => writeln!(f, "  entry=b{}  diverging (no return)", p.entry.0)?,
+            }
             let mut v = vec![false; n];
             dfs(f, p.entry, &self.successors, Some(&p.body), &mut v, "", "")?;
         }
@@ -97,11 +100,13 @@ fn s(n: usize) -> &'static str {
 fn kind(t: &Terminator) -> &'static str {
     match t {
         Terminator::Jump(_) => "jump",
+        Terminator::Fallthrough(_) => "fall-through",
         Terminator::JumpIf { .. } => "if/else",
         Terminator::Call { .. } => "call",
         Terminator::Return => "return",
         Terminator::Stop => "stop",
         Terminator::Trap => "trap",
+        Terminator::TrapReturn => "trap-return",
     }
 }
 

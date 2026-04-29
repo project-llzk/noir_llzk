@@ -315,7 +315,7 @@ fn procedure_identified_with_single_return() {
     assert_eq!(cfg.procedures.len(), 1);
     let proc = &cfg.procedures[0];
     assert_eq!(proc.entry, BlockId(2));
-    assert_eq!(proc.return_block, BlockId(2));
+    assert_eq!(proc.return_block, Some(BlockId(2)));
     assert_eq!(proc.body.len(), 1);
     assert!(proc.body.contains(&BlockId(2)));
 }
@@ -336,9 +336,10 @@ fn procedure_with_multiple_returns_is_rejected() {
     //   5: Return                  (else arm)
     let err = Cfg::build(&[call(2), brillig_stop(), jump_if(4), jump(5), ret(), ret()])
         .expect_err("procedure with multiple returns should be rejected");
+    let reason = unsupported_reason(err);
     assert!(
-        unsupported_reason(err).contains("procedure at block 2 has 2 `Return` blocks"),
-        "expected multi-return rejection"
+        reason.contains("procedure at block 2") && reason.contains("found 2"),
+        "expected multi-exit rejection, got: {reason}"
     );
 }
 
@@ -349,9 +350,10 @@ fn procedure_with_no_return_is_rejected() {
     //   2: Stop                    (procedure body exits via Stop, not Return)
     let err = Cfg::build(&[call(2), brillig_stop(), brillig_stop()])
         .expect_err("procedure with no return should be rejected");
+    let reason = unsupported_reason(err);
     assert!(
-        unsupported_reason(err).contains("procedure at block 2 has 0 `Return` blocks"),
-        "expected no-return rejection"
+        reason.contains("procedure at block 2") && reason.contains("found 0"),
+        "expected no-exit rejection, got: {reason}"
     );
 }
 
