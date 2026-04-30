@@ -15,6 +15,7 @@ mod flow;
 mod memory;
 mod opcodes;
 pub(crate) mod registry;
+pub(crate) mod structurer;
 mod translator;
 
 use std::collections::BTreeSet;
