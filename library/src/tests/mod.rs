@@ -24,6 +24,7 @@ mod e2e;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;
+mod noir_helpers;
 
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
