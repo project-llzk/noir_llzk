@@ -1,5 +1,4 @@
 use super::block_splitting::{Block, BlockId, Terminator};
-use super::utils::unique_call_targets;
 use crate::Error;
 use std::collections::BTreeSet;
 
@@ -29,11 +28,10 @@ pub(super) fn identify_procedures(
     blocks: &[Block],
     successors: &[Vec<BlockId>],
     caller_succ: &[Vec<BlockId>],
+    call_targets: &[BlockId],
 ) -> Result<Vec<Procedure>, Error> {
-    let entries = unique_call_targets(blocks);
-
     let mut procedures = Vec::new();
-    for entry in entries {
+    for &entry in call_targets {
         let body = procedure_body(entry, caller_succ);
         let exits: Vec<BlockId> = body
             .iter()

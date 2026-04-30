@@ -11,15 +11,10 @@ use divergence::{
 use dom_tree::{DomTree, check_reducible};
 use loops::detect_natural_loops;
 use procedures::{Procedure, identify_procedures};
-use utils::{compute_successors, invert_edges};
+use utils::{caller_successors, compute_successors, invert_edges, unique_call_targets};
 
-// Re-exports for the sibling `structurer` module. `BlockId` and
-// `Terminator` are `pub(crate)` because tests import them directly;
-// `NaturalLoop` and `caller_successors` are `pub(super)` (brillig-scope)
-// since they're consumed only inside this module tree.
 pub(crate) use block_splitting::{BlockId, Terminator};
 pub(super) use loops::NaturalLoop;
-pub(super) use utils::caller_successors;
 
 // ── Cfg ─────────────────────────────────────────────────────────────────
 mod block_splitting;
@@ -38,11 +33,17 @@ pub(crate) struct Cfg {
     pub(crate) successors: Vec<Vec<BlockId>>,
     /// `predecessors[i]` — predecessor [`BlockId`]s of block `i`.
     pub(crate) predecessors: Vec<Vec<BlockId>>,
+    /// Caller-view successors: a non-divergent `Call` yields only its
+    /// `continuation`; a divergent `Call` yields nothing; everything else
+    /// mirrors `successors`. See [`utils::caller_successors`].
+    pub(crate) caller_succ: Vec<Vec<BlockId>>,
     pub(crate) dominators: DomTree,
     pub(crate) post_dominators: DomTree,
     pub(crate) loops: Vec<NaturalLoop>,
     /// One entry per distinct `Call` target.
     pub(crate) procedures: Vec<Procedure>,
+    /// Block indices of non-returning functions
+    pub(crate) divergent_entries: BTreeSet<BlockId>,
     /// Blocks where every forward path ends at a
     /// *divergent* leaf — `Trap`, `TrapReturn`, or `Call` to a divergent
     /// procedure.
@@ -55,21 +56,27 @@ impl Cfg {
         let block_ranges = split_blocks(bytecode)?;
         let index_to_block = index_ranges(&block_ranges);
         let mut blocks = classify(bytecode, &block_ranges, &index_to_block)?;
-        let initial_successors = compute_successors(&blocks);
-        let initial_predecessors = invert_edges(&initial_successors);
 
-        rewrite_trap_return_pattern(&mut blocks, &initial_predecessors);
+        let mut successors = compute_successors(&blocks);
+        let mut predecessors = invert_edges(&successors);
 
-        let divergent_entries = compute_non_returning_calls(&blocks);
+        rewrite_trap_return_pattern(&mut blocks, &predecessors);
+
+        // `Call` terminators are stable across both rewrites — neither
+        // adds nor removes them — so collect call targets once and reuse.
+        let call_targets = unique_call_targets(&blocks);
+        let divergent_entries = compute_non_returning_calls(&blocks, &call_targets);
 
         // Recognise the *dangling-constrain-skip* shape that
         // `codegen_if_not(cond, |ctx| call_<divergent>())` emits when the
         // construct is the last in its function. The skip-arm is dead by construction.
         // Replace the `JumpIf` with a `Jump` to the trap-arm.
-        rewrite_dangling_constrain_skips(&mut blocks, &divergent_entries);
-
-        let successors = compute_successors(&blocks);
-        let predecessors = invert_edges(&successors);
+        rewrite_dangling_constrain_skips(
+            &mut blocks,
+            &mut successors,
+            &mut predecessors,
+            &divergent_entries,
+        );
 
         // Caller-view of the CFG, computed once and shared by post-dominator
         // construction and always-divergent analysis.
@@ -78,7 +85,7 @@ impl Cfg {
             .collect();
         let caller_pred = invert_edges(&caller_succ);
 
-        let procedures = identify_procedures(&blocks, &successors, &caller_succ)?;
+        let procedures = identify_procedures(&blocks, &successors, &caller_succ, &call_targets)?;
 
         // Forward dom tree uses the caller-view edge set with a virtual
         // super-entry seeded from `BlockId(0)` plus every procedure entry.
@@ -101,10 +108,12 @@ impl Cfg {
             blocks,
             successors,
             predecessors,
+            caller_succ,
             dominators,
             post_dominators,
             loops,
             procedures,
+            divergent_entries,
             divergent_blocks,
         })
     }

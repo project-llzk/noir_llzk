@@ -1,5 +1,4 @@
 use super::block_splitting::{Block, BlockId, Terminator};
-use super::utils::unique_call_targets;
 use std::collections::BTreeSet;
 
 /// Returns the set of blocks where every forward path (in [`caller_successors`]
@@ -86,9 +85,12 @@ pub(crate) fn rewrite_trap_return_pattern(blocks: &mut [Block], predecessors: &[
 /// Pattern: block A is `JumpIf cond, then=t, else=e` with
 /// `e.start == A.end_exclusive`, `t.start == e.end_exclusive`, `e`
 /// trap-emitting (`Trap`/`TrapReturn`/`Call <divergent>`), and `t` a
-/// call target. Retags A as `Jump(e)`.
+/// call target. Retags A as `Jump(e)` and patches the dropped
+/// `A → t` edge out of `successors` / `predecessors`.
 pub(super) fn rewrite_dangling_constrain_skips(
     blocks: &mut [Block],
+    successors: &mut [Vec<BlockId>],
+    predecessors: &mut [Vec<BlockId>],
     divergent_entries: &BTreeSet<BlockId>,
 ) {
     let entry_points: BTreeSet<BlockId> = blocks
@@ -100,6 +102,7 @@ pub(super) fn rewrite_dangling_constrain_skips(
         .collect();
 
     let mut to_rewrite: Vec<(usize, BlockId)> = Vec::new();
+    let mut edge_removals: Vec<(BlockId, BlockId)> = Vec::new();
     for (i, b) in blocks.iter().enumerate() {
         let Terminator::JumpIf {
             then_block,
@@ -134,18 +137,27 @@ pub(super) fn rewrite_dangling_constrain_skips(
             continue;
         }
         to_rewrite.push((i, else_block));
+        edge_removals.push((BlockId(i), then_block));
     }
 
     for (i, jump_target) in to_rewrite {
         blocks[i].terminator = Terminator::Jump(jump_target);
     }
+    for (source, removed) in edge_removals {
+        successors[source.0].retain(|&s| s != removed);
+        predecessors[removed.0].retain(|&p| p != source);
+    }
 }
 
 /// Procedure entries whose entry block terminates with
 /// [`Terminator::TrapReturn`].
-pub(crate) fn compute_non_returning_calls(blocks: &[Block]) -> BTreeSet<BlockId> {
-    unique_call_targets(blocks)
-        .into_iter()
+pub(crate) fn compute_non_returning_calls(
+    blocks: &[Block],
+    call_targets: &[BlockId],
+) -> BTreeSet<BlockId> {
+    call_targets
+        .iter()
+        .copied()
         .filter(|e| matches!(blocks[e.0].terminator, Terminator::TrapReturn))
         .collect()
 }

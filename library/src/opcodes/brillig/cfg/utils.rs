@@ -42,7 +42,7 @@ pub(crate) fn invert_edges(successors: &[Vec<BlockId>]) -> Vec<Vec<BlockId>> {
 /// is dead code — the procedure never resumes); everything else mirrors the
 /// raw `successors` graph. Used by post-dom and loop-exit analyses, which
 /// model caller flow rather than the call-graph union.
-pub(in super::super) fn caller_successors(
+pub(super) fn caller_successors(
     blocks: &[Block],
     successors: &[Vec<BlockId>],
     divergent_entries: &BTreeSet<BlockId>,
