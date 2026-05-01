@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use acir::brillig::MemoryAddress;
 
 use super::escape_flag::validate_escape_flag_positions;
-use super::loop_shape::classify_loop_header;
+use super::loop_shape::get_loop_shape;
 use super::{EscapeFlagSlot, RegionNode};
 use crate::error::Error;
 use crate::opcodes::brillig::cfg::{BlockId, Cfg, Terminator};
@@ -70,7 +70,10 @@ impl<'a> State<'a> {
     }
 
     /// Walks `[entry, …)`. `end_block = Some(b)` stops at `b` (if-arm
-    /// join); `None` walks until a leaf terminator.
+    /// join); `None` walks until a leaf terminator. The back-edge stop
+    /// (`current == ctx.header`) is suppressed on the first iteration so
+    /// callers can pass `entry == ctx.header` when walking a loop's
+    /// header prefix.
     fn structure_region(
         &mut self,
         entry: BlockId,
@@ -79,6 +82,7 @@ impl<'a> State<'a> {
     ) -> Result<Vec<RegionNode>, Error> {
         let mut nodes = Vec::new();
         let mut current = entry;
+        let mut first = true;
         loop {
             // Reached the enclosing loop's exit destination — a break.
             // Tag this branch with `SetEscapeFlag`.
@@ -94,11 +98,11 @@ impl<'a> State<'a> {
             }
             // Other stopping reasons — the named join block
             // or the enclosing loop's header.
-            if matches!(end_block, Some(stop) if stop == current)
-                || loop_ctx.is_some_and(|c| c.header == current)
-            {
+            let header_stop = !first && loop_ctx.is_some_and(|c| c.header == current);
+            if matches!(end_block, Some(stop) if stop == current) || header_stop {
                 return Ok(nodes);
             }
+            first = false;
 
             // New loop header? Switch to loop structuring.
             if let Some(&loop_idx) = self.loop_index_by_header.get(&current) {
@@ -286,14 +290,15 @@ impl<'a> State<'a> {
         let r#loop = self.cfg.loops[loop_idx].clone();
         let header = r#loop.header;
 
-        let shape = classify_loop_header(self.cfg, &r#loop)?;
+        let shape = get_loop_shape(self.cfg, &r#loop)?;
 
         // Need a flag iff some exit edge starts at a non-header block.
-        // Header-arm exits use the condition directly.
+        // Header-arm exits (from natural or effective header) use the
+        // condition directly.
         let body_internal_exits = shape
             .exit_edges
             .iter()
-            .filter(|(src, _)| *src != header)
+            .filter(|(src, _)| *src != header && *src != shape.effective_header)
             .count();
         let escape_flag = if body_internal_exits > 0 {
             Some(self.alloc_escape_flag())
@@ -306,7 +311,15 @@ impl<'a> State<'a> {
             exit_dest: shape.exit_dest,
             escape_flag,
         };
-        let body = self.structure_region(shape.body_entry, None, Some(body_ctx))?;
+
+        // Structure the header prefix (intra-body work between natural
+        // and effective header) when they differ, then the body proper.
+        let mut body = if shape.effective_header != header {
+            self.structure_region(header, Some(shape.effective_header), Some(body_ctx))?
+        } else {
+            Vec::new()
+        };
+        body.extend(self.structure_region(shape.body_entry, None, Some(body_ctx))?);
         if escape_flag.is_some() {
             validate_escape_flag_positions(&body, header)?;
         }

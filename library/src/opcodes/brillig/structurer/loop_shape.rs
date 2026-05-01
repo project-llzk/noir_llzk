@@ -1,6 +1,6 @@
 //! Classification of natural-loop headers and their exit edges.
 //!
-//! Pure functions over the [`Cfg`]. A successful classification yields a
+//! A successful classification yields a
 //! [`LoopShape`] consumed by the walker to build a [`super::RegionNode::Loop`].
 
 use acir::brillig::MemoryAddress;
@@ -11,6 +11,10 @@ use crate::opcodes::brillig::cfg::{BlockId, Cfg, NaturalLoop, Terminator};
 
 /// Classification of a natural loop's header.
 pub(super) struct LoopShape {
+    /// Block whose terminator decides the iteration's exit. Equals the
+    /// natural header except when intra-body joining `JumpIf`s precede
+    /// the actual exit-deciding block.
+    pub(super) effective_header: BlockId,
     pub(super) body_entry: BlockId,
     pub(super) exit_dest: BlockId,
     /// Trampoline blocks between the header's natural exit arm and
@@ -26,11 +30,13 @@ pub(super) struct LoopShape {
 
 /// Classifies a natural loop's header. `JumpIf`-terminated → `while` shape
 /// with condition; `Jump`-terminated → `loop` shape, requires a single
-/// converging in-body exit edge.
-pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<LoopShape, Error> {
+/// converging in-body exit edge. Classification is matched against the
+/// *effective* header (see [`find_effective_header`]).
+pub(super) fn get_loop_shape(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<LoopShape, Error> {
     let header = n_loop.header;
     let exit_edges = collect_exit_edges(cfg, n_loop);
-    let shape = match cfg.blocks[header.0].terminator {
+    let effective_header = find_effective_header(cfg, n_loop);
+    let shape = match cfg.blocks[effective_header.0].terminator {
         Terminator::JumpIf {
             condition,
             then_block,
@@ -41,6 +47,7 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
             match (then_in, else_in) {
                 (true, false) => jumpif_shape(
                     cfg,
+                    effective_header,
                     condition,
                     then_block,
                     else_block,
@@ -49,6 +56,7 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
                 ),
                 (false, true) => jumpif_shape(
                     cfg,
+                    effective_header,
                     condition,
                     else_block,
                     then_block,
@@ -58,9 +66,9 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
                 _ => {
                     return Err(Error::UnsupportedBrillig {
                         reason: format!(
-                            "Brillig loop header b{}: JumpIf must have exactly one target \
-                             inside the loop body",
-                            header.0
+                            "Brillig loop header b{} (effective b{}): JumpIf must have \
+                             exactly one target inside the loop body",
+                            header.0, effective_header.0
                         ),
                     });
                 }
@@ -89,6 +97,7 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
             // check below validates that every other edge agrees.
             let exit_dest = walk_to_canonical(cfg, exit_edges[0].1).1;
             LoopShape {
+                effective_header,
                 body_entry: target,
                 exit_dest,
                 exit_prefix: Vec::new(),
@@ -99,17 +108,20 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
         other => {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(
-                    "Brillig loop header b{} terminates in {:?}; only JumpIf, \
-                     Jump and Fallthrough headers are supported",
-                    header.0, other
+                    "Brillig loop header b{} (effective b{}) terminates in {:?}; only \
+                     JumpIf, Jump and Fallthrough headers are supported",
+                    header.0, effective_header.0, other
                 ),
             });
         }
     };
-    // Invariant: every exit edge canonicalizes to shape.exit_dest.
+    // Invariant: every exit edge eventually converges at shape.exit_dest.
+    // Use the convergence walker (canonical + post-dominator pass-through)
+    // so a break path containing its own joining if/else is recognised.
+    let convergence_target = walk_to_convergence(cfg, shape.exit_dest);
     for (src, dst) in &shape.exit_edges {
-        let canonical = walk_to_canonical(cfg, *dst).1;
-        if canonical != shape.exit_dest {
+        let canonical = walk_to_convergence(cfg, *dst);
+        if canonical != convergence_target {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(
                     "Brillig loop header b{}: exit edge b{}→b{} converges on \
@@ -126,6 +138,7 @@ pub(super) fn classify_loop_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<Lo
 /// walked to its canonical destination; polarity records the continuation truth value.
 fn jumpif_shape(
     cfg: &Cfg,
+    effective_header: BlockId,
     condition: MemoryAddress,
     body_entry: BlockId,
     exit_arm: BlockId,
@@ -134,6 +147,7 @@ fn jumpif_shape(
 ) -> LoopShape {
     let (exit_prefix, exit_dest) = walk_to_canonical(cfg, exit_arm);
     LoopShape {
+        effective_header,
         body_entry,
         exit_dest,
         exit_prefix,
@@ -145,25 +159,82 @@ fn jumpif_shape(
     }
 }
 
+/// Walks from the natural-loop header past `JumpIf`s that aren't real
+/// exit-deciders. Two skip shapes are recognised:
+/// - **Joining branch**: both arms in body → step to the post-dominator.
+/// - **Header-level trap-peephole**: one arm in body, other arm in
+///   `divergent_blocks` (an in-loop `assert`) → step to the in-body arm.
+fn find_effective_header(cfg: &Cfg, n_loop: &NaturalLoop) -> BlockId {
+    let mut cur = n_loop.header;
+    loop {
+        let Terminator::JumpIf {
+            then_block,
+            else_block,
+            ..
+        } = cfg.blocks[cur.0].terminator
+        else {
+            return cur;
+        };
+        let then_in = n_loop.body.contains(&then_block);
+        let else_in = n_loop.body.contains(&else_block);
+        let next = if then_in && else_in {
+            let Some(pd) = cfg.post_dominators.idom(cur) else {
+                return cur;
+            };
+            if !n_loop.body.contains(&pd) {
+                return cur;
+            }
+            pd
+        } else if then_in && cfg.divergent_blocks.contains(&else_block) {
+            then_block
+        } else if else_in && cfg.divergent_blocks.contains(&then_block) {
+            else_block
+        } else {
+            return cur;
+        };
+        if next == cur {
+            return cur;
+        }
+        cur = next;
+    }
+}
+
+/// Lenient canonical walk: [`walk_to_canonical`] plus a post-dominator
+/// pass-through for any `JumpIf` we get stuck at. Used only for the
+/// loop-exit convergence check, where break paths may contain their own
+/// internal if/else (structured separately by `structure_joining_cond`)
+/// before reaching the post-loop block.
+fn walk_to_convergence(cfg: &Cfg, start: BlockId) -> BlockId {
+    let mut cur = walk_to_canonical(cfg, start).1;
+    while let Terminator::JumpIf { .. } = cfg.blocks[cur.0].terminator
+        && let Some(pd) = cfg.post_dominators.idom(cur)
+    {
+        cur = walk_to_canonical(cfg, pd).1;
+    }
+    cur
+}
 /// Walks forward through "trampoline" blocks (single-pred / single-succ
 /// `Jump` or `Fallthrough`). Returns the chain visited and the first
 /// non-trampoline block; chain is empty if `start` itself isn't a trampoline.
+/// Single-pred uses the caller view, ignoring divergent-`Call` continuation
+/// predecessors.
 pub(super) fn walk_to_canonical(cfg: &Cfg, start: BlockId) -> (Vec<BlockId>, BlockId) {
     let mut chain = Vec::new();
     let mut cur = start;
-    loop {
-        let single_pred = cfg.predecessors[cur.0].len() == 1;
-        let single_succ = cfg.successors[cur.0].len() == 1;
-        let is_jump = matches!(
-            cfg.blocks[cur.0].terminator,
-            Terminator::Jump(_) | Terminator::Fallthrough(_)
-        );
-        if !(single_pred && single_succ && is_jump) {
-            return (chain, cur);
-        }
+    while is_trampoline(cfg, cur) {
         chain.push(cur);
         cur = cfg.successors[cur.0][0];
     }
+    (chain, cur)
+}
+
+fn is_trampoline(cfg: &Cfg, b: BlockId) -> bool {
+    cfg.caller_pred[b.0].len() == 1
+        && cfg.successors[b.0].len() == 1
+        && matches!(
+            cfg.blocks[b.0].terminator,
+            Terminator::Jump(_) | Terminator::Fallthrough(_)
+        )
 }
 
 /// Returns every `(src_in_body, dst_outside_body)` edge using the caller's
