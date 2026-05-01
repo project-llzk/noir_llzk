@@ -65,11 +65,15 @@ pub(super) fn identify_procedures(
                 let _ = b;
                 None
             }
+            // No `Return` / `TrapReturn` exits, but every leaf is `Trap`
+            // (guaranteed by `leaves_well_formed`): an all-trap
+            // divergent procedure.
+            [] if leaves_well_formed => None,
             other => {
                 return Err(Error::UnsupportedBrillig {
                     reason: format!(
                         "Brillig procedure at block {}: expected exactly one \
-                         `Return` or `TrapReturn` exit, found {}",
+                         `Return` or `TrapReturn` exit (or all-`Trap` leaves), found {}",
                         entry.0,
                         other.len()
                     ),
@@ -98,4 +102,3 @@ fn procedure_body(entry: BlockId, caller_succ: &[Vec<BlockId>]) -> BTreeSet<Bloc
     }
     body
 }
-
