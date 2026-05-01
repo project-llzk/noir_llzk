@@ -1,4 +1,5 @@
 use super::block_splitting::{Block, BlockId, Terminator};
+use crate::Error;
 use std::collections::BTreeSet;
 
 /// Returns the set of blocks where every forward path (in [`caller_successors`]
@@ -77,76 +78,68 @@ pub(crate) fn rewrite_trap_return_pattern(blocks: &mut [Block], predecessors: &[
     }
 }
 
-/// Drops the dead then-arm of a *dangling-constrain-skip*: a
-/// `codegen_if_not(cond, trap_or_call_divergent())` emitted last in an
-/// artifact, whose `end_label` links to the next artifact's entry — i.e.
-/// another procedure.
+/// Drops every dead `JumpIf` arm whose target is another procedure's entry
+/// block. Any non-`Call` edge into an entry is a Noir codegen artifact.
+/// Retags such `JumpIf`s as `Jump(live_arm)` and patches `successors` /
+/// `predecessors`.
 ///
-/// Pattern: block A is `JumpIf cond, then=t, else=e` with
-/// `e.start == A.end_exclusive`, `t.start == e.end_exclusive`, `e`
-/// trap-emitting (`Trap`/`TrapReturn`/`Call <divergent>`), and `t` a
-/// call target. Retags A as `Jump(e)` and patches the dropped
-/// `A → t` edge out of `successors` / `predecessors`.
-pub(super) fn rewrite_dangling_constrain_skips(
+/// Errors in following cases:
+/// - a `JumpIf` with **both** arms targeting procedure entries, or
+/// - a `Jump` / `Fallthrough` directly into a procedure entry.
+pub(super) fn rewrite_dead_jumpif_to_procedure_entry(
     blocks: &mut [Block],
     successors: &mut [Vec<BlockId>],
     predecessors: &mut [Vec<BlockId>],
-    divergent_entries: &BTreeSet<BlockId>,
-) {
-    let entry_points: BTreeSet<BlockId> = blocks
-        .iter()
-        .filter_map(|b| match b.terminator {
-            Terminator::Call { target, .. } => Some(target),
-            _ => None,
-        })
-        .collect();
-
-    let mut to_rewrite: Vec<(usize, BlockId)> = Vec::new();
-    let mut edge_removals: Vec<(BlockId, BlockId)> = Vec::new();
+    call_targets: &[BlockId],
+) -> Result<(), Error> {
+    let entries: BTreeSet<BlockId> = call_targets.iter().copied().collect();
+    let mut to_rewrite: Vec<(usize, BlockId, BlockId)> = Vec::new();
     for (i, b) in blocks.iter().enumerate() {
-        let Terminator::JumpIf {
-            then_block,
-            else_block,
-            ..
-        } = b.terminator
-        else {
-            continue;
-        };
-        // Linear-layout check: codegen_if_not lays out
-        //   [A: JumpIf cond, end_label] [B: body] [end_label = T: …]
-        // contiguously. A.end == B.start and B.end == T.start.
-        if blocks[else_block.0].start != b.end_exclusive
-            || blocks[then_block.0].start != blocks[else_block.0].end_exclusive
-        {
-            continue;
+        match b.terminator {
+            Terminator::JumpIf {
+                then_block,
+                else_block,
+                ..
+            } => {
+                let then_dead = entries.contains(&then_block);
+                let else_dead = entries.contains(&else_block);
+                match (then_dead, else_dead) {
+                    (true, false) => to_rewrite.push((i, else_block, then_block)),
+                    (false, true) => to_rewrite.push((i, then_block, else_block)),
+                    (true, true) => {
+                        return Err(Error::UnsupportedBrillig {
+                            reason: format!(
+                                "Brillig block b{}: JumpIf has both arms targeting \
+                                 procedure entries (b{} and b{}); no live continuation",
+                                i, then_block.0, else_block.0
+                            ),
+                        });
+                    }
+                    (false, false) => {}
+                }
+            }
+            Terminator::Jump(target) | Terminator::Fallthrough(target)
+                if entries.contains(&target) =>
+            {
+                return Err(Error::UnsupportedBrillig {
+                    reason: format!(
+                        "Brillig block b{}: non-Call edge targets procedure entry b{}; \
+                         procedures must be entered only via Call",
+                        i, target.0
+                    ),
+                });
+            }
+            _ => {}
         }
-        // T must be a procedure entry — that's what makes the skip-arm
-        // a *dangling* edge (a layout coincidence, not real flow).
-        if !entry_points.contains(&then_block) {
-            continue;
-        }
-        // B must be a trap-emitting block: Trap, TrapReturn, or a Call
-        // to a divergent procedure. Anything else means this is a
-        // legitimate JumpIf, not a constrain-skip.
-        let trap_emitting = match blocks[else_block.0].terminator {
-            Terminator::Trap | Terminator::TrapReturn => true,
-            Terminator::Call { target, .. } => divergent_entries.contains(&target),
-            _ => false,
-        };
-        if !trap_emitting {
-            continue;
-        }
-        to_rewrite.push((i, else_block));
-        edge_removals.push((BlockId(i), then_block));
     }
 
-    for (i, jump_target) in to_rewrite {
-        blocks[i].terminator = Terminator::Jump(jump_target);
+    for (i, live_arm, dead_arm) in to_rewrite {
+        blocks[i].terminator = Terminator::Jump(live_arm);
+        successors[i].retain(|&s| s != dead_arm);
+        predecessors[dead_arm.0].retain(|&p| p != BlockId(i));
     }
-    for (source, removed) in edge_removals {
-        successors[source.0].retain(|&s| s != removed);
-        predecessors[removed.0].retain(|&p| p != source);
-    }
+
+    Ok(())
 }
 
 /// Procedure entries whose entry block terminates with

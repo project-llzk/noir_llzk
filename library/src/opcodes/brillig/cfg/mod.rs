@@ -5,7 +5,7 @@ use acir::FieldElement;
 use acir::brillig::Opcode as B;
 use block_splitting::{Block, classify, index_ranges, split_blocks};
 use divergence::{
-    compute_always_divergent, compute_non_returning_calls, rewrite_dangling_constrain_skips,
+    compute_always_divergent, compute_non_returning_calls, rewrite_dead_jumpif_to_procedure_entry,
     rewrite_trap_return_pattern,
 };
 use dom_tree::{DomTree, check_reducible};
@@ -67,16 +67,14 @@ impl Cfg {
         let call_targets = unique_call_targets(&blocks);
         let divergent_entries = compute_non_returning_calls(&blocks, &call_targets);
 
-        // Recognise the *dangling-constrain-skip* shape that
-        // `codegen_if_not(cond, |ctx| call_<divergent>())` emits when the
-        // construct is the last in its function. The skip-arm is dead by construction.
-        // Replace the `JumpIf` with a `Jump` to the trap-arm.
-        rewrite_dangling_constrain_skips(
+        // Drop `JumpIf` arms whose target is another procedure's
+        // entry.
+        rewrite_dead_jumpif_to_procedure_entry(
             &mut blocks,
             &mut successors,
             &mut predecessors,
-            &divergent_entries,
-        );
+            &call_targets,
+        )?;
 
         // Caller-view of the CFG, computed once and shared by post-dominator
         // construction and always-divergent analysis.
