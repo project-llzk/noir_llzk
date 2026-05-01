@@ -35,7 +35,7 @@ pub(super) struct LoopShape {
 pub(super) fn get_loop_shape(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<LoopShape, Error> {
     let header = n_loop.header;
     let exit_edges = collect_exit_edges(cfg, n_loop);
-    let effective_header = find_effective_header(cfg, n_loop);
+    let effective_header = find_effective_header(cfg, n_loop)?;
     let shape = match cfg.blocks[effective_header.0].terminator {
         Terminator::JumpIf {
             condition,
@@ -164,46 +164,52 @@ fn jumpif_shape(
 /// - **Joining branch**: both arms in body → step to the post-dominator.
 /// - **Header-level trap-peephole**: one arm in body, other arm in
 ///   `divergent_blocks` (an in-loop `assert`) → step to the in-body arm.
-fn find_effective_header(cfg: &Cfg, n_loop: &NaturalLoop) -> BlockId {
+fn find_effective_header(cfg: &Cfg, n_loop: &NaturalLoop) -> Result<BlockId, Error> {
     let mut cur = n_loop.header;
-    loop {
-        let Terminator::JumpIf {
-            then_block,
-            else_block,
-            ..
-        } = cfg.blocks[cur.0].terminator
-        else {
-            return cur;
-        };
+    while let Terminator::JumpIf {
+        then_block,
+        else_block,
+        ..
+    } = cfg.blocks[cur.0].terminator
+    {
         let then_in = n_loop.body.contains(&then_block);
         let else_in = n_loop.body.contains(&else_block);
-        let next = if then_in && else_in {
-            let Some(pd) = cfg.post_dominators.idom(cur) else {
-                return cur;
-            };
-            if !n_loop.body.contains(&pd) {
-                return cur;
+        let next = match (then_in, else_in) {
+            (true, true) => {
+                let Some(pd) = cfg.post_dominators.idom(cur) else {
+                    return Err(Error::UnsupportedBrillig {
+                        reason: format!(
+                            "Brillig loop header b{}: has both \
+                            arms in the loop that do not join",
+                            cur.0
+                        ),
+                    });
+                };
+                if !n_loop.body.contains(&pd) {
+                    return Err(Error::UnsupportedBrillig {
+                        reason: format!(
+                            "Brillig loop header b{}: has both \
+                            arms in the loop but their join (b{}) is not in loop",
+                            cur.0, pd.0
+                        ),
+                    });
+                }
+                pd
             }
-            pd
-        } else if then_in && cfg.divergent_blocks.contains(&else_block) {
-            then_block
-        } else if else_in && cfg.divergent_blocks.contains(&then_block) {
-            else_block
-        } else {
-            return cur;
+            (true, false) if cfg.divergent_blocks.contains(&else_block) => then_block,
+            (false, true) if cfg.divergent_blocks.contains(&then_block) => else_block,
+            _ => break,
         };
         if next == cur {
-            return cur;
+            break;
         }
         cur = next;
     }
+    Ok(cur)
 }
 
 /// Lenient canonical walk: [`walk_to_canonical`] plus a post-dominator
-/// pass-through for any `JumpIf` we get stuck at. Used only for the
-/// loop-exit convergence check, where break paths may contain their own
-/// internal if/else (structured separately by `structure_joining_cond`)
-/// before reaching the post-loop block.
+/// pass-through for any `JumpIf` we get stuck at.
 fn walk_to_convergence(cfg: &Cfg, start: BlockId) -> BlockId {
     let mut cur = walk_to_canonical(cfg, start).1;
     while let Terminator::JumpIf { .. } = cfg.blocks[cur.0].terminator
@@ -213,6 +219,7 @@ fn walk_to_convergence(cfg: &Cfg, start: BlockId) -> BlockId {
     }
     cur
 }
+
 /// Walks forward through "trampoline" blocks (single-pred / single-succ
 /// `Jump` or `Fallthrough`). Returns the chain visited and the first
 /// non-trampoline block; chain is empty if `start` itself isn't a trampoline.
