@@ -37,6 +37,11 @@ pub(crate) struct Cfg {
     /// `continuation`; a divergent `Call` yields nothing; everything else
     /// mirrors `successors`. See [`utils::caller_successors`].
     pub(crate) caller_succ: Vec<Vec<BlockId>>,
+    /// Caller-view predecessors: inverse of `caller_succ`. Excludes
+    /// divergent-`Call` continuations (the bytecode reserves a block
+    /// after every `Call` even when the callee never returns; that edge
+    /// is never traversed at runtime).
+    pub(crate) caller_pred: Vec<Vec<BlockId>>,
     pub(crate) dominators: DomTree,
     pub(crate) post_dominators: DomTree,
     pub(crate) loops: Vec<NaturalLoop>,
@@ -107,6 +112,7 @@ impl Cfg {
             successors,
             predecessors,
             caller_succ,
+            caller_pred,
             dominators,
             post_dominators,
             loops,
