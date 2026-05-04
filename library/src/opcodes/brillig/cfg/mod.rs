@@ -43,6 +43,8 @@ pub(crate) struct Cfg {
     /// is never traversed at runtime).
     pub(crate) caller_pred: Vec<Vec<BlockId>>,
     pub(crate) dominators: DomTree,
+    /// Post-dominator tree built over the live caller view (edges into
+    /// [`Self::divergent_blocks`] are dropped — see trap-peephole join finding).
     pub(crate) post_dominators: DomTree,
     pub(crate) loops: Vec<NaturalLoop>,
     /// One entry per distinct `Call` target.
@@ -96,16 +98,29 @@ impl Cfg {
         roots.push(BlockId(0));
         roots.extend(procedures.iter().map(|p| p.entry));
         let dominators = DomTree::build_with_super_entry(&caller_succ, &caller_pred, &roots);
-        let post_dominators = DomTree::build_post(&blocks, &caller_succ, &caller_pred);
+
+        // Blocks from which every forward path bottoms out at a divergent
+        // leaf (`Trap`/`TrapReturn`/`Call`-divergent).
+        let divergent_blocks =
+            compute_always_divergent(&blocks, &caller_succ, &caller_pred, &divergent_entries);
+
+        // Live caller view: caller_succ minus edges into divergent blocks.
+        let live_caller_succ: Vec<Vec<BlockId>> = caller_succ
+            .iter()
+            .map(|succs| {
+                succs
+                    .iter()
+                    .copied()
+                    .filter(|s| !divergent_blocks.contains(s))
+                    .collect()
+            })
+            .collect();
+        let live_caller_pred = invert_edges(&live_caller_succ);
+
+        let post_dominators = DomTree::build_post(&blocks, &live_caller_succ, &live_caller_pred);
         let loops = detect_natural_loops(&caller_pred, &dominators, blocks.len());
 
         check_reducible(&caller_succ, &dominators)?;
-
-        // Blocks from which every forward path bottoms out at a
-        // divergent leaf (`Trap`/`TrapReturn`/`Call`-divergent), with
-        // no escape via `Return` or `Stop`.
-        let divergent_blocks =
-            compute_always_divergent(&blocks, &caller_succ, &caller_pred, &divergent_entries);
 
         Ok(Cfg {
             blocks,
