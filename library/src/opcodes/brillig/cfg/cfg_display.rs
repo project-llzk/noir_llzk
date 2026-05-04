@@ -179,7 +179,7 @@ fn dfs(
     let ks: Vec<_> = succ[b.0]
         .iter()
         .copied()
-        .filter(|x| body.map_or(true, |t| t.contains(x)))
+        .filter(|x| body.is_none_or(|t| t.contains(x)))
         .collect();
     for (i, &x) in ks.iter().enumerate() {
         dfs(

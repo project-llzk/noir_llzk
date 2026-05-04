@@ -49,8 +49,6 @@ pub(crate) struct Cfg {
     pub(crate) loops: Vec<NaturalLoop>,
     /// One entry per distinct `Call` target.
     pub(crate) procedures: Vec<Procedure>,
-    /// Block indices of non-returning functions
-    pub(crate) divergent_entries: BTreeSet<BlockId>,
     /// Blocks where every forward path ends at a
     /// *divergent* leaf — `Trap`, `TrapReturn`, or `Call` to a divergent
     /// procedure.
@@ -132,7 +130,6 @@ impl Cfg {
             post_dominators,
             loops,
             procedures,
-            divergent_entries,
             divergent_blocks,
         })
     }
