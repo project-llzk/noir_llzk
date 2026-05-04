@@ -5,9 +5,12 @@
 //! opcode via [`build_handler`](super::opcodes::build_handler) and executes
 //! it against the shared [`TranslationCtx`].
 
+use std::ops::Range;
+
 use acir::FieldElement;
 use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
+    Opcode as BrilligOpcode,
 };
 use acir::circuit::brillig::BrilligBytecode;
 use llzk::prelude::Value;
@@ -216,13 +219,31 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
     }
 }
 
+// ── Per-range emission ─────────────────────────────────────────────────
+
+/// Runs per-opcode handlers over `bytecode[range.start..range.end]` against
+/// `ctx`. Returns the first [`OpcodeAction::Return`] encountered (a `Stop`
+/// inside the range), or [`OpcodeAction::Continue`] if the range was fully
+/// traversed without one.
+pub(crate) fn translate_block_body<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
+    bytecode: &[BrilligOpcode<FieldElement>],
+    range: Range<usize>,
+) -> Result<OpcodeAction<'c, 'b>, Error> {
+    for i in range {
+        let handler = build_handler(i, &bytecode[i])?;
+        if let action @ OpcodeAction::Return(_) = handler.execute(ctx, i)? {
+            return Ok(action);
+        }
+    }
+    Ok(OpcodeAction::Continue)
+}
+
 // ── Main entry point ───────────────────────────────────────────────────
 
 /// Translates `bytecode` into the body of a Brillig sibling function.
 ///
-/// Each opcode is converted to a [`BrilligHandler`](super::opcodes::BrilligHandler)
-/// trait object via [`build_handler`](super::opcodes::build_handler), then
-/// executed against the shared [`TranslationCtx`]. On `Stop` (or
+/// Walks every opcode through [`translate_block_body`]. On `Stop` (or
 /// end-of-bytecode) the translator returns the SSA values the caller
 /// should pass to `function.return`.
 ///
@@ -242,11 +263,10 @@ pub(super) fn translate_bytecode<'c, 'b>(
         expected_output_count,
     };
 
-    for (i, op) in bytecode.bytecode.iter().enumerate() {
-        let handler = build_handler(i, op)?;
-        if let OpcodeAction::Return(vals) = handler.execute(&mut ctx, i)? {
-            return Ok(vals);
-        }
+    if let OpcodeAction::Return(vals) =
+        translate_block_body(&mut ctx, &bytecode.bytecode, 0..bytecode.bytecode.len())?
+    {
+        return Ok(vals);
     }
 
     // End-of-bytecode without an explicit `Stop` — no return data.

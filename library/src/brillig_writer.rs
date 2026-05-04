@@ -25,15 +25,24 @@ pub(crate) fn is_felt_type(ty: Type<'_>) -> bool {
 
 /// Block writer for module-level Brillig sibling functions.
 ///
-/// Operations are appended to the end of the block. The caller is responsible
-/// for appending the `function.return` terminator after translation.
+/// Ordinary ops are appended to `current_block`. Constant ops
+/// (`felt.constant`, `arith.constant`) are appended to `constants_block`,
+///
+/// The caller is responsible for appending the `function.return`
+/// terminator after translation.
 pub(crate) struct BrilligWriter<'c, 'a> {
     context: &'c LlzkContext,
-    block: BlockRef<'c, 'a>,
+    /// Where ordinary ops are appended.
+    current_block: BlockRef<'c, 'a>,
+    /// Where `felt.constant` and `arith.constant` ops are appended.
+    constants_block: BlockRef<'c, 'a>,
     location: Location<'c>,
-    /// Cache of `felt.constant` values — each distinct field element is emitted at most once.
+    /// Cache of `felt.constant` values — each distinct field element is
+    /// emitted at most once per function. Safe to share across regions
+    /// because every cached `Value` lives in `constants_block`.
     constant_cache: HashMap<FieldElement, Value<'c, 'a>>,
-    /// Cache of `arith.constant` index values — each distinct integer is emitted at most once.
+    /// Cache of `arith.constant` index values — same dominance argument
+    /// as [`Self::constant_cache`].
     integer_cache: HashMap<usize, Value<'c, 'a>>,
 }
 
@@ -42,11 +51,31 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         let block_ref = unsafe { BlockRef::from_raw(block.to_raw()) };
         Self {
             context,
-            block: block_ref,
+            current_block: block_ref,
+            constants_block: block_ref,
             location: Location::unknown(context),
             constant_cache: HashMap::new(),
             integer_cache: HashMap::new(),
         }
+    }
+
+    /// Redirects this writer's `current_block` to `block` and returns a
+    /// [`BlockSaved`] handle that the caller passes to
+    /// [`Self::leave_block`] to restore the previous insertion target.
+    /// `constants_block` is unaffected — see the type docs.
+    ///
+    /// On the error path callers typically discard the writer, so missing
+    /// a `leave_block` is benign.
+    pub(crate) fn enter_block(&mut self, block: &Block<'c>) -> BlockRef<'c, 'a> {
+        let saved = self.current_block;
+        self.current_block = unsafe { BlockRef::from_raw(block.to_raw()) };
+        saved
+    }
+
+    /// Restores the writer to the state captured by
+    /// [`Self::enter_block`].
+    pub(crate) fn leave_block(&mut self, saved: BlockRef<'c, 'a>) {
+        self.current_block = saved;
     }
 
     // ── Type helpers ────────────────────────────────────────────────────
@@ -192,6 +221,22 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::bool::gt(self.location, lhs, rhs)?)
     }
 
+    /// Emits `bool.assert cond` (no failure message).
+    pub(crate) fn insert_bool_assert(&self, cond: Value<'c, 'a>) -> Result<(), Error> {
+        self.insert_op(dialect::bool::assert(self.location, cond, None)?);
+        Ok(())
+    }
+
+    /// Materialises `val` (a felt holding `0` or `1`) as an `i1` via
+    /// `bool.cmp eq(val, 1)`.
+    pub(crate) fn insert_felt_to_bool(
+        &mut self,
+        val: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        let one = self.emit_constant(&FieldElement::from(1u128))?;
+        self.insert_bool_eq(val, one)
+    }
+
     // ── Cast operations ────────────────────────────────────────────────
 
     /// Emits `cast.toindex val`, converting a felt value to the index type.
@@ -240,6 +285,39 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
 
     // ── Structured control flow ────────────────────────────────────────
 
+    /// Wraps `then_block` and `else_block` (already populated with their
+    /// region bodies) in a no-result `scf.if` and appends it to
+    /// `current_block`. Each region's `scf.yield` terminator is emitted
+    /// here so callers don't need access to the writer's location.
+    ///
+    /// Used by the structured emitter for `RegionNode::IfThenElse`: the
+    /// caller builds an empty `Block` per arm, drives recursive emission
+    /// against it via [`Self::enter_block`] / [`Self::leave_block`], then
+    /// hands both blocks to this method.
+    pub(crate) fn insert_scf_if(
+        &self,
+        cond: Value<'c, 'a>,
+        then_block: Block<'c>,
+        else_block: Block<'c>,
+    ) -> Result<(), Error> {
+        then_block.append_operation(scf::r#yield(&[], self.location));
+        else_block.append_operation(scf::r#yield(&[], self.location));
+
+        let then_region = Region::new();
+        then_region.append_block(then_block);
+        let else_region = Region::new();
+        else_region.append_block(else_block);
+
+        self.insert_op(scf::r#if(
+            cond,
+            &[],
+            then_region,
+            else_region,
+            self.location,
+        ));
+        Ok(())
+    }
+
     /// Emits `scf.if` as a branchless select: yields `then_val` when `cond`
     /// (an `i1`) is true, otherwise `else_val`. Both values must share
     /// `result_ty`, which is also the type of the returned SSA value.
@@ -271,29 +349,35 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
 
     // ── Caching helpers ─────────────────────────────────────────────────
 
-    /// Returns a `felt.constant` value for the given field element, emitting
-    /// the operation at most once per distinct value per block.
+    /// Returns a `felt.constant` value for the given field element,
+    /// emitting the operation into `constants_block` at most once per
+    /// distinct value per function.
     pub(crate) fn emit_constant(&mut self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
         if let Some(&val) = self.constant_cache.get(fe) {
             return Ok(val);
         }
         let attr = field_to_felt_const(self.context, fe);
-        let val = self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)?;
+        let op = self
+            .constants_block
+            .append_operation(dialect::felt::constant(self.location, attr)?);
+        let val: Value<'c, 'a> = op.result(0)?.into();
         self.constant_cache.insert(*fe, val);
         Ok(val)
     }
 
-    /// Returns an `arith.constant` index value for `i`, emitting the operation
-    /// at most once per distinct value per block.
+    /// Returns an `arith.constant` index value for `i`, emitting the
+    /// operation into `constants_block` at most once per distinct value
+    /// per function.
     pub(crate) fn insert_integer(&mut self, i: usize) -> Result<Value<'c, 'a>, Error> {
         if let Some(&val) = self.integer_cache.get(&i) {
             return Ok(val);
         }
-        let val = self.insert_op_with_result(arith::constant(
+        let op = self.constants_block.append_operation(arith::constant(
             self.context,
             IntegerAttribute::new(Type::index(self.context), i as i64).into(),
             self.location,
-        ))?;
+        ));
+        let val: Value<'c, 'a> = op.result(0)?.into();
         self.integer_cache.insert(i, val);
         Ok(val)
     }
@@ -305,8 +389,8 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         Ok(self.insert_op(op).result(0)?.into())
     }
 
-    /// Appends `op` to the end of the block.
+    /// Appends `op` to the end of `current_block`.
     fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
-        self.block.append_operation(op)
+        self.current_block.append_operation(op)
     }
 }

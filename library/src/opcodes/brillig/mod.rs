@@ -15,6 +15,7 @@ mod flow;
 mod memory;
 mod opcodes;
 pub(crate) mod registry;
+mod structured_translator;
 pub(crate) mod structurer;
 mod translator;
 

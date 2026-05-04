@@ -25,7 +25,9 @@ use llzk::prelude::{
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-use super::translator::translate_bytecode;
+use super::cfg::Cfg;
+use super::structured_translator::translate_structured;
+use super::structurer::structure_function;
 
 /// Collector of unique Brillig call sites across a program.
 pub(crate) struct BrilligRegistry<'c, 'p> {
@@ -120,9 +122,13 @@ pub(crate) fn emit_brillig_functions<'c>(
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
         let mut writer = BrilligWriter::new(context, &body_block);
-        let returns = translate_bytecode(
+        let cfg = Cfg::build(&entry.bytecode.bytecode)?;
+        let structured = structure_function(&cfg)?;
+        let returns = translate_structured(
             &mut writer,
             entry.bytecode,
+            &cfg,
+            &structured,
             &calldata,
             entry.output_types.len(),
         )?;
