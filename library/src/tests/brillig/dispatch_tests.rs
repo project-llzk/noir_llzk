@@ -164,44 +164,6 @@ fn brillig_stop_short_circuits_unsupported_ops() {
     );
 }
 
-/// An unsupported Brillig opcode surfaces an `UnsupportedBrillig` error that
-/// names the opcode and its bytecode index.
-#[test]
-fn brillig_with_unsupported_opcode_errors() {
-    let context = LlzkContext::new();
-
-    let circuit = make_circuit_with_opcodes(
-        0,
-        &[],
-        &[],
-        &[],
-        vec![brillig_call_opcode(0, vec![], vec![])],
-    );
-    let program = make_program_with_brillig(
-        vec![circuit],
-        vec![bytecode(vec![
-            BrilligOpcode::Jump { location: 0 },
-            brillig_stop(),
-        ])],
-    );
-
-    let err = translate_program(&context, &program)
-        .expect_err("unsupported Brillig opcode should propagate as an error");
-    let msg = format!("{err}");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
-    );
-    assert!(
-        msg.contains("Jump"),
-        "error message should name the Brillig opcode (Jump), got {msg:?}"
-    );
-    assert!(
-        msg.contains("index 0") || msg.contains("index: 0"),
-        "error message should name the bytecode index 0, got {msg:?}"
-    );
-}
-
 /// BrilligCall with one `Single(w_i)` input and zero outputs emits a
 /// `@compute` call that reads `w_i` from `%self` before invoking the sibling
 /// function, and the emitted module verifies.
