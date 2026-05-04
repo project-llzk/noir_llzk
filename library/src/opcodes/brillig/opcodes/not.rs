@@ -2,7 +2,7 @@ use acir::brillig::{IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 pub(super) struct NotHandler {
@@ -12,11 +12,11 @@ pub(super) struct NotHandler {
 }
 
 impl BrilligHandler<'_> for NotHandler {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         // Brillig `Not` is n-bit complement, not felt-wide complement.
         // `felt.bit_not` would flip all bits of the prime's representation,
         // so we implement it as `src XOR (2^n - 1)` instead.
@@ -24,6 +24,6 @@ impl BrilligHandler<'_> for NotHandler {
         let mask_val = ctx.emit_mask_constant(self.bit_size)?;
         let result = ctx.writer.insert_felt_bit_xor(src, mask_val)?;
         ctx.memory.write(ctx.writer, self.destination, result)?;
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

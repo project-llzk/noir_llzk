@@ -2,7 +2,7 @@ use acir::brillig::{BinaryFieldOp, MemoryAddress};
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 pub(super) struct BinaryFieldOpHandler<'a> {
@@ -13,15 +13,15 @@ pub(super) struct BinaryFieldOpHandler<'a> {
 }
 
 impl<'a> BrilligHandler<'a> for BinaryFieldOpHandler<'a> {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let lhs_v = ctx.memory.read(ctx.writer, self.lhs)?;
         let rhs_v = ctx.memory.read(ctx.writer, self.rhs)?;
         let result = ctx.emit_binary_field_op(self.op, lhs_v, rhs_v)?;
         ctx.memory.write(ctx.writer, self.destination, result)?;
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

@@ -11,7 +11,7 @@ use acir::brillig::Opcode as B;
 
 use crate::error::Error;
 
-use super::translator::{OpcodeAction, TranslationCtx};
+use super::translator::TranslationCtx;
 
 mod binary_field_op;
 mod binary_int_op;
@@ -23,7 +23,6 @@ mod indirect_const;
 mod load;
 mod mov;
 mod not;
-mod stop;
 mod store;
 
 use self::binary_field_op::BinaryFieldOpHandler;
@@ -36,7 +35,6 @@ use self::indirect_const::IndirectConstHandler;
 use self::load::LoadHandler;
 use self::mov::MovHandler;
 use self::not::NotHandler;
-use self::stop::StopHandler;
 use self::store::StoreHandler;
 
 /// Trait that each Brillig opcode handler implements.
@@ -44,27 +42,31 @@ use self::store::StoreHandler;
 /// Handlers receive the shared [`TranslationCtx`] which provides helper
 /// methods for common operations (constant emission, type casts, etc.).
 pub(super) trait BrilligHandler<'a> {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error>;
+    ) -> Result<(), Error>;
 }
 
 /// Boxed trait object so the translate loop stays uniform.
 pub(super) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
 
-/// Converts a single `BrilligOpcode` into a boxed handler.
+/// Returns the boxed handler for `op`, or `None` when `op` has no
+/// per-opcode emission. `None` covers terminator opcodes (`Jump`,
+/// `JumpIf`, `Call`, `Return`, `Trap`, `TrapReturn`, `Stop`) — the
+/// structured emitter translates those via region nodes — plus any
+/// opcode the translator doesn't yet know how to lower; the caller
+/// (`translate_block_body`) skips both equivalently.
 pub(super) fn build_handler<'a>(
-    index: usize,
     op: &'a acir::brillig::Opcode<FieldElement>,
-) -> Result<TranslatedBrilligOp<'a>, Error> {
+) -> Option<TranslatedBrilligOp<'a>> {
     match op {
         B::Const {
             destination,
             bit_size,
             value,
-        } => Ok(Box::new(ConstHandler {
+        } => Some(Box::new(ConstHandler {
             destination: *destination,
             bit_size,
             value,
@@ -73,7 +75,7 @@ pub(super) fn build_handler<'a>(
         B::Mov {
             destination,
             source,
-        } => Ok(Box::new(MovHandler {
+        } => Some(Box::new(MovHandler {
             destination: *destination,
             source: *source,
         })),
@@ -82,7 +84,7 @@ pub(super) fn build_handler<'a>(
             destination,
             source,
             bit_size,
-        } => Ok(Box::new(CastHandler {
+        } => Some(Box::new(CastHandler {
             destination: *destination,
             source: *source,
             bit_size,
@@ -93,7 +95,7 @@ pub(super) fn build_handler<'a>(
             op,
             lhs,
             rhs,
-        } => Ok(Box::new(BinaryFieldOpHandler {
+        } => Some(Box::new(BinaryFieldOpHandler {
             destination: *destination,
             op,
             lhs: *lhs,
@@ -106,7 +108,7 @@ pub(super) fn build_handler<'a>(
             bit_size,
             lhs,
             rhs,
-        } => Ok(Box::new(BinaryIntOpHandler {
+        } => Some(Box::new(BinaryIntOpHandler {
             destination: *destination,
             op,
             bit_size: *bit_size,
@@ -117,7 +119,7 @@ pub(super) fn build_handler<'a>(
         B::Load {
             destination,
             source_pointer,
-        } => Ok(Box::new(LoadHandler {
+        } => Some(Box::new(LoadHandler {
             destination: *destination,
             source_pointer: *source_pointer,
         })),
@@ -125,7 +127,7 @@ pub(super) fn build_handler<'a>(
         B::Store {
             destination_pointer,
             source,
-        } => Ok(Box::new(StoreHandler {
+        } => Some(Box::new(StoreHandler {
             destination_pointer: *destination_pointer,
             source: *source,
         })),
@@ -134,7 +136,7 @@ pub(super) fn build_handler<'a>(
             destination_address,
             size_address,
             offset_address,
-        } => Ok(Box::new(CalldataCopyHandler {
+        } => Some(Box::new(CalldataCopyHandler {
             destination_address: *destination_address,
             size_address: *size_address,
             offset_address: *offset_address,
@@ -144,7 +146,7 @@ pub(super) fn build_handler<'a>(
             destination,
             source,
             bit_size,
-        } => Ok(Box::new(NotHandler {
+        } => Some(Box::new(NotHandler {
             destination: *destination,
             source: *source,
             bit_size: *bit_size,
@@ -154,29 +156,23 @@ pub(super) fn build_handler<'a>(
             destination_pointer,
             bit_size: _,
             value,
-        } => Ok(Box::new(IndirectConstHandler {
+        } => Some(Box::new(IndirectConstHandler {
             destination_pointer: *destination_pointer,
             value,
         })),
-
-        B::Stop { return_data } => Ok(Box::new(StopHandler { return_data })),
 
         B::ConditionalMov {
             destination,
             source_a,
             source_b,
             condition,
-        } => Ok(Box::new(ConditionalMovHandler {
+        } => Some(Box::new(ConditionalMovHandler {
             destination: *destination,
             source_a: *source_a,
             source_b: *source_b,
             condition: *condition,
         })),
 
-        other => Err(Error::UnsupportedBrillig {
-            reason: format!(
-                "Brillig opcode `{other:?}` at bytecode index {index} is not supported yet"
-            ),
-        }),
+        _ => None,
     }
 }

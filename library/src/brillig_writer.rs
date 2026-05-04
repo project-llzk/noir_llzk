@@ -227,6 +227,20 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         Ok(())
     }
 
+    /// Emits `bool.not cond`.
+    pub(crate) fn insert_bool_not(&self, cond: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::bool::not(self.location, cond)?)
+    }
+
+    /// Emits `bool.and lhs, rhs`.
+    pub(crate) fn insert_bool_and(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::bool::and(self.location, lhs, rhs)?)
+    }
+
     /// Materialises `val` (a felt holding `0` or `1`) as an `i1` via
     /// `bool.cmp eq(val, 1)`.
     pub(crate) fn insert_felt_to_bool(
@@ -264,6 +278,18 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
             "cast_to_index expected felt or index, got {ty}"
         );
         self.insert_cast_to_index(val)
+    }
+
+    // ── Index arithmetic ───────────────────────────────────────────────
+
+    /// Emits `arith.addi lhs, rhs`. Both operands must share an integer
+    /// (or `index`) type; the result is the same type.
+    pub(crate) fn insert_index_add(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(arith::addi(lhs, rhs, self.location))
     }
 
     // ── RAM operations ─────────────────────────────────────────────────
@@ -313,6 +339,44 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
             &[],
             then_region,
             else_region,
+            self.location,
+        ));
+        Ok(())
+    }
+
+    /// Appends `scf.condition cond` (no carried args) to `current_block`.
+    /// Used to terminate the before-region of an `scf.while`. The caller
+    /// is responsible for being inside the before-block when this is
+    /// called (e.g. via `enter_block`).
+    pub(crate) fn insert_scf_condition(&self, cond: Value<'c, 'a>) {
+        self.insert_op(scf::condition(cond, &[], self.location));
+    }
+
+    /// Appends `scf.yield` (no values) to `current_block`. Used to
+    /// terminate the after-region of an `scf.while` (and any other
+    /// scf-region whose body carries no result values).
+    pub(crate) fn insert_scf_yield(&self) {
+        self.insert_op(scf::r#yield(&[], self.location));
+    }
+
+    /// Wraps `before_block` and `after_block` (each already terminated
+    /// with `scf.condition` / `scf.yield` by the caller) in a no-result
+    /// `scf.while` and appends it to `current_block`.
+    pub(crate) fn insert_scf_while(
+        &self,
+        before_block: Block<'c>,
+        after_block: Block<'c>,
+    ) -> Result<(), Error> {
+        let before_region = Region::new();
+        before_region.append_block(before_block);
+        let after_region = Region::new();
+        after_region.append_block(after_block);
+
+        self.insert_op(scf::r#while(
+            &[],
+            &[],
+            before_region,
+            after_region,
             self.location,
         ));
         Ok(())

@@ -1,9 +1,4 @@
 //! Brillig bytecode → LLZK body translator.
-//!
-//! The main entry point is [`translate_bytecode`], which builds a
-//! [`BrilligHandler`](super::opcodes::BrilligHandler) trait object for each
-//! opcode via [`build_handler`](super::opcodes::build_handler) and executes
-//! it against the shared [`TranslationCtx`].
 
 use std::ops::Range;
 
@@ -12,7 +7,6 @@ use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
-use acir::circuit::brillig::BrilligBytecode;
 use llzk::prelude::Value;
 
 use crate::brillig_writer::BrilligWriter;
@@ -22,14 +16,6 @@ use super::memory::Memory;
 use super::opcodes::build_handler;
 
 // ── Core types ─────────────────────────────────────────────────────────
-
-/// Result of handling a single Brillig opcode.
-pub(crate) enum OpcodeAction<'c, 'b> {
-    /// Continue to the next opcode.
-    Continue,
-    /// Return these values (from `Stop`).
-    Return(Vec<Value<'c, 'b>>),
-}
 
 /// Shared translation state passed to each opcode handler.
 ///
@@ -41,6 +27,7 @@ pub(crate) struct TranslationCtx<'c, 'b, 'r> {
     pub(crate) memory: Memory,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
+    pub(crate) escape_flag_addrs: Vec<Value<'c, 'b>>,
 }
 
 // ── TranslationCtx shared helpers ──────────────────────────────────────
@@ -221,63 +208,20 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
 
 // ── Per-range emission ─────────────────────────────────────────────────
 
-/// Runs per-opcode handlers over `bytecode[range.start..range.end]` against
-/// `ctx`. Returns the first [`OpcodeAction::Return`] encountered (a `Stop`
-/// inside the range), or [`OpcodeAction::Continue`] if the range was fully
-/// traversed without one.
-pub(crate) fn translate_block_body<'c, 'b>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+/// Runs per-opcode handlers over `bytecode[range.start..range.end]`
+/// against `ctx`. Terminator opcodes (those for which [`build_handler`]
+/// returns `None`) are skipped — the structured emitter translates them
+/// via region nodes, not per-opcode.
+pub(crate) fn translate_block_body(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     bytecode: &[BrilligOpcode<FieldElement>],
     range: Range<usize>,
-) -> Result<OpcodeAction<'c, 'b>, Error> {
+) -> Result<(), Error> {
     for i in range {
-        let handler = build_handler(i, &bytecode[i])?;
-        if let action @ OpcodeAction::Return(_) = handler.execute(ctx, i)? {
-            return Ok(action);
-        }
+        let Some(handler) = build_handler(&bytecode[i]) else {
+            continue;
+        };
+        handler.execute(ctx, i)?;
     }
-    Ok(OpcodeAction::Continue)
-}
-
-// ── Main entry point ───────────────────────────────────────────────────
-
-/// Translates `bytecode` into the body of a Brillig sibling function.
-///
-/// Walks every opcode through [`translate_block_body`]. On `Stop` (or
-/// end-of-bytecode) the translator returns the SSA values the caller
-/// should pass to `function.return`.
-///
-/// `calldata` carries the function's block arguments in the order dictated by
-/// the flattened `BrilligInputs`. `CalldataCopy` opcodes in the bytecode read
-/// from this slice to seed the register map.
-pub(super) fn translate_bytecode<'c, 'b>(
-    writer: &mut BrilligWriter<'c, 'b>,
-    bytecode: &BrilligBytecode<FieldElement>,
-    calldata: &[Value<'c, 'b>],
-    expected_output_count: usize,
-) -> Result<Vec<Value<'c, 'b>>, Error> {
-    let mut ctx = TranslationCtx {
-        writer,
-        memory: Memory::new(),
-        calldata,
-        expected_output_count,
-    };
-
-    if let OpcodeAction::Return(vals) =
-        translate_block_body(&mut ctx, &bytecode.bytecode, 0..bytecode.bytecode.len())?
-    {
-        return Ok(vals);
-    }
-
-    // End-of-bytecode without an explicit `Stop` — no return data.
-    if ctx.expected_output_count != 0 {
-        return Err(Error::UnsupportedBrillig {
-            reason: format!(
-                "brillig function declares {} output(s) but \
-                 bytecode ended without a Stop opcode",
-                ctx.expected_output_count
-            ),
-        });
-    }
-    Ok(Vec::new())
+    Ok(())
 }

@@ -2,7 +2,7 @@ use acir::brillig::{BitSize, MemoryAddress};
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 pub(super) struct CastHandler<'a> {
@@ -12,14 +12,14 @@ pub(super) struct CastHandler<'a> {
 }
 
 impl<'a> BrilligHandler<'a> for CastHandler<'a> {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let src = ctx.memory.read(ctx.writer, self.source)?;
         let casted = ctx.emit_cast(src, self.bit_size)?;
         ctx.memory.write(ctx.writer, self.destination, casted)?;
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

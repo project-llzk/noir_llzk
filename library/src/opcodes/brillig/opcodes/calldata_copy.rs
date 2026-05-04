@@ -2,7 +2,7 @@ use acir::brillig::MemoryAddress;
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 /// Handler for Brillig's `CalldataCopy`.
@@ -20,11 +20,11 @@ pub(super) struct CalldataCopyHandler {
 }
 
 impl BrilligHandler<'_> for CalldataCopyHandler {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         i: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let size =
             ctx.memory
                 .get_const(self.size_address)?
@@ -63,6 +63,6 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
             let val = ctx.calldata[offset + j];
             ctx.memory.write(ctx.writer, addr, val)?;
         }
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

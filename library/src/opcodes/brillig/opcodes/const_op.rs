@@ -3,7 +3,7 @@ use acir::{AcirField, FieldElement};
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 pub(super) struct ConstHandler<'a> {
@@ -13,11 +13,11 @@ pub(super) struct ConstHandler<'a> {
 }
 
 impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let ssa = ctx.emit_const(self.value)?;
         // `write` clears any stale integer-constant tracking for this slot;
         // `record_const` then re-establishes it with the fresh value.
@@ -29,6 +29,6 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         {
             ctx.memory.record_const(self.destination, v as usize)?;
         }
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

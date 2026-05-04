@@ -4,7 +4,7 @@ use llzk::prelude::ValueLike;
 
 use crate::error::Error;
 
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 /// `dst = cond > 0 ? source_a : source_b`, lowered as `scf.if` with
@@ -19,11 +19,11 @@ pub(super) struct ConditionalMovHandler {
 }
 
 impl BrilligHandler<'_> for ConditionalMovHandler {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let a = ctx.memory.read(ctx.writer, self.source_a)?;
         let b = ctx.memory.read(ctx.writer, self.source_b)?;
         let cond = ctx.memory.read(ctx.writer, self.condition)?;
@@ -34,6 +34,6 @@ impl BrilligHandler<'_> for ConditionalMovHandler {
         let result = ctx.writer.insert_scf_if_select(cond_i1, a, b, a.r#type())?;
 
         ctx.memory.write(ctx.writer, self.destination, result)?;
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }

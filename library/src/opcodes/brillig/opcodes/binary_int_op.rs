@@ -4,7 +4,7 @@ use brillig_vm::STACK_POINTER_ADDRESS;
 use crate::error::Error;
 
 use super::super::memory::Memory;
-use super::super::translator::{OpcodeAction, TranslationCtx};
+use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
 pub(super) struct BinaryIntOpHandler<'a> {
@@ -16,11 +16,11 @@ pub(super) struct BinaryIntOpHandler<'a> {
 }
 
 impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
-    fn execute<'c, 'b>(
+    fn execute(
         &self,
-        ctx: &mut TranslationCtx<'c, 'b, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
-    ) -> Result<OpcodeAction<'c, 'b>, Error> {
+    ) -> Result<(), Error> {
         let lhs_v = ctx.memory.read(ctx.writer, self.lhs)?;
         let rhs_v = ctx.memory.read(ctx.writer, self.rhs)?;
         let result = ctx.emit_binary_int_op(self.op, self.bit_size, lhs_v, rhs_v)?;
@@ -32,7 +32,7 @@ impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
             ctx.memory.set_sp(sp);
         }
 
-        Ok(OpcodeAction::Continue)
+        Ok(())
     }
 }
 
