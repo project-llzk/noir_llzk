@@ -1,0 +1,6 @@
+[package]
+name = "mutual_recursion"
+type = "bin"
+authors = []
+
+[dependencies]
