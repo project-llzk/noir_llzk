@@ -26,6 +26,7 @@ mod dispatch_tests;
 mod heap_tests;
 mod register_tests;
 mod relative_addressing_tests;
+mod structurer_tests;
 
 // ── Bytecode / opcode constructors ─────────────────────────────────────
 
