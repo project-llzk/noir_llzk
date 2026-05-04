@@ -34,7 +34,6 @@ use self::return_op::ReturnHandler;
 use self::stop::StopHandler;
 use self::trap::TrapHandler;
 
-
 /// Lookup context for resolving bytecode labels to [`BlockId`]s when
 /// materializing a [`Terminator`].
 pub(super) struct ClassifyCtx<'a> {

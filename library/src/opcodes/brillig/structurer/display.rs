@@ -86,6 +86,7 @@ fn write_node(
         }
         RegionNode::Loop {
             header,
+            test_prefix,
             condition,
             escape_flag,
             body,
@@ -97,6 +98,7 @@ fn write_node(
                 fmt_loop_cond(condition),
                 fmt_flag(escape_flag),
             )?;
+            write_arm(f, "test_prefix", test_prefix, &child_prefix, false)?;
             write_arm(f, "body", body, &child_prefix, true)
         }
         RegionNode::SetEscapeFlag { slot } => {

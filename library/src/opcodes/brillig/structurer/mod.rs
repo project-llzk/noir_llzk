@@ -25,7 +25,9 @@ mod walker;
 pub(crate) enum RegionNode {
     /// Body opcodes of `block`, excluding its terminator (which has
     /// already driven the surrounding structure).
-    Linear { block: BlockId },
+    Linear {
+        block: BlockId,
+    },
 
     /// Two-arm conditional joined at the immediate post-dominator; the
     /// join is whatever follows in the parent sequence.
@@ -40,21 +42,29 @@ pub(crate) enum RegionNode {
     /// continuation condition when `escape_flag` is set.
     Loop {
         header: BlockId,
+        /// Iteration-test region: runs on entry and after every
+        /// back-edge, before `condition` is observed.
+        test_prefix: Vec<RegionNode>,
         /// `None` for `Jump`-terminated headers (`loop { … }`); `Some`
         /// for `JumpIf`-terminated headers (`while … { … }`).
         condition: Option<LoopCondition>,
         escape_flag: Option<EscapeFlagSlot>,
+        /// Body proper. Ends at the back-edge.
         body: Vec<RegionNode>,
     },
 
     /// Replaces an exit-edge `Jump`; falls through to end-of-iteration
     /// where the next header check observes the flag and exits.
-    SetEscapeFlag { slot: EscapeFlagSlot },
+    SetEscapeFlag {
+        slot: EscapeFlagSlot,
+    },
 
     /// Procedure call — leaf node. The callee's body lives in
     /// [`StructuredFunction::procedures`]; emission pushes/pops a
     /// [`super::memory::Frame`].
-    Call { target: BlockId },
+    Call {
+        target: BlockId,
+    },
 
     /// Trap-peephole result for `JumpIf cond, end; <trap-arm>; Trap; end:`.
     BoolAssert {
@@ -62,10 +72,16 @@ pub(crate) enum RegionNode {
         condition: MemoryAddress,
     },
 
-    Trap { block: BlockId },
-    Stop { block: BlockId },
+    Trap {
+        block: BlockId,
+    },
+    Stop {
+        block: BlockId,
+    },
     /// Procedure exit — emission pops the current frame and emits no IR.
-    Return { block: BlockId },
+    Return {
+        block: BlockId,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

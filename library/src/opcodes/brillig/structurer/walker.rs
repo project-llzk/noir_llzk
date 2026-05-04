@@ -65,24 +65,25 @@ impl<'a> State<'a> {
         entry: BlockId,
     ) -> Result<(Vec<RegionNode>, usize), Error> {
         self.escape_flags = 0;
-        let regions = self.structure_region(entry, None, None)?;
+        let regions = self.structure_region(entry, None, None, None)?;
         Ok((regions, self.escape_flags))
     }
 
     /// Walks `[entry, …)`. `end_block = Some(b)` stops at `b` (if-arm
-    /// join); `None` walks until a leaf terminator. The back-edge stop
-    /// (`current == ctx.header`) is suppressed on the first iteration so
-    /// callers can pass `entry == ctx.header` when walking a loop's
-    /// header prefix.
+    /// join); `None` walks until a leaf terminator. `back_edge_stop =
+    /// Some(h)` stops when the walk reaches `h` (a continue/back-edge
+    /// to the enclosing loop's header); `None` disables that stop —
+    /// used by the loop header-prefix walk so `entry == header` doesn't
+    /// terminate immediately.
     fn structure_region(
         &mut self,
         entry: BlockId,
         end_block: Option<BlockId>,
         loop_ctx: Option<LoopCtx>,
+        back_edge_stop: Option<BlockId>,
     ) -> Result<Vec<RegionNode>, Error> {
         let mut nodes = Vec::new();
         let mut current = entry;
-        let mut first = true;
         loop {
             // Reached the enclosing loop's exit destination — a break.
             // Tag this branch with `SetEscapeFlag`.
@@ -96,13 +97,13 @@ impl<'a> State<'a> {
                 nodes.push(RegionNode::SetEscapeFlag { slot });
                 return Ok(nodes);
             }
-            // Other stopping reasons — the named join block
-            // or the enclosing loop's header.
-            let header_stop = !first && loop_ctx.is_some_and(|c| c.header == current);
-            if matches!(end_block, Some(stop) if stop == current) || header_stop {
+            // Other stopping reasons — the named join block or a
+            // back-edge to the enclosing loop's header.
+            if matches!(end_block, Some(stop) if stop == current)
+                || matches!(back_edge_stop, Some(stop) if stop == current)
+            {
                 return Ok(nodes);
             }
-            first = false;
 
             // New loop header? Switch to loop structuring.
             if let Some(&loop_idx) = self.loop_index_by_header.get(&current) {
@@ -206,8 +207,11 @@ impl<'a> State<'a> {
         loop_ctx: Option<LoopCtx>,
         nodes: &mut Vec<RegionNode>,
     ) -> Result<Option<BlockId>, Error> {
-        let then_branch = self.structure_region(then_block, Some(join), loop_ctx)?;
-        let else_branch = self.structure_region(else_block, Some(join), loop_ctx)?;
+        let back_edge_stop = loop_ctx.map(|c| c.header);
+        let then_branch =
+            self.structure_region(then_block, Some(join), loop_ctx, back_edge_stop)?;
+        let else_branch =
+            self.structure_region(else_block, Some(join), loop_ctx, back_edge_stop)?;
         nodes.push(RegionNode::IfThenElse {
             cond_block,
             condition,
@@ -240,6 +244,7 @@ impl<'a> State<'a> {
     ) -> Result<Option<BlockId>, Error> {
         let then_divergent = self.cfg.divergent_blocks.contains(&then_block);
         let else_divergent = self.cfg.divergent_blocks.contains(&else_block);
+        let back_edge_stop = loop_ctx.map(|c| c.header);
         match (then_divergent, else_divergent) {
             (true, false) | (false, true) => {
                 // Half-joining: walk only the divergent arm into the
@@ -249,7 +254,8 @@ impl<'a> State<'a> {
                 } else {
                     (else_block, then_block, false)
                 };
-                let divergent_branch = self.structure_region(divergent_arm, None, loop_ctx)?;
+                let divergent_branch =
+                    self.structure_region(divergent_arm, None, loop_ctx, back_edge_stop)?;
                 let (then_branch, else_branch) = if divergent_is_then {
                     (divergent_branch, Vec::new())
                 } else {
@@ -267,8 +273,10 @@ impl<'a> State<'a> {
                 // Both arms terminate (panic or Return/Stop) — no
                 // continuation; walk each to its leaf and close the
                 // scope.
-                let then_branch = self.structure_region(then_block, None, loop_ctx)?;
-                let else_branch = self.structure_region(else_block, None, loop_ctx)?;
+                let then_branch =
+                    self.structure_region(then_block, None, loop_ctx, back_edge_stop)?;
+                let else_branch =
+                    self.structure_region(else_block, None, loop_ctx, back_edge_stop)?;
                 nodes.push(RegionNode::IfThenElse {
                     cond_block,
                     condition,
@@ -312,20 +320,29 @@ impl<'a> State<'a> {
             escape_flag,
         };
 
-        // Structure the header prefix (intra-body work between natural
-        // and effective header) when they differ, then the body proper.
-        let mut body = if shape.effective_header != header {
-            self.structure_region(header, Some(shape.effective_header), Some(body_ctx))?
+        // Iteration-test region: structure the header prefix (intra-body
+        // work between natural and effective header) when they differ.
+        let mut test_prefix = if shape.effective_header != header {
+            self.structure_region(header, Some(shape.effective_header), Some(body_ctx), None)?
         } else {
             Vec::new()
         };
-        body.extend(self.structure_region(shape.body_entry, None, Some(body_ctx))?);
+        test_prefix.push(RegionNode::Linear {
+            block: shape.effective_header,
+        });
+
+        // Body proper: walk from the in-body arm of the effective header
+        // (or the Jump target for Jump-terminated headers) until a
+        // back-edge or terminator. `back_edge_stop` catches continues to
+        // the natural header.
+        let body = self.structure_region(shape.body_entry, None, Some(body_ctx), Some(header))?;
         if escape_flag.is_some() {
             validate_escape_flag_positions(&body, header)?;
         }
 
         let mut nodes = vec![RegionNode::Loop {
             header,
+            test_prefix,
             condition: shape.condition,
             escape_flag,
             body,
