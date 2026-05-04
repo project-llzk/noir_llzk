@@ -3,12 +3,11 @@
 use std::collections::HashMap;
 
 use acir::brillig::MemoryAddress;
+use brillig_vm::STACK_POINTER_ADDRESS;
 use llzk::prelude::Value;
 
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
-
-pub(super) const STACK_POINTER_ADDRESS: MemoryAddress = MemoryAddress::Direct(0);
 
 /// Translation-time call-frame stack tracking the Brillig stack pointer.
 ///

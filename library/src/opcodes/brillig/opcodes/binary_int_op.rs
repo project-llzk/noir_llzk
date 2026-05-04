@@ -1,8 +1,9 @@
 use acir::brillig::{BinaryIntOp, IntegerBitSize, MemoryAddress};
+use brillig_vm::STACK_POINTER_ADDRESS;
 
 use crate::error::Error;
 
-use super::super::memory::{Memory, STACK_POINTER_ADDRESS};
+use super::super::memory::Memory;
 use super::super::translator::{OpcodeAction, TranslationCtx};
 use super::BrilligHandler;
 
