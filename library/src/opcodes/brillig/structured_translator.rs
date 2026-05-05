@@ -5,7 +5,6 @@
 //! for bodies that the structurer succeeds on. Each region node emits the
 //! corresponding scf-shaped IR; per-opcode emission inside a `Linear` block
 //! is delegated to [`translate_block_body`].
-//!
 
 use std::collections::HashSet;
 
@@ -247,22 +246,10 @@ fn emit_node<'c, 'b>(
             // see entries the then-arm wrote, and so we can `meet` end-
             // of-then with end-of-else at the join.
             let pre_branch = ctx.memory.clone();
-
-            let then_block = Block::new(&[]);
-            let saved = ctx.writer.enter_block(&then_block);
-            let then_outcome = emit_body(ctx, emitter, then_branch);
-            ctx.writer.leave_block(saved);
-            then_outcome?;
+            let then_block = build_block_with(ctx, |ctx| emit_body(ctx, emitter, then_branch))?;
             let after_then = ctx.memory.clone();
-
             *ctx.memory = pre_branch;
-
-            let else_block = Block::new(&[]);
-            let saved = ctx.writer.enter_block(&else_block);
-            let else_outcome = emit_body(ctx, emitter, else_branch);
-            ctx.writer.leave_block(saved);
-            else_outcome?;
-
+            let else_block = build_block_with(ctx, |ctx| emit_body(ctx, emitter, else_branch))?;
             // Post-arms cache is the intersection: only entries that
             // hold on both paths survive the join.
             ctx.memory.meet(&after_then);
@@ -282,25 +269,19 @@ fn emit_node<'c, 'b>(
             // before-region: emit `test_prefix`, compute the i1
             // continuation condition (`loop_cond AND !escape_flag` with
             // either side optional), terminate with `scf.condition`.
-            let before_block = Block::new(&[]);
-            let saved = ctx.writer.enter_block(&before_block);
-            let before_outcome = (|| -> Result<(), Error> {
+            let before_block = build_block_with(ctx, |ctx| {
                 emit_body(ctx, emitter, test_prefix)?;
                 let continue_cond =
                     compute_loop_continue_cond(ctx, condition, *escape_flag, *header)?;
                 ctx.writer.insert_scf_condition(continue_cond);
                 Ok(())
-            })();
-            ctx.writer.leave_block(saved);
-            before_outcome?;
-
+            })?;
             // after-region: emit body, terminate with `scf.yield`.
-            let after_block = Block::new(&[]);
-            let saved = ctx.writer.enter_block(&after_block);
-            let body_outcome = emit_body(ctx, emitter, body);
-            ctx.writer.insert_scf_yield();
-            ctx.writer.leave_block(saved);
-            body_outcome?;
+            let after_block = build_block_with(ctx, |ctx| {
+                emit_body(ctx, emitter, body)?;
+                ctx.writer.insert_scf_yield();
+                Ok(())
+            })?;
 
             ctx.writer.insert_scf_while(before_block, after_block)?;
             Ok(())
@@ -313,6 +294,24 @@ fn emit_node<'c, 'b>(
             Ok(())
         }
     }
+}
+
+/// Creates a fresh [`Block`], runs `f` with the writer redirected to it,
+/// then restores the previous insertion target. Returns the populated
+/// block (or propagates the closure's error).
+fn build_block_with<'c, 'b, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
+    f: F,
+) -> Result<Block<'c>, Error>
+where
+    F: FnOnce(&mut TranslationCtx<'c, 'b, '_>) -> Result<(), Error>,
+{
+    let block = Block::new(&[]);
+    let saved = ctx.writer.enter_block(&block);
+    let outcome = f(ctx);
+    ctx.writer.leave_block(saved);
+    outcome?;
+    Ok(block)
 }
 
 /// Allocates `count` escape-flag cells from the Brillig heap by bumping
@@ -330,10 +329,17 @@ fn init_escape_flags<'c, 'b>(
         return Ok(());
     }
 
-    let fmp_addr = ctx.writer.insert_integer(fmp_slot())?;
+    let fmp_slot = match FREE_MEMORY_POINTER_ADDRESS {
+        MemoryAddress::Direct(s) => s as usize,
+        MemoryAddress::Relative(_) => {
+            unreachable!("FREE_MEMORY_POINTER_ADDRESS is defined as Direct in brillig_vm")
+        }
+    };
+    let fmp_addr = ctx.writer.insert_integer(fmp_slot)?;
     let fmp_felt = ctx.writer.insert_ram_load(fmp_addr)?;
     let fmp_idx = ctx.writer.cast_to_index(fmp_felt)?;
 
+    let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
     ctx.escape_flag_addrs = Vec::with_capacity(count);
     for i in 0..count {
         let slot_addr = if i == 0 {
@@ -342,6 +348,7 @@ fn init_escape_flags<'c, 'b>(
             let offset = ctx.writer.insert_integer(i)?;
             ctx.writer.insert_index_add(fmp_idx, offset)?
         };
+        ctx.writer.insert_ram_store(slot_addr, zero);
         ctx.escape_flag_addrs.push(slot_addr);
     }
 
@@ -349,11 +356,6 @@ fn init_escape_flags<'c, 'b>(
     let bumped_idx = ctx.writer.insert_index_add(fmp_idx, count_idx)?;
     let bumped_felt = ctx.writer.insert_cast_to_felt(bumped_idx)?;
     ctx.writer.insert_ram_store(fmp_addr, bumped_felt);
-
-    let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
-    for &slot_addr in &ctx.escape_flag_addrs {
-        ctx.writer.insert_ram_store(slot_addr, zero);
-    }
     Ok(())
 }
 
@@ -400,14 +402,5 @@ fn compute_loop_continue_cond<'c, 'b>(
                 header.0
             ),
         }),
-    }
-}
-
-fn fmp_slot() -> usize {
-    match FREE_MEMORY_POINTER_ADDRESS {
-        MemoryAddress::Direct(s) => s as usize,
-        MemoryAddress::Relative(_) => {
-            unreachable!("FREE_MEMORY_POINTER_ADDRESS is defined as Direct in brillig_vm")
-        }
     }
 }
