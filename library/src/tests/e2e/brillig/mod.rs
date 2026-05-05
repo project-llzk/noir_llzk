@@ -2,5 +2,6 @@
 
 mod basic_div_tests;
 mod const_in_branch_tests;
+mod multi_exit_loop_tests;
 mod provekit_basic_tests;
 mod while_loop_tests;
