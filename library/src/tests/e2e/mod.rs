@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use acir::circuit::Circuit;
+use acir::circuit::{Circuit, Program};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::LlzkContext;
 pub(super) use llzk_interpreter::Interpreter;
@@ -13,6 +13,7 @@ use super::make_program;
 use crate::program::translate_program;
 
 mod blackboxes;
+mod brillig;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
@@ -51,8 +52,17 @@ pub(super) fn run_e2e_with_nondet(
     nondet: &[Felt],
 ) -> StructInstance {
     let program = make_program(vec![circuit]);
+    run_e2e_program(&program, inputs, nondet)
+}
+
+pub(super) fn run_e2e_program(
+    program: &Program<FieldElement>,
+    inputs: &[Value],
+    nondet: &[Felt],
+) -> StructInstance {
     let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let module = translate_program(&context, program).expect("translation should succeed");
+    println!("{:?}", module.as_operation());
     let mut interpreter = Interpreter::new(&module);
 
     interpreter.set_nondet_values(nondet.iter().cloned());

@@ -85,3 +85,18 @@ fn noir_sha256() {
 fn noir_keccak() {
     run_noir_test("keccak");
 }
+
+#[test]
+fn noir_inclusive_break() {
+    run_noir_test("inclusive_break");
+}
+
+#[test]
+fn noir_panic_after_loop() {
+    run_noir_test("panic_in_loop");
+}
+
+#[test]
+fn noir_multi_exit_loop() {
+    run_noir_test("multi_exit_loop");
+}
