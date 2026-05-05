@@ -9,69 +9,20 @@ use llzk::prelude::Value;
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-/// Translation-time call-frame stack tracking the Brillig stack pointer.
-///
-/// Brillig keeps its stack pointer at RAM slot 0. `Relative(off)` addresses
-/// resolve to `Direct(sp + off)` against the current frame's SP. A fresh
-/// [`FrameStack`] has one frame with an unset SP; the first write to slot 0
-/// initialises it.
-///
-/// `Call`/`Return` push and pop frames so the callee's `Relative(_)` accesses
-/// resolve against the callee's SP and the caller's SP is restored on return.
-/// Those wiring points land with Phase 4 of the control-flow work.
-struct FrameStack {
-    frames: Vec<Frame>,
-}
-
-struct Frame {
-    /// `None` until a `Const` / folded `BinaryIntOp` write to slot 0
-    /// establishes the SP, or again after any untracked write to slot 0
-    /// clobbers it.
-    sp: Option<usize>,
-}
-
-impl FrameStack {
-    fn new() -> Self {
-        Self {
-            frames: vec![Frame { sp: None }],
-        }
-    }
-
-    fn current_sp(&self) -> Option<usize> {
-        self.current_frame().sp
-    }
-
-    fn set_sp(&mut self, sp: usize) {
-        self.current_frame_mut().sp = Some(sp);
-    }
-
-    fn invalidate_sp(&mut self) {
-        self.current_frame_mut().sp = None;
-    }
-
-    fn current_frame(&self) -> &Frame {
-        self.frames
-            .last()
-            .expect("FrameStack invariant: at least one frame")
-    }
-
-    fn current_frame_mut(&mut self) -> &mut Frame {
-        self.frames
-            .last_mut()
-            .expect("FrameStack invariant: at least one frame")
-    }
-}
-
+#[derive(Clone)]
 pub(super) struct Memory {
     known_constants: HashMap<MemoryAddress, usize>,
-    frames: FrameStack,
+    /// Tracked stack pointer. `None` until a `Const` (or folded
+    /// `BinaryIntOp` prologue) write to slot 0 establishes it, or after
+    /// any untracked write to slot 0 clobbers it.
+    sp: Option<usize>,
 }
 
 impl Memory {
     pub(super) fn new() -> Self {
         Self {
             known_constants: HashMap::new(),
-            frames: FrameStack::new(),
+            sp: None,
         }
     }
 
@@ -80,10 +31,9 @@ impl Memory {
     /// Writes `value` (a felt) into the RAM slot identified by `addr`.
     ///
     /// Invalidates any tracked integer constant for `addr` (including the
-    /// current frame's stack pointer, if `addr` resolves to slot 0). Callers
-    /// that intend to keep tracking a constant should use
-    /// [`Self::record_const`] after this (see [`ConstHandler`](super::opcodes)
-    /// for the pattern).
+    /// stack pointer, if `addr` resolves to slot 0). Callers that intend
+    /// to keep tracking a constant should use [`Self::record_const`]
+    /// after this (see [`ConstHandler`](super::opcodes) for the pattern).
     pub(super) fn write<'c, 'b>(
         &mut self,
         writer: &mut BrilligWriter<'c, 'b>,
@@ -143,49 +93,59 @@ impl Memory {
     pub(super) fn record_const(&mut self, addr: MemoryAddress, value: usize) -> Result<(), Error> {
         let resolved = self.resolve(addr)?;
         if resolved == STACK_POINTER_ADDRESS {
-            self.frames.set_sp(value);
+            self.sp = Some(value);
         } else {
             self.known_constants.insert(resolved, value);
         }
         Ok(())
     }
 
-    /// Sets the current frame's stack pointer to `sp`. Called by handlers
-    /// that have already established destination == slot 0 (e.g. the
+    /// Sets the stack pointer to `sp`. Called by handlers that
+    /// have already established destination == slot 0 (e.g. the
     /// `BinaryIntOp` prologue fold) and want to skip re-resolving the
     /// address.
     pub(super) fn set_sp(&mut self, sp: usize) {
-        self.frames.set_sp(sp);
+        self.sp = Some(sp);
     }
 
     pub(super) fn get_const(&self, addr: MemoryAddress) -> Result<Option<usize>, Error> {
         let resolved = self.resolve(addr)?;
         if resolved == STACK_POINTER_ADDRESS {
-            Ok(self.frames.current_sp())
+            Ok(self.sp)
         } else {
             Ok(self.known_constants.get(&resolved).copied())
         }
     }
 
     /// Resolves `addr` to its canonical [`MemoryAddress::Direct`] form.
-    /// `Relative(off)` becomes `Direct(sp + off)` where `sp` is the current
-    /// frame's tracked stack pointer.
+    /// `Relative(off)` becomes `Direct(sp + off)` where `sp` is the
+    /// tracked stack pointer.
     pub(super) fn resolve(&self, addr: MemoryAddress) -> Result<MemoryAddress, Error> {
         match addr {
             MemoryAddress::Direct(_) => Ok(addr),
             MemoryAddress::Relative(offset) => {
-                let sp = self
-                    .frames
-                    .current_sp()
-                    .ok_or(Error::UnresolvedStackPointer { offset })?;
+                let sp = self.sp.ok_or(Error::UnresolvedStackPointer { offset })?;
                 Ok(MemoryAddress::Direct((sp + offset as usize) as u32))
             }
         }
     }
 
+    /// Replaces `self` with the intersection of `self` and `other`:
+    /// retains an entry only when both sides agree on the value, drops
+    /// it otherwise. Used at control-flow merge points (e.g. the post-
+    /// `scf.if` join) so cache state never claims a value that holds on
+    /// only one of the merged paths.
+    pub(super) fn meet(&mut self, other: &Memory) {
+        if self.sp != other.sp {
+            self.sp = None;
+        }
+        self.known_constants
+            .retain(|k, v| other.known_constants.get(k).copied() == Some(*v));
+    }
+
     fn invalidate_const(&mut self, resolved: MemoryAddress) {
         if resolved == STACK_POINTER_ADDRESS {
-            self.frames.invalidate_sp();
+            self.sp = None;
         } else {
             self.known_constants.remove(&resolved);
         }

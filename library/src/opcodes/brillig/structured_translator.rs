@@ -7,35 +7,115 @@
 //! is delegated to [`translate_block_body`].
 //!
 
+use std::collections::HashSet;
+
 use acir::FieldElement;
 use acir::brillig::{MemoryAddress, Opcode as BrilligOpcode};
-use acir::circuit::brillig::BrilligBytecode;
+use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
 use brillig_vm::FREE_MEMORY_POINTER_ADDRESS;
-use llzk::prelude::{Block, Value};
+use llzk::dialect::function::def;
+use llzk::prelude::{
+    Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
+    RegionLike, Value, dialect,
+};
 
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-use super::cfg::Cfg;
+use super::cfg::{BlockId, Cfg};
 use super::memory::Memory;
+use super::registry::BrilligRegistry;
 use super::structurer::{
     CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction,
+    StructuredProcedure,
 };
 use super::translator::{TranslationCtx, translate_block_body};
 
+/// Per-Brillig-function emission state.
+pub(crate) struct ProcedureEmitter<'c, 'p> {
+    pub(crate) context: &'c LlzkContext,
+    pub(crate) module: &'p Module<'c>,
+    pub(crate) location: Location<'c>,
+    pub(crate) bytecode: &'p BrilligBytecode<FieldElement>,
+    pub(crate) cfg: &'p Cfg,
+    pub(crate) procedures: &'p [StructuredProcedure],
+    pub(crate) function_id: BrilligFunctionId,
+    emitted: HashSet<BlockId>,
+}
+
+impl<'c, 'p> ProcedureEmitter<'c, 'p> {
+    pub(crate) fn new(
+        context: &'c LlzkContext,
+        module: &'p Module<'c>,
+        location: Location<'c>,
+        bytecode: &'p BrilligBytecode<FieldElement>,
+        cfg: &'p Cfg,
+        procedures: &'p [StructuredProcedure],
+        function_id: BrilligFunctionId,
+    ) -> Self {
+        Self {
+            context,
+            module,
+            location,
+            bytecode,
+            cfg,
+            procedures,
+            function_id,
+            emitted: HashSet::new(),
+        }
+    }
+
+    /// Emits the procedure whose entry is `target` if it hasn't been
+    /// emitted yet.
+    fn ensure_emitted(&mut self, target: BlockId, memory: &mut Memory) -> Result<(), Error> {
+        if !self.emitted.insert(target) {
+            return Ok(());
+        }
+
+        // Copy the procedures slice out so the lookup borrows from `'p`,
+        // not from `&mut self`. This lets us hand `&mut self` back to
+        // the recursive procedure walker while `proc` is still live.
+        let procedures: &'p [StructuredProcedure] = self.procedures;
+        let proc = procedures
+            .iter()
+            .find(|p| p.entry == target)
+            .ok_or_else(|| Error::UnsupportedBrillig {
+                reason: format!(
+                    "structured procedure for entry b{} not found in brillig function {}",
+                    target.0, self.function_id.0
+                ),
+            })?;
+
+        let proc_func_type = FunctionType::new(self.context, &[], &[]);
+        let proc_name = BrilligRegistry::procedure_function_name(self.function_id, target);
+        let proc_func = def(self.location, &proc_name, proc_func_type, &[], None)?;
+        proc_func.set_allow_witness_attr(true);
+        proc_func.set_allow_non_native_field_ops_attr(true);
+
+        let proc_body = Block::new(&[]);
+        let mut proc_writer = BrilligWriter::new(self.context, &proc_body);
+        translate_structured_procedure(&mut proc_writer, memory, self, proc)?;
+        proc_body.append_operation(dialect::function::r#return(self.location, &[]));
+        proc_func.region(0)?.append_block(proc_body);
+        self.module.body().append_operation(proc_func.into());
+        Ok(())
+    }
+}
+
 /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
-/// function.
+/// function. Procedures referenced from the walk are emitted lazily via
+/// `emitter`.
 pub(crate) fn translate_structured<'c, 'b>(
     writer: &mut BrilligWriter<'c, 'b>,
-    bytecode: &BrilligBytecode<FieldElement>,
-    cfg: &Cfg,
+    memory: &mut Memory,
+    emitter: &mut ProcedureEmitter<'c, '_>,
     structured: &StructuredFunction,
     calldata: &[Value<'c, 'b>],
     expected_output_count: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
     let mut ctx = TranslationCtx {
         writer,
-        memory: Memory::new(),
+        memory,
         calldata,
         expected_output_count,
         escape_flag_addrs: Vec::new(),
@@ -50,16 +130,16 @@ pub(crate) fn translate_structured<'c, 'b>(
             reason: "structured main body is empty (must end with Stop)".into(),
         })?;
 
-    emit_body(&mut ctx, &bytecode.bytecode, cfg, head)?;
+    emit_body(&mut ctx, emitter, head)?;
 
     let RegionNode::Stop { block: stop_block } = tail else {
         return Err(Error::UnsupportedBrillig {
             reason: format!("structured main body must end with Stop, found {tail:?}"),
         });
     };
-    let bd = &cfg.blocks[stop_block.0];
+    let bd = &emitter.cfg.blocks[stop_block.0];
     let stop_idx = bd.end_exclusive - 1;
-    match &bytecode.bytecode[stop_idx] {
+    match &emitter.bytecode.bytecode[stop_idx] {
         BrilligOpcode::Stop { return_data } => ctx.emit_return_data(return_data, stop_idx),
         other => Err(Error::UnsupportedBrillig {
             reason: format!(
@@ -71,28 +151,50 @@ pub(crate) fn translate_structured<'c, 'b>(
     }
 }
 
+/// Emits one [`StructuredProcedure`]'s body. The procedure's
+/// `function.return` terminator is appended by [`ProcedureEmitter::ensure_emitted`],
+/// not here — this only walks the body's region nodes against the shared
+/// `Memory`.
+fn translate_structured_procedure<'c, 'b>(
+    writer: &mut BrilligWriter<'c, 'b>,
+    memory: &mut Memory,
+    emitter: &mut ProcedureEmitter<'c, '_>,
+    procedure: &StructuredProcedure,
+) -> Result<(), Error> {
+    let mut ctx = TranslationCtx {
+        writer,
+        memory,
+        calldata: &[],
+        expected_output_count: 0,
+        escape_flag_addrs: Vec::new(),
+    };
+    init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
+    emit_body(&mut ctx, emitter, &procedure.body)
+}
+
 fn emit_body<'c, 'b>(
     ctx: &mut TranslationCtx<'c, 'b, '_>,
-    bytecode: &[BrilligOpcode<FieldElement>],
-    cfg: &Cfg,
+    emitter: &mut ProcedureEmitter<'c, '_>,
     nodes: &[RegionNode],
 ) -> Result<(), Error> {
     for node in nodes {
-        emit_node(ctx, bytecode, cfg, node)?;
+        emit_node(ctx, emitter, node)?;
     }
     Ok(())
 }
 
 fn emit_node<'c, 'b>(
     ctx: &mut TranslationCtx<'c, 'b, '_>,
-    bytecode: &[BrilligOpcode<FieldElement>],
-    cfg: &Cfg,
+    emitter: &mut ProcedureEmitter<'c, '_>,
     node: &RegionNode,
 ) -> Result<(), Error> {
     match node {
         RegionNode::Linear { block } => {
-            let bd = &cfg.blocks[block.0];
-            translate_block_body(ctx, bytecode, bd.start..bd.end_exclusive)
+            let range = {
+                let bd = &emitter.cfg.blocks[block.0];
+                bd.start..bd.end_exclusive
+            };
+            translate_block_body(ctx, &emitter.bytecode.bytecode, range)
         }
 
         RegionNode::Stop { .. } => unreachable!(
@@ -117,19 +219,18 @@ fn emit_node<'c, 'b>(
             Ok(())
         }
 
-        RegionNode::Return { .. } => Err(Error::UnsupportedBrillig {
-            reason: "Return region node not yet supported by structured emitter \
-                     (Phase E: procedure emission)"
-                .into(),
-        }),
+        RegionNode::Return { .. } => {
+            // The procedure-body emitter (`ProcedureEmitter::ensure_emitted`)
+            // appends `function.return` once the walk finishes, so this
+            // region node has no per-site IR.
+            Ok(())
+        }
 
-        RegionNode::Call { target } => Err(Error::UnsupportedBrillig {
-            reason: format!(
-                "Call(target=b{}) not yet supported by structured emitter \
-                 (Phase E: procedure emission)",
-                target.0
-            ),
-        }),
+        RegionNode::Call { target } => {
+            emitter.ensure_emitted(*target, ctx.memory)?;
+            let name = BrilligRegistry::procedure_function_name(emitter.function_id, *target);
+            ctx.writer.insert_function_call(&name)
+        }
 
         RegionNode::IfThenElse {
             condition,
@@ -142,17 +243,29 @@ fn emit_node<'c, 'b>(
             let cond_felt = ctx.memory.read(ctx.writer, *condition)?;
             let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
 
+            // Snapshot pre-branch cache so the else-arm walk doesn't
+            // see entries the then-arm wrote, and so we can `meet` end-
+            // of-then with end-of-else at the join.
+            let pre_branch = ctx.memory.clone();
+
             let then_block = Block::new(&[]);
             let saved = ctx.writer.enter_block(&then_block);
-            let then_outcome = emit_body(ctx, bytecode, cfg, then_branch);
+            let then_outcome = emit_body(ctx, emitter, then_branch);
             ctx.writer.leave_block(saved);
             then_outcome?;
+            let after_then = ctx.memory.clone();
+
+            *ctx.memory = pre_branch;
 
             let else_block = Block::new(&[]);
             let saved = ctx.writer.enter_block(&else_block);
-            let else_outcome = emit_body(ctx, bytecode, cfg, else_branch);
+            let else_outcome = emit_body(ctx, emitter, else_branch);
             ctx.writer.leave_block(saved);
             else_outcome?;
+
+            // Post-arms cache is the intersection: only entries that
+            // hold on both paths survive the join.
+            ctx.memory.meet(&after_then);
 
             ctx.writer
                 .insert_scf_if(cond_bool, then_block, else_block)?;
@@ -172,7 +285,7 @@ fn emit_node<'c, 'b>(
             let before_block = Block::new(&[]);
             let saved = ctx.writer.enter_block(&before_block);
             let before_outcome = (|| -> Result<(), Error> {
-                emit_body(ctx, bytecode, cfg, test_prefix)?;
+                emit_body(ctx, emitter, test_prefix)?;
                 let continue_cond =
                     compute_loop_continue_cond(ctx, condition, *escape_flag, *header)?;
                 ctx.writer.insert_scf_condition(continue_cond);
@@ -184,7 +297,7 @@ fn emit_node<'c, 'b>(
             // after-region: emit body, terminate with `scf.yield`.
             let after_block = Block::new(&[]);
             let saved = ctx.writer.enter_block(&after_block);
-            let body_outcome = emit_body(ctx, bytecode, cfg, body);
+            let body_outcome = emit_body(ctx, emitter, body);
             ctx.writer.insert_scf_yield();
             ctx.writer.leave_block(saved);
             body_outcome?;

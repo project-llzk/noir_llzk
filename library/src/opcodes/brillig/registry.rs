@@ -26,7 +26,8 @@ use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::cfg::Cfg;
-use super::structured_translator::translate_structured;
+use super::memory::Memory;
+use super::structured_translator::{ProcedureEmitter, translate_structured};
 use super::structurer::structure_function;
 
 /// Collector of unique Brillig call sites across a program.
@@ -51,6 +52,17 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
     /// Returns the canonical LLZK symbol name for a Brillig function id.
     pub(crate) fn function_name(id: BrilligFunctionId) -> String {
         format!("brillig_{}", id.0)
+    }
+
+    /// Returns the canonical LLZK symbol name for a procedure inside a
+    /// Brillig function. The id qualifier prevents collisions when two
+    /// distinct Brillig functions both contain a procedure entering at
+    /// the same block id.
+    pub(crate) fn procedure_function_name(
+        id: BrilligFunctionId,
+        entry: super::cfg::BlockId,
+    ) -> String {
+        format!("brillig_{}_proc_b{}", id.0, entry.0)
     }
 
     /// Records a call site for `id`. On first registration the marshalling
@@ -124,14 +136,30 @@ pub(crate) fn emit_brillig_functions<'c>(
         let mut writer = BrilligWriter::new(context, &body_block);
         let cfg = Cfg::build(&entry.bytecode.bytecode)?;
         let structured = structure_function(&cfg)?;
-        let returns = translate_structured(
-            &mut writer,
+
+        // One Memory shared by the main body and every procedure of this
+        // Brillig function.
+        let mut memory = Memory::new();
+
+        let mut emitter = ProcedureEmitter::new(
+            context,
+            module,
+            location,
             entry.bytecode,
             &cfg,
+            &structured.procedures,
+            *id,
+        );
+
+        let returns = translate_structured(
+            &mut writer,
+            &mut memory,
+            &mut emitter,
             &structured,
             &calldata,
             entry.output_types.len(),
         )?;
+
         body_block.append_operation(dialect::function::r#return(location, &returns));
         func.region(0)?.append_block(body_block);
         module.body().append_operation(func.into());

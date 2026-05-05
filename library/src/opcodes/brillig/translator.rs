@@ -24,7 +24,7 @@ use super::opcodes::build_handler;
 /// the function's calldata.
 pub(crate) struct TranslationCtx<'c, 'b, 'r> {
     pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) memory: Memory,
+    pub(crate) memory: &'r mut Memory,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
     pub(crate) escape_flag_addrs: Vec<Value<'c, 'b>>,

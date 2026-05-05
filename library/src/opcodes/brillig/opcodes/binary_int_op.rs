@@ -26,7 +26,7 @@ impl<'a> BrilligHandler<'a> for BinaryIntOpHandler<'a> {
         let result = ctx.emit_binary_int_op(self.op, self.bit_size, lhs_v, rhs_v)?;
 
         // Compute any SP fold before `write` invalidates the current SP.
-        let new_sp = self.try_fold_sp_prologue(&ctx.memory)?;
+        let new_sp = self.try_fold_sp_prologue(ctx.memory)?;
         ctx.memory.write(ctx.writer, self.destination, result)?;
         if let Some(sp) = new_sp {
             ctx.memory.set_sp(sp);

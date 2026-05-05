@@ -8,10 +8,11 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
+use llzk::builder::OpBuilder;
 use llzk::prelude::melior_dialects::{arith, scf};
 use llzk::prelude::{
-    Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
+    Block, BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, IntegerAttribute, LlzkContext,
+    Location, Operation, OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -357,6 +358,22 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// scf-region whose body carries no result values).
     pub(crate) fn insert_scf_yield(&self) {
         self.insert_op(scf::r#yield(&[], self.location));
+    }
+
+    /// Appends `function.call @<name>()` (no args, no results) to
+    /// `current_block`.
+    pub(crate) fn insert_function_call(&self, name: &str) -> Result<(), Error> {
+        let no_results: &[Type<'c>] = &[];
+        let no_args: &[Value<'c, 'a>] = &[];
+        let call_op = dialect::function::call(
+            &OpBuilder::new(self.context),
+            self.location,
+            FlatSymbolRefAttribute::new(self.context, name),
+            no_args,
+            no_results,
+        )?;
+        self.insert_op(call_op.into());
+        Ok(())
     }
 
     /// Wraps `before_block` and `after_block` (each already terminated
