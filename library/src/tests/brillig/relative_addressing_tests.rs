@@ -102,21 +102,20 @@ fn sp_prologue_add_updates_stack_pointer() {
 }
 
 #[test]
-fn sp_prologue_add_with_unknown_rhs_leaves_sp_invalid() {
-    // If the prologue's RHS isn't a tracked integer constant, the handler
-    // cannot fold and SP is left invalidated — any later `Relative(_)` access
-    // must error rather than resolve against a stale SP.
+fn sp_reassignment_after_initial_setup_triggers_dynamic_addressing() {
+    // A second slot-0 write (the prologue `Add` here) flips the program
+    // into dynamic-SP mode.
     let context = LlzkContext::new();
-    let err = translate_body(
+    let module = translate_body(
         &context,
         vec![
-            // SP = 10
+            // SP = 10  (initial setup; doesn't itself trigger dynamic
+            // mode — it's the second slot-0 write below that does.)
             const_int(0, IntegerBitSize::U32, 10),
-            // register 5 holds a computed (non-Const-tracked) value
             const_field(5, 3),
-            // slot 0 += register 5  → can't fold; SP invalidated
+            // slot 0 += register 5  — second slot-0 write → dynamic mode
             binary_int_op(0, BinaryIntOp::Add, IntegerBitSize::U32, 0, 5),
-            // Mov Relative(0) -> Direct(20)  — should now fail
+            // Mov Relative(0) -> Direct(20)  — emits dynamic addressing
             BrilligOpcode::Mov {
                 destination: addr(20),
                 source: rel(0),
@@ -124,11 +123,8 @@ fn sp_prologue_add_with_unknown_rhs_leaves_sp_invalid() {
             brillig_stop(),
         ],
     )
-    .expect_err("Relative read after unfoldable SP prologue should fail");
-    assert!(
-        matches!(err, Error::UnresolvedStackPointer { offset: 0 }),
-        "expected UnresolvedStackPointer {{ offset: 0 }}, got {err:?}"
-    );
+    .expect("dynamic-mode translation should succeed despite unfoldable prologue");
+    assert!(module.as_operation().verify());
 }
 
 #[test]
