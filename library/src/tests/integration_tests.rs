@@ -100,3 +100,13 @@ fn noir_panic_after_loop() {
 fn noir_multi_exit_loop() {
     run_noir_test("multi_exit_loop");
 }
+
+#[test]
+fn noir_unconstrained_recursion() {
+    run_noir_test("recursive_unconstrained");
+}
+
+#[test]
+fn noir_mutual_recursion() {
+    run_noir_test("mutual_recursion");
+}
