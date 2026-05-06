@@ -4,6 +4,7 @@ use llzk::prelude::ValueLike;
 
 use crate::error::Error;
 
+use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -18,10 +19,10 @@ pub(super) struct ConditionalMovHandler {
     pub condition: MemoryAddress,
 }
 
-impl BrilligHandler<'_> for ConditionalMovHandler {
+impl<M: Memory> BrilligHandler<'_, M> for ConditionalMovHandler {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_, M>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let a = ctx.memory.read(ctx.writer, self.source_a)?;

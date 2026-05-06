@@ -361,10 +361,15 @@ fn duplicate_brillig_calls_dedup_to_single_function() {
 }
 
 /// Two BrilligCall sites that reference the same `BrilligFunctionId` but
-/// disagree on marshalling shape (different input/output counts) are
-/// rejected — shape consistency is required for dedup.
+/// disagree on marshalling shape (different input/output counts) emit one
+/// LLZK function per shape variant — the body's calldata extraction and
+/// return marshalling are shape-dependent. Same-shape calls still dedup
+/// (covered by `duplicate_brillig_calls_dedup_to_single_function`).
+///
+/// This pattern is common in practice: e.g. Noir's `to_radix` brillig
+/// directive is invoked with different limb counts at different call sites.
 #[test]
-fn duplicate_brillig_calls_with_mismatched_shapes_error() {
+fn duplicate_brillig_calls_with_mismatched_shapes_emit_distinct_variants() {
     let context = LlzkContext::new();
 
     let circuit = make_circuit_with_opcodes(
@@ -379,15 +384,24 @@ fn duplicate_brillig_calls_with_mismatched_shapes_error() {
     );
     let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
 
-    let err = translate_program(&context, &program)
-        .expect_err("mismatched shapes for the same brillig id should error");
-    let msg = format!("{err}");
+    let module =
+        translate_program(&context, &program).expect("mismatched shapes should emit two variants");
+
+    assert_eq!(
+        count_brillig_fns(&module),
+        2,
+        "two distinct shapes for the same brillig id should produce two module-level functions"
+    );
+
+    let ir = format!("{}", module.as_operation());
     assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
+        ir.contains("brillig_0_0x0"),
+        "module should contain the (0 in / 0 out) variant @brillig_0_0x0:\n{ir}"
     );
     assert!(
-        msg.contains("inconsistent marshalling shapes"),
-        "error message should mention inconsistent marshalling shapes, got {msg:?}"
+        ir.contains("brillig_0_1x0"),
+        "module should contain the (1 in / 0 out) variant @brillig_0_1x0:\n{ir}"
     );
+
+    print_and_verify_module(&module, "duplicate_brillig_calls_with_mismatched_shapes");
 }

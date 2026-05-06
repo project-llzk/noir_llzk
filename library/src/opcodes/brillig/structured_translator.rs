@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use acir::FieldElement;
 use acir::brillig::{MemoryAddress, Opcode as BrilligOpcode};
-use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
+use acir::circuit::brillig::BrilligBytecode;
 use brillig_vm::FREE_MEMORY_POINTER_ADDRESS;
 use llzk::dialect::function::def;
 use llzk::prelude::{
@@ -23,7 +23,7 @@ use crate::error::Error;
 
 use super::cfg::{BlockId, Cfg};
 use super::memory::Memory;
-use super::registry::BrilligRegistry;
+use super::registry::{BrilligRegistry, BrilligVariantKey};
 use super::structurer::{
     CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction,
     StructuredProcedure,
@@ -38,7 +38,7 @@ pub(crate) struct ProcedureEmitter<'c, 'p> {
     pub(crate) bytecode: &'p BrilligBytecode<FieldElement>,
     pub(crate) cfg: &'p Cfg,
     pub(crate) procedures: &'p [StructuredProcedure],
-    pub(crate) function_id: BrilligFunctionId,
+    pub(crate) variant: BrilligVariantKey,
     emitted: HashSet<BlockId>,
 }
 
@@ -50,7 +50,7 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
         bytecode: &'p BrilligBytecode<FieldElement>,
         cfg: &'p Cfg,
         procedures: &'p [StructuredProcedure],
-        function_id: BrilligFunctionId,
+        variant: BrilligVariantKey,
     ) -> Self {
         Self {
             context,
@@ -59,14 +59,18 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
             bytecode,
             cfg,
             procedures,
-            function_id,
+            variant,
             emitted: HashSet::new(),
         }
     }
 
     /// Emits the procedure whose entry is `target` if it hasn't been
     /// emitted yet.
-    fn ensure_emitted(&mut self, target: BlockId, memory: &mut Memory) -> Result<(), Error> {
+    fn ensure_emitted<M: Memory>(
+        &mut self,
+        target: BlockId,
+        memory: &mut M,
+    ) -> Result<(), Error> {
         if !self.emitted.insert(target) {
             return Ok(());
         }
@@ -81,12 +85,12 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
             .ok_or_else(|| Error::UnsupportedBrillig {
                 reason: format!(
                     "structured procedure for entry b{} not found in brillig function {}",
-                    target.0, self.function_id.0
+                    target.0, self.variant.id.0
                 ),
             })?;
 
         let proc_func_type = FunctionType::new(self.context, &[], &[]);
-        let proc_name = BrilligRegistry::procedure_function_name(self.function_id, target);
+        let proc_name = BrilligRegistry::procedure_function_name(self.variant, target);
         let proc_func = def(self.location, &proc_name, proc_func_type, &[], None)?;
         proc_func.set_allow_witness_attr(true);
         proc_func.set_allow_non_native_field_ops_attr(true);
@@ -104,9 +108,9 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
 /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
 /// function. Procedures referenced from the walk are emitted lazily via
 /// `emitter`.
-pub(crate) fn translate_structured<'c, 'b>(
+pub(crate) fn translate_structured<'c, 'b, M: Memory>(
     writer: &mut BrilligWriter<'c, 'b>,
-    memory: &mut Memory,
+    memory: &mut M,
     emitter: &mut ProcedureEmitter<'c, '_>,
     structured: &StructuredFunction,
     calldata: &[Value<'c, 'b>],
@@ -154,9 +158,9 @@ pub(crate) fn translate_structured<'c, 'b>(
 /// `function.return` terminator is appended by [`ProcedureEmitter::ensure_emitted`],
 /// not here — this only walks the body's region nodes against the shared
 /// `Memory`.
-fn translate_structured_procedure<'c, 'b>(
+fn translate_structured_procedure<'c, 'b, M: Memory>(
     writer: &mut BrilligWriter<'c, 'b>,
-    memory: &mut Memory,
+    memory: &mut M,
     emitter: &mut ProcedureEmitter<'c, '_>,
     procedure: &StructuredProcedure,
 ) -> Result<(), Error> {
@@ -171,8 +175,8 @@ fn translate_structured_procedure<'c, 'b>(
     emit_body(&mut ctx, emitter, &procedure.body)
 }
 
-fn emit_body<'c, 'b>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+fn emit_body<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
     emitter: &mut ProcedureEmitter<'c, '_>,
     nodes: &[RegionNode],
 ) -> Result<(), Error> {
@@ -182,8 +186,8 @@ fn emit_body<'c, 'b>(
     Ok(())
 }
 
-fn emit_node<'c, 'b>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+fn emit_node<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
     emitter: &mut ProcedureEmitter<'c, '_>,
     node: &RegionNode,
 ) -> Result<(), Error> {
@@ -227,7 +231,7 @@ fn emit_node<'c, 'b>(
 
         RegionNode::Call { target } => {
             emitter.ensure_emitted(*target, ctx.memory)?;
-            let name = BrilligRegistry::procedure_function_name(emitter.function_id, *target);
+            let name = BrilligRegistry::procedure_function_name(emitter.variant, *target);
             ctx.writer.insert_function_call(&name)
         }
 
@@ -299,12 +303,12 @@ fn emit_node<'c, 'b>(
 /// Creates a fresh [`Block`], runs `f` with the writer redirected to it,
 /// then restores the previous insertion target. Returns the populated
 /// block (or propagates the closure's error).
-fn build_block_with<'c, 'b, F>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+fn build_block_with<'c, 'b, M: Memory, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
     f: F,
 ) -> Result<Block<'c>, Error>
 where
-    F: FnOnce(&mut TranslationCtx<'c, 'b, '_>) -> Result<(), Error>,
+    F: FnOnce(&mut TranslationCtx<'c, 'b, '_, M>) -> Result<(), Error>,
 {
     let block = Block::new(&[]);
     let saved = ctx.writer.enter_block(&block);
@@ -321,8 +325,8 @@ where
 ///
 /// Cooperates with the Brillig program's own allocator: the bump tells
 /// any subsequent FMP-routed allocation to skip our slots.
-fn init_escape_flags<'c, 'b>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+fn init_escape_flags<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
     count: usize,
 ) -> Result<(), Error> {
     if count == 0 {
@@ -365,8 +369,8 @@ fn init_escape_flags<'c, 'b>(
 ///   - `Some(slot)`: load the escape flag, convert to i1, invert (we
 ///     want "true means *not* set, i.e. continue").
 ///   - When both are present, AND them.
-fn compute_loop_continue_cond<'c, 'b>(
-    ctx: &mut TranslationCtx<'c, 'b, '_>,
+fn compute_loop_continue_cond<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
     condition: &Option<LoopCondition>,
     escape_flag: Option<EscapeFlagSlot>,
     header: super::cfg::BlockId,

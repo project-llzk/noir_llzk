@@ -3,6 +3,7 @@ use acir::{AcirField, FieldElement};
 
 use crate::error::Error;
 
+use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -12,10 +13,10 @@ pub(super) struct ConstHandler<'a> {
     pub value: &'a FieldElement,
 }
 
-impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
+impl<'a, M: Memory> BrilligHandler<'a, M> for ConstHandler<'a> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_, M>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let ssa = ctx.emit_const(self.value)?;

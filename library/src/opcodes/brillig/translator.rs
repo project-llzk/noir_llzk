@@ -22,9 +22,9 @@ use super::opcodes::build_handler;
 /// Bundles the mutable state that every handler needs: the LLZK writer, the
 /// Brillig memory model (register file + tracked integer constants), and
 /// the function's calldata.
-pub(crate) struct TranslationCtx<'c, 'b, 'r> {
+pub(crate) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
     pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) memory: &'r mut Memory,
+    pub(crate) memory: &'r mut M,
     pub(crate) calldata: &'r [Value<'c, 'b>],
     pub(crate) expected_output_count: usize,
     pub(crate) escape_flag_addrs: Vec<Value<'c, 'b>>,
@@ -32,7 +32,7 @@ pub(crate) struct TranslationCtx<'c, 'b, 'r> {
 
 // ── TranslationCtx shared helpers ──────────────────────────────────────
 
-impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
+impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
     /// Emits a felt constant. ACVM produces canonical bytecode, so integer
     /// width is enforced downstream on cast/use rather than here.
     pub(super) fn emit_const(&mut self, value: &FieldElement) -> Result<Value<'c, 'b>, Error> {
@@ -140,13 +140,6 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
 
     /// Reads the `Stop` opcode's `return_data` HeapVector and emits
     /// `ram.load` ops for each return slot.
-    ///
-    /// Requires `return_data.size` and `return_data.pointer` to be tracked
-    /// integer constants (populated by a preceding `Const` opcode). Noir's
-    /// entry-point codegen guarantees this: `make_usize_constant_instruction`
-    /// in `brillig_ir/entry_point.rs` materializes both registers via `Const`
-    /// opcodes immediately before every `Stop`. Bytecode that computes these
-    /// values at runtime is rejected with `UnsupportedBrillig`.
     pub(super) fn emit_return_data(
         &mut self,
         return_data: &HeapVector,
@@ -156,16 +149,6 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             return Ok(Vec::new());
         }
 
-        let size =
-            self.memory
-                .get_const(return_data.size)?
-                .ok_or_else(|| Error::UnsupportedBrillig {
-                    reason: format!(
-                        "Stop at bytecode index {opcode_index}: return_data size register {} \
-                     is not a known integer constant",
-                        return_data.size.to_u32()
-                    ),
-                })?;
         let pointer = self.memory.get_const(return_data.pointer)?.ok_or_else(|| {
             Error::UnsupportedBrillig {
                 reason: format!(
@@ -176,16 +159,7 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             }
         })?;
 
-        if size != self.expected_output_count {
-            return Err(Error::UnsupportedBrillig {
-                reason: format!(
-                    "Stop at bytecode index {opcode_index}: return_data size is {size} \
-                     but expected {} output(s)",
-                    self.expected_output_count
-                ),
-            });
-        }
-
+        let size = self.expected_output_count;
         let mut returns = Vec::with_capacity(size);
         for j in 0..size {
             let addr = MemoryAddress::Direct((pointer + j) as u32);
@@ -212,13 +186,13 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
 /// against `ctx`. Terminator opcodes (those for which [`build_handler`]
 /// returns `None`) are skipped — the structured emitter translates them
 /// via region nodes, not per-opcode.
-pub(crate) fn translate_block_body(
-    ctx: &mut TranslationCtx<'_, '_, '_>,
+pub(crate) fn translate_block_body<M: Memory>(
+    ctx: &mut TranslationCtx<'_, '_, '_, M>,
     bytecode: &[BrilligOpcode<FieldElement>],
     range: Range<usize>,
 ) -> Result<(), Error> {
     for i in range {
-        let Some(handler) = build_handler(&bytecode[i]) else {
+        let Some(handler) = build_handler::<M>(&bytecode[i]) else {
             continue;
         };
         handler.execute(ctx, i)?;

@@ -11,6 +11,7 @@ use acir::brillig::Opcode as B;
 
 use crate::error::Error;
 
+use super::memory::Memory;
 use super::translator::TranslationCtx;
 
 mod binary_field_op;
@@ -41,16 +42,16 @@ use self::store::StoreHandler;
 ///
 /// Handlers receive the shared [`TranslationCtx`] which provides helper
 /// methods for common operations (constant emission, type casts, etc.).
-pub(super) trait BrilligHandler<'a> {
+pub(super) trait BrilligHandler<'a, M: Memory> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_, M>,
         opcode_index: usize,
     ) -> Result<(), Error>;
 }
 
 /// Boxed trait object so the translate loop stays uniform.
-pub(super) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
+pub(super) type TranslatedBrilligOp<'a, M> = Box<dyn BrilligHandler<'a, M> + 'a>;
 
 /// Returns the boxed handler for `op`, or `None` when `op` has no
 /// per-opcode emission. `None` covers terminator opcodes (`Jump`,
@@ -58,9 +59,9 @@ pub(super) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
 /// structured emitter translates those via region nodes — plus any
 /// opcode the translator doesn't yet know how to lower; the caller
 /// (`translate_block_body`) skips both equivalently.
-pub(super) fn build_handler<'a>(
+pub(super) fn build_handler<'a, M: Memory + 'a>(
     op: &'a acir::brillig::Opcode<FieldElement>,
-) -> Option<TranslatedBrilligOp<'a>> {
+) -> Option<TranslatedBrilligOp<'a, M>> {
     match op {
         B::Const {
             destination,

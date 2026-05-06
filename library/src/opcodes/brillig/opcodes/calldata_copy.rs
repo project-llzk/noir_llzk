@@ -2,6 +2,7 @@ use acir::brillig::MemoryAddress;
 
 use crate::error::Error;
 
+use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -19,12 +20,8 @@ pub(super) struct CalldataCopyHandler {
     pub offset_address: MemoryAddress,
 }
 
-impl BrilligHandler<'_> for CalldataCopyHandler {
-    fn execute(
-        &self,
-        ctx: &mut TranslationCtx<'_, '_, '_>,
-        i: usize,
-    ) -> Result<(), Error> {
+impl<M: Memory> BrilligHandler<'_, M> for CalldataCopyHandler {
+    fn execute(&self, ctx: &mut TranslationCtx<'_, '_, '_, M>, i: usize) -> Result<(), Error> {
         let size =
             ctx.memory
                 .get_const(self.size_address)?
@@ -54,8 +51,12 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
                 ),
             });
         }
-        let MemoryAddress::Direct(dst_base) = ctx.memory.resolve(self.destination_address)? else {
-            unreachable!("Memory::resolve only returns Direct");
+
+        let dst_base = match self.destination_address {
+            MemoryAddress::Direct(address) => address,
+            MemoryAddress::Relative(_) => {
+                unreachable!("Call Data must be stored at an compile-time known address!")
+            }
         };
         let dst_base = dst_base as usize;
         for j in 0..size {

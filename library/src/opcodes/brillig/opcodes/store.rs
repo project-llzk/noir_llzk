@@ -2,6 +2,7 @@ use acir::brillig::MemoryAddress;
 
 use crate::error::Error;
 
+use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -10,10 +11,10 @@ pub(super) struct StoreHandler {
     pub source: MemoryAddress,
 }
 
-impl BrilligHandler<'_> for StoreHandler {
+impl<M: Memory> BrilligHandler<'_, M> for StoreHandler {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_>,
+        ctx: &mut TranslationCtx<'_, '_, '_, M>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let val = ctx.memory.read(ctx.writer, self.source)?;

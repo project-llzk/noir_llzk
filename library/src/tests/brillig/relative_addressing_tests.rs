@@ -66,42 +66,6 @@ fn relative_const_without_sp_init_errors() {
 }
 
 #[test]
-fn sp_prologue_add_updates_stack_pointer() {
-    // Brillig's call-frame prologue advances SP via `BinaryIntOp::Add` on
-    // slot 0 rather than a fresh `Const`. If the handler doesn't fold this
-    // into the frame stack, subsequent `Relative(_)` accesses resolve
-    // against the caller's SP.
-    let context = LlzkContext::new();
-    let module = translate_body(
-        &context,
-        vec![
-            // SP = 10
-            const_int(0, IntegerBitSize::U32, 10),
-            // register 5 = 3 (frame-size constant)
-            const_int(5, IntegerBitSize::U32, 3),
-            // slot 0 += register 5  → SP = 13
-            binary_int_op(0, BinaryIntOp::Add, IntegerBitSize::U32, 0, 5),
-            // Direct(13) = 42  (== Relative(0) once SP=13)
-            const_field(13, 42),
-            // Mov Relative(0) -> Direct(20)
-            BrilligOpcode::Mov {
-                destination: addr(20),
-                source: rel(0),
-            },
-            brillig_stop(),
-        ],
-    )
-    .expect("translation should succeed once SP prologue is folded");
-    assert!(module.as_operation().verify());
-
-    let ir = format!("{}", module.as_operation());
-    assert!(
-        ir.contains("arith.constant 13 : index"),
-        "IR should address slot 13 (Relative(0) + SP=13):\n{ir}"
-    );
-}
-
-#[test]
 fn sp_reassignment_after_initial_setup_triggers_dynamic_addressing() {
     // A second slot-0 write (the prologue `Add` here) flips the program
     // into dynamic-SP mode.

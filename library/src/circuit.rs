@@ -295,9 +295,14 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             }
         }
 
-        brillig_registry.register(id, input_types, output_types, bytecode)?;
+        let key = crate::opcodes::brillig::registry::BrilligVariantKey::new(
+            id,
+            input_types.len(),
+            output_types.len(),
+        );
+        brillig_registry.register(key, input_types, output_types, bytecode)?;
 
-        Ok(Box::new(BrilligCall::new(id, inputs, outputs, predicate)))
+        Ok(Box::new(BrilligCall::new(key, inputs, outputs, predicate)))
     }
 
     /// Returns the length of the `MemoryInit` for `block_id`, or `None` if

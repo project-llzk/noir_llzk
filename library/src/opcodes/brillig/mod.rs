@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 
 use acir::{
     FieldElement,
-    circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
+    circuit::brillig::{BrilligInputs, BrilligOutputs},
     native_types::Expression,
 };
 use llzk::prelude::{ArrayType, IntegerAttribute, Type, Value, ValueLike};
@@ -35,15 +35,17 @@ use crate::{
     opcodes::OpcodeEmitter,
 };
 
-use self::registry::BrilligRegistry;
+use self::registry::{BrilligRegistry, BrilligVariantKey};
 
 /// Translator for a single `Opcode::BrilligCall`.
 ///
 /// Shape validation (input/output marshalling) is performed at construction
 /// time by [`crate::circuit::CircuitTranslator::build_handler`], so
-/// `emit_compute` can emit without re-checking.
+/// `emit_compute` can emit without re-checking. The shape is captured in
+/// `key` so the emitted call resolves to the matching `@brillig_{id}_{N}x{M}`
+/// variant.
 pub(crate) struct BrilligCall<'p> {
-    id: BrilligFunctionId,
+    key: BrilligVariantKey,
     inputs: &'p [BrilligInputs<FieldElement>],
     outputs: &'p [BrilligOutputs],
     predicate: &'p Expression<FieldElement>,
@@ -51,13 +53,13 @@ pub(crate) struct BrilligCall<'p> {
 
 impl<'p> BrilligCall<'p> {
     pub(crate) fn new(
-        id: BrilligFunctionId,
+        key: BrilligVariantKey,
         inputs: &'p [BrilligInputs<FieldElement>],
         outputs: &'p [BrilligOutputs],
         predicate: &'p Expression<FieldElement>,
     ) -> Self {
         Self {
-            id,
+            key,
             inputs,
             outputs,
             predicate,
@@ -181,7 +183,7 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
             }
         }
 
-        let name = BrilligRegistry::function_name(self.id);
+        let name = BrilligRegistry::function_name(self.key);
         let call = writer.call_top_level_function(&name, &input_args, &output_types)?;
 
         for (i, w_idx) in output_witnesses.iter().enumerate() {

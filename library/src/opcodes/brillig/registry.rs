@@ -1,15 +1,12 @@
 //! Program-level collector for `BrilligCall` sites.
 //!
 //! 1. While translating circuits, each `BrilligCall::emit_compute` emits a
-//!    call site against `@brillig_{id}` and registers the shape + bytecode
-//!    here.
+//!    call site against `@brillig_{id}_{in}x{out}` and registers the shape
+//!    + bytecode here.
 //! 2. After every circuit has been translated, [`emit_brillig_functions`]
-//!    walks the registry and appends one `@brillig_{id}` function per entry
-//!    to the module body.
+//!    walks the registry and appends one `@brillig_{id}_{in}x{out}` function
+//!    per entry to the module body.
 //!
-//! Deduplication is keyed on `BrilligFunctionId` — multiple callers of the
-//! same function share a single LLZK function, provided their marshalling
-//! shapes agree. Shape disagreement is reported as `UnsupportedBrillig`.
 
 use std::collections::HashMap;
 
@@ -26,13 +23,31 @@ use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::cfg::Cfg;
-use super::memory::Memory;
+use super::memory::{DynamicMemory, StaticMemory, should_be_dynamic};
 use super::structured_translator::{ProcedureEmitter, translate_structured};
 use super::structurer::structure_function;
 
+/// Identifies a single shape variant of a Brillig function.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct BrilligVariantKey {
+    pub(crate) id: BrilligFunctionId,
+    pub(crate) input_count: usize,
+    pub(crate) output_count: usize,
+}
+
+impl BrilligVariantKey {
+    pub(crate) fn new(id: BrilligFunctionId, input_count: usize, output_count: usize) -> Self {
+        Self {
+            id,
+            input_count,
+            output_count,
+        }
+    }
+}
+
 /// Collector of unique Brillig call sites across a program.
 pub(crate) struct BrilligRegistry<'c, 'p> {
-    entries: HashMap<BrilligFunctionId, BrilligEntry<'c, 'p>>,
+    entries: HashMap<BrilligVariantKey, BrilligEntry<'c, 'p>>,
 }
 
 /// A single Brillig function scheduled for module-level emission.
@@ -49,79 +64,62 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
         }
     }
 
-    /// Returns the canonical LLZK symbol name for a Brillig function id.
-    pub(crate) fn function_name(id: BrilligFunctionId) -> String {
-        format!("brillig_{}", id.0)
+    /// Returns the LLZK symbol name for a Brillig function variant.
+    pub(crate) fn function_name(key: BrilligVariantKey) -> String {
+        format!(
+            "brillig_{}_{}x{}",
+            key.id.0, key.input_count, key.output_count
+        )
     }
 
-    /// Returns the canonical LLZK symbol name for a procedure inside a
-    /// Brillig function. The id qualifier prevents collisions when two
-    /// distinct Brillig functions both contain a procedure entering at
-    /// the same block id.
+    /// Returns the LLZK symbol name for a procedure inside a
+    /// Brillig function variant.
     pub(crate) fn procedure_function_name(
-        id: BrilligFunctionId,
+        key: BrilligVariantKey,
         entry: super::cfg::BlockId,
     ) -> String {
-        format!("brillig_{}_proc_b{}", id.0, entry.0)
+        format!(
+            "brillig_{}_{}x{}_proc_b{}",
+            key.id.0, key.input_count, key.output_count, entry.0
+        )
     }
 
-    /// Records a call site for `id`. On first registration the marshalling
-    /// shape is stored; on subsequent registrations the shape must match, or
-    /// an `UnsupportedBrillig` error is returned.
+    /// Records a call site for `key`.
     pub(crate) fn register(
         &mut self,
-        id: BrilligFunctionId,
+        key: BrilligVariantKey,
         input_types: Vec<Type<'c>>,
         output_types: Vec<Type<'c>>,
         bytecode: &'p BrilligBytecode<FieldElement>,
     ) -> Result<(), Error> {
-        if let Some(existing) = self.entries.get(&id) {
-            if existing.input_types.len() != input_types.len()
-                || existing.output_types.len() != output_types.len()
-            {
-                return Err(Error::UnsupportedBrillig {
-                    reason: format!(
-                        "brillig function id {} called with inconsistent marshalling shapes: \
-                         existing signature has {} input(s) / {} output(s), new call site has \
-                         {} input(s) / {} output(s)",
-                        id.0,
-                        existing.input_types.len(),
-                        existing.output_types.len(),
-                        input_types.len(),
-                        output_types.len(),
-                    ),
-                });
-            }
-            return Ok(());
-        }
-        self.entries.insert(
-            id,
-            BrilligEntry {
-                input_types,
-                output_types,
-                bytecode,
-            },
-        );
+        debug_assert_eq!(input_types.len(), key.input_count);
+        debug_assert_eq!(output_types.len(), key.output_count);
+        self.entries.entry(key).or_insert(BrilligEntry {
+            input_types,
+            output_types,
+            bytecode,
+        });
         Ok(())
     }
 }
 
-/// Emits one module-level `@brillig_{id}` function for every registered
-/// entry. Must be called after every circuit has been translated — before
-/// this runs, call sites reference symbols that do not yet exist.
+/// Emits one module-level `@brillig_{id}_{in}x{out}` function for every
+/// registered variant. Must be called after every circuit has been
+/// translated — before this runs, call sites reference symbols that do not
+/// yet exist.
 pub(crate) fn emit_brillig_functions<'c>(
     context: &'c LlzkContext,
     module: &Module<'c>,
     registry: &BrilligRegistry<'c, '_>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
-    // Iterate in id order so emitted IR is deterministic.
-    let mut entries: Vec<(&BrilligFunctionId, &BrilligEntry<'c, '_>)> =
+    // Order so emitted IR is deterministic across runs.
+    let mut entries: Vec<(&BrilligVariantKey, &BrilligEntry<'c, '_>)> =
         registry.entries.iter().collect();
-    entries.sort_by_key(|(id, _)| id.0);
+    entries.sort_by_key(|(k, _)| (k.id.0, k.input_count, k.output_count));
 
-    for (id, entry) in entries {
-        let name = BrilligRegistry::function_name(*id);
+    for (key, entry) in entries {
+        let name = BrilligRegistry::function_name(*key);
         let func_type = FunctionType::new(context, &entry.input_types, &entry.output_types);
         let func = dialect::function::def(location, &name, func_type, &[], None)?;
         func.set_allow_witness_attr(true);
@@ -137,10 +135,6 @@ pub(crate) fn emit_brillig_functions<'c>(
         let cfg = Cfg::build(&entry.bytecode.bytecode)?;
         let structured = structure_function(&cfg)?;
 
-        // One Memory shared by the main body and every procedure of this
-        // Brillig function.
-        let mut memory = Memory::new();
-
         let mut emitter = ProcedureEmitter::new(
             context,
             module,
@@ -148,17 +142,31 @@ pub(crate) fn emit_brillig_functions<'c>(
             entry.bytecode,
             &cfg,
             &structured.procedures,
-            *id,
+            *key,
         );
 
-        let returns = translate_structured(
-            &mut writer,
-            &mut memory,
-            &mut emitter,
-            &structured,
-            &calldata,
-            entry.output_types.len(),
-        )?;
+        // One Memory shared by the main body and every procedure of this
+        // Brillig function.
+        let dynamic_sp = should_be_dynamic(&entry.bytecode.bytecode);
+        let returns = if dynamic_sp {
+            translate_structured(
+                &mut writer,
+                &mut DynamicMemory::new(),
+                &mut emitter,
+                &structured,
+                &calldata,
+                entry.output_types.len(),
+            )?
+        } else {
+            translate_structured(
+                &mut writer,
+                &mut StaticMemory::new(),
+                &mut emitter,
+                &structured,
+                &calldata,
+                entry.output_types.len(),
+            )?
+        };
 
         body_block.append_operation(dialect::function::r#return(location, &returns));
         func.region(0)?.append_block(body_block);
