@@ -361,13 +361,8 @@ fn duplicate_brillig_calls_dedup_to_single_function() {
 }
 
 /// Two BrilligCall sites that reference the same `BrilligFunctionId` but
-/// disagree on marshalling shape (different input/output counts) emit one
-/// LLZK function per shape variant — the body's calldata extraction and
-/// return marshalling are shape-dependent. Same-shape calls still dedup
+/// disagree on marshalling shape. Same-shape calls still dedup
 /// (covered by `duplicate_brillig_calls_dedup_to_single_function`).
-///
-/// This pattern is common in practice: e.g. Noir's `to_radix` brillig
-/// directive is invoked with different limb counts at different call sites.
 #[test]
 fn duplicate_brillig_calls_with_mismatched_shapes_emit_distinct_variants() {
     let context = LlzkContext::new();
