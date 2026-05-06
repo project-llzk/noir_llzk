@@ -110,3 +110,8 @@ fn noir_unconstrained_recursion() {
 fn noir_mutual_recursion() {
     run_noir_test("mutual_recursion");
 }
+
+#[test]
+fn noir_aes128() {
+    run_noir_test("aes128");
+}

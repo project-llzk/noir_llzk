@@ -8,7 +8,7 @@ use crate::{
     error::Error,
 };
 
-use super::common::{
+use crate::blackboxes::common::{
     ConstantCache, emit_and, emit_rotr, emit_shr, emit_wrapping_add, emit_wrapping_sum, emit_xor,
 };
 
