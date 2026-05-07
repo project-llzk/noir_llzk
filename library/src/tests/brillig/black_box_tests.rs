@@ -5,8 +5,8 @@
 //! source `HeapArray`'s slots into felts, calls the helper, and
 //! writes the result felts back into the destination's slots.
 
-use acir::brillig::{BlackBoxOp, HeapArray, IntegerBitSize, Opcode as BrilligOpcode};
 use acir::brillig::lengths::SemiFlattenedLength;
+use acir::brillig::{BlackBoxOp, HeapArray, IntegerBitSize, Opcode as BrilligOpcode};
 use llzk::prelude::{LlzkContext, OperationLike};
 
 use super::super::{count_occurrences, print_and_verify_module};
@@ -123,7 +123,10 @@ fn poseidon2_blackbox_shares_helper_across_call_sites() {
         "each BlackBox op should emit its own call"
     );
 
-    print_and_verify_module(&module, "poseidon2_blackbox_shares_helper_across_call_sites");
+    print_and_verify_module(
+        &module,
+        "poseidon2_blackbox_shares_helper_across_call_sites",
+    );
 }
 
 /// A BlackBox op whose pointer register isn't seeded by a tracked
@@ -197,4 +200,3 @@ fn unsupported_blackbox_variant_errors_cleanly() {
         Err(crate::Error::UnsupportedBrillig { .. })
     ));
 }
-

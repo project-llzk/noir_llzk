@@ -143,19 +143,33 @@ impl<'a> State<'a> {
                     then_block,
                     else_block,
                 } => {
-                    let outcome = if let Some(join) = self.cfg.post_dominators.idom(current) {
+                    let (node, cont) = if let Some(join) = self.cfg.post_dominators.idom(current) {
                         self.structure_joining_cond(
-                            current, condition, then_block, else_block, join, loop_ctx, &mut nodes,
+                            current, condition, then_block, else_block, join, loop_ctx,
                         )?
                     } else {
                         self.structure_diverging_cond(
-                            current, condition, then_block, else_block, loop_ctx, &mut nodes,
+                            current, condition, then_block, else_block, loop_ctx,
                         )?
                     };
-                    match outcome {
-                        Some(next) => current = next,
-                        None => return Ok(nodes),
+                    nodes.push(node);
+
+                    // Both arms diverge — nothing follows.
+                    let Some(cont) = cont else {
+                        return Ok(nodes);
+                    };
+                    // If the continuation is the loop's exit_dest with a flag
+                    // in use, both arms already emitted SetEscapeFlag — stop
+                    // here so the IfThenElse stays at structural tail
+                    // (validate_escape_flag_positions requires SetEscapeFlag
+                    // at tail).
+                    if let Some(ctx) = loop_ctx
+                        && ctx.escape_flag.is_some()
+                        && cont == ctx.exit_dest
+                    {
+                        return Ok(nodes);
                     }
+                    current = cont;
                 }
                 Terminator::Call {
                     target,
@@ -195,8 +209,8 @@ impl<'a> State<'a> {
         }
     }
 
-    /// `JumpIf` whose arms join at `join`. Pushes `IfThenElse`; returns
-    /// `Some(next)` to continue or `None` to stop.
+    /// `JumpIf` whose arms join at `join`. Returns the `IfThenElse` and
+    /// `Some(join)` as the continuation.
     fn structure_joining_cond(
         &mut self,
         cond_block: BlockId,
@@ -205,28 +219,19 @@ impl<'a> State<'a> {
         else_block: BlockId,
         join: BlockId,
         loop_ctx: Option<LoopCtx>,
-        nodes: &mut Vec<RegionNode>,
-    ) -> Result<Option<BlockId>, Error> {
+    ) -> Result<(RegionNode, Option<BlockId>), Error> {
         let back_edge_stop = loop_ctx.map(|c| c.header);
         let then_branch =
             self.structure_region(then_block, Some(join), loop_ctx, back_edge_stop)?;
         let else_branch =
             self.structure_region(else_block, Some(join), loop_ctx, back_edge_stop)?;
-        nodes.push(RegionNode::IfThenElse {
+        let node = RegionNode::IfThenElse {
             cond_block,
             condition,
             then_branch,
             else_branch,
-        });
-        // If join == loop's exit_dest with a flag in use, both arms
-        // already emitted SetEscapeFlag — don't double-set.
-        if let Some(ctx) = loop_ctx
-            && ctx.escape_flag.is_some()
-            && join == ctx.exit_dest
-        {
-            return Ok(None);
-        }
-        Ok(Some(join))
+        };
+        Ok((node, Some(join)))
     }
 
     /// `JumpIf` with no join. Classifies arms by divergence
@@ -240,8 +245,7 @@ impl<'a> State<'a> {
         then_block: BlockId,
         else_block: BlockId,
         loop_ctx: Option<LoopCtx>,
-        nodes: &mut Vec<RegionNode>,
-    ) -> Result<Option<BlockId>, Error> {
+    ) -> Result<(RegionNode, Option<BlockId>), Error> {
         let then_divergent = self.cfg.divergent_blocks.contains(&then_block);
         let else_divergent = self.cfg.divergent_blocks.contains(&else_block);
         let back_edge_stop = loop_ctx.map(|c| c.header);
@@ -261,13 +265,13 @@ impl<'a> State<'a> {
                 } else {
                     (Vec::new(), divergent_branch)
                 };
-                nodes.push(RegionNode::IfThenElse {
+                let node = RegionNode::IfThenElse {
                     cond_block,
                     condition,
                     then_branch,
                     else_branch,
-                });
-                Ok(Some(continuing_arm))
+                };
+                Ok((node, Some(continuing_arm)))
             }
             _ => {
                 // Both arms terminate (panic or Return/Stop) — no
@@ -277,13 +281,13 @@ impl<'a> State<'a> {
                     self.structure_region(then_block, None, loop_ctx, back_edge_stop)?;
                 let else_branch =
                     self.structure_region(else_block, None, loop_ctx, back_edge_stop)?;
-                nodes.push(RegionNode::IfThenElse {
+                let node = RegionNode::IfThenElse {
                     cond_block,
                     condition,
                     then_branch,
                     else_branch,
-                });
-                Ok(None)
+                };
+                Ok((node, None))
             }
         }
     }

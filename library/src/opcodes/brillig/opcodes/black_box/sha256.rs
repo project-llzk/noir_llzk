@@ -37,7 +37,11 @@ pub(super) fn emit_sha256_compression<M: Memory>(
     }
 
     let mut args = read_heap_array(ctx, input.pointer, SHA256_BLOCK_WORDS)?;
-    args.extend(read_heap_array(ctx, hash_values.pointer, SHA256_STATE_WORDS)?);
+    args.extend(read_heap_array(
+        ctx,
+        hash_values.pointer,
+        SHA256_STATE_WORDS,
+    )?);
 
     let call = ctx
         .writer

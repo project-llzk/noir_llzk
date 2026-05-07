@@ -6,8 +6,8 @@
 //! signature), calls `@blake2s_<num_blocks>`, and writes the
 //! `BLAKE2S_DIGEST_BYTES` digest felts to the output HeapArray.
 
-use acir::{AcirField, FieldElement};
 use acir::brillig::HeapArray;
+use acir::{AcirField, FieldElement};
 use llzk::prelude::Value;
 
 use crate::blackboxes::{

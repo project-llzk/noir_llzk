@@ -18,6 +18,7 @@ use super::{collect_results, write_heap_array};
 
 const EMBEDDED_POINT_FELTS: usize = 3;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_embedded_curve_add<M: Memory>(
     ctx: &mut TranslationCtx<'_, '_, '_, M>,
     input1_x: MemoryAddress,
@@ -27,12 +28,11 @@ pub(super) fn emit_embedded_curve_add<M: Memory>(
     input2_y: MemoryAddress,
     input2_infinite: MemoryAddress,
     result: &HeapArray,
-    opcode_index: usize,
 ) -> Result<(), Error> {
     if result.size.0 as usize != EMBEDDED_POINT_FELTS {
         return Err(Error::UnsupportedBrillig {
             reason: format!(
-                "BlackBox at bytecode index {opcode_index}: EmbeddedCurveAdd requires \
+                "BlackBox::EmbeddedCurveAdd requires \
                  result of size {EMBEDDED_POINT_FELTS} (got {})",
                 result.size.0,
             ),

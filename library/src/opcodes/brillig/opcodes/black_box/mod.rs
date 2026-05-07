@@ -94,8 +94,7 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 *input2_x,
                 *input2_y,
                 *input2_infinite,
-                result,
-                opcode_index,
+                result
             ),
             BlackBoxOp::ToRadix { input, radix, output_pointer, num_limbs, output_bits } => {
                 emit_to_radix(ctx,  *input, *radix, *output_pointer, *num_limbs, *output_bits)

@@ -118,6 +118,7 @@ pub(crate) struct StructuredProcedure {
 }
 
 impl StructuredFunction {
+    #[cfg(test)]
     pub(crate) fn body_of(&self, target: BlockId) -> Option<&[RegionNode]> {
         self.procedures
             .iter()

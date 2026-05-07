@@ -19,9 +19,7 @@ pub(super) fn emit_keccakf1600<M: Memory>(
     output: &HeapArray,
     opcode_index: usize,
 ) -> Result<(), Error> {
-    if input.size.0 as usize != KECCAK_STATE_WORDS
-        || output.size.0 as usize != KECCAK_STATE_WORDS
-    {
+    if input.size.0 as usize != KECCAK_STATE_WORDS || output.size.0 as usize != KECCAK_STATE_WORDS {
         return Err(Error::UnsupportedBrillig {
             reason: format!(
                 "BlackBox at bytecode index {opcode_index}: Keccakf1600 requires \
