@@ -14,10 +14,14 @@ use llzk::prelude::Value;
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-/// Constant caches shared by both memory modes.
+/// Constant caches keyed by addressing mode: `direct_constants` for
+/// `Direct(slot)` writes (SP excluded), `stack_constants` for
+/// `Relative(off)`. Noir's Brillig heap region is only reached via
+/// dynamic pointers, so dynamic-slot stores can't stale entries
+///  here (see noirc_evaluator's `registers.rs`).
 #[derive(Clone, Default)]
 pub(super) struct MemoryCache {
-    heap_constants: HashMap<u32, usize>,
+    direct_constants: HashMap<u32, usize>,
     stack_constants: HashMap<u32, usize>,
 }
 
@@ -100,7 +104,7 @@ pub(super) trait Memory: Clone {
     /// Pointers, lengths, and the SP are tracked here so handlers needing
     /// a translation-time integer (e.g. `CalldataCopy` size, `Stop`
     /// return-data pointer/size) can recover them. Direct slots go in
-    /// `heap_constants`; Relative offsets go in `stack_constants` and
+    /// `direct_constants`; Relative offsets go in `stack_constants` and
     /// survive only within a single SP scope.
     fn record_const(&mut self, addr: MemoryAddress, value: usize) -> Result<(), Error> {
         match addr {
@@ -108,7 +112,7 @@ pub(super) trait Memory: Clone {
                 self.record_sp_const(value);
             }
             MemoryAddress::Direct(slot) => {
-                self.cache_mut().heap_constants.insert(slot, value);
+                self.cache_mut().direct_constants.insert(slot, value);
             }
             MemoryAddress::Relative(off) => {
                 self.cache_mut().stack_constants.insert(off, value);
@@ -123,7 +127,7 @@ pub(super) trait Memory: Clone {
             MemoryAddress::Direct(slot) if slot == STACK_POINTER_ADDRESS_SLOT => {
                 Ok(self.sp_const())
             }
-            MemoryAddress::Direct(slot) => Ok(self.cache().heap_constants.get(&slot).copied()),
+            MemoryAddress::Direct(slot) => Ok(self.cache().direct_constants.get(&slot).copied()),
             MemoryAddress::Relative(off) => Ok(self.cache().stack_constants.get(&off).copied()),
         }
     }
@@ -133,11 +137,11 @@ pub(super) trait Memory: Clone {
     /// otherwise. Used at control-flow merges so cache state never claims
     /// a value that holds on only one of the merged paths.
     fn meet(&mut self, other: &Self) {
-        let other_heap = &other.cache().heap_constants;
+        let other_direct = &other.cache().direct_constants;
         let other_stack = &other.cache().stack_constants;
         self.cache_mut()
-            .heap_constants
-            .retain(|k, v| other_heap.get(k).copied() == Some(*v));
+            .direct_constants
+            .retain(|k, v| other_direct.get(k).copied() == Some(*v));
         self.cache_mut()
             .stack_constants
             .retain(|k, v| other_stack.get(k).copied() == Some(*v));
@@ -163,7 +167,7 @@ pub(super) trait Memory: Clone {
                 self.cache_mut().stack_constants.clear();
             }
             MemoryAddress::Direct(slot) => {
-                self.cache_mut().heap_constants.remove(&slot);
+                self.cache_mut().direct_constants.remove(&slot);
             }
             MemoryAddress::Relative(off) => {
                 self.cache_mut().stack_constants.remove(&off);

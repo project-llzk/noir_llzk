@@ -204,4 +204,3 @@ pub(super) fn collect_results<'c, 'b>(
         .map(|i| call.result(i).map(Into::into).map_err(Error::from))
         .collect()
 }
-
