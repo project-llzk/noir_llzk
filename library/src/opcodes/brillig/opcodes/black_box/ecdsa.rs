@@ -21,22 +21,11 @@ pub(super) fn emit_ecdsa<M: Memory>(
     public_key_y: &HeapArray,
     signature: &HeapArray,
     result: MemoryAddress,
-    opcode_index: usize,
 ) -> Result<(), Error> {
-    validate_array("hashed_msg", hashed_msg, ECDSA_HASH_BYTES, opcode_index)?;
-    validate_array(
-        "public_key_x",
-        public_key_x,
-        ECDSA_PUBLIC_KEY_BYTES,
-        opcode_index,
-    )?;
-    validate_array(
-        "public_key_y",
-        public_key_y,
-        ECDSA_PUBLIC_KEY_BYTES,
-        opcode_index,
-    )?;
-    validate_array("signature", signature, ECDSA_SIGNATURE_BYTES, opcode_index)?;
+    validate_array("hashed_msg", hashed_msg, ECDSA_HASH_BYTES)?;
+    validate_array("public_key_x", public_key_x, ECDSA_PUBLIC_KEY_BYTES)?;
+    validate_array("public_key_y", public_key_y, ECDSA_PUBLIC_KEY_BYTES)?;
+    validate_array("signature", signature, ECDSA_SIGNATURE_BYTES)?;
 
     let mut args = read_heap_array(ctx, public_key_x.pointer, ECDSA_PUBLIC_KEY_BYTES)?;
     args.extend(read_heap_array(
@@ -57,18 +46,13 @@ pub(super) fn emit_ecdsa<M: Memory>(
     ctx.memory.write(ctx.writer, result, output[0])
 }
 
-fn validate_array(
-    name: &str,
-    array: &HeapArray,
-    expected: usize,
-    opcode_index: usize,
-) -> Result<(), Error> {
+fn validate_array(name: &str, array: &HeapArray, expected: usize) -> Result<(), Error> {
     if array.size.0 as usize == expected {
         return Ok(());
     }
     Err(Error::UnsupportedBrillig {
         reason: format!(
-            "BlackBox at bytecode index {opcode_index}: ECDSA {name} must have size {expected} \
+            "Brillig BlackBox ECDSA {name} must have size {expected} \
              (got {})",
             array.size.0
         ),

@@ -19,11 +19,13 @@
 use acir::brillig::{BlackBoxOp, MemoryAddress};
 use llzk::prelude::{OperationRef, Value};
 
-use crate::error::Error;
-
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
+use crate::{
+    blackboxes::registry::BlackboxFunction::{EcdsaSecp256k1Compute, EcdsaSecp256r1Compute},
+    error::Error,
+};
 
 mod aes128;
 mod blake2s;
@@ -95,7 +97,7 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 *input2_x,
                 *input2_y,
                 *input2_infinite,
-                result
+                result,
             ),
             BlackBoxOp::EcdsaSecp256k1 {
                 hashed_msg,
@@ -105,13 +107,12 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 result,
             } => emit_ecdsa(
                 ctx,
-                crate::blackboxes::registry::BlackboxFunction::EcdsaSecp256k1Compute,
+                EcdsaSecp256k1Compute,
                 hashed_msg,
                 public_key_x,
                 public_key_y,
                 signature,
                 *result,
-                opcode_index,
             ),
             BlackBoxOp::EcdsaSecp256r1 {
                 hashed_msg,
@@ -121,13 +122,12 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 result,
             } => emit_ecdsa(
                 ctx,
-                crate::blackboxes::registry::BlackboxFunction::EcdsaSecp256r1Compute,
+                EcdsaSecp256r1Compute,
                 hashed_msg,
                 public_key_x,
                 public_key_y,
                 signature,
                 *result,
-                opcode_index,
             ),
             BlackBoxOp::ToRadix {
                 input,
@@ -135,7 +135,14 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 output_pointer,
                 num_limbs,
                 output_bits,
-            } => emit_to_radix(ctx, *input, *radix, *output_pointer, *num_limbs, *output_bits),
+            } => emit_to_radix(
+                ctx,
+                *input,
+                *radix,
+                *output_pointer,
+                *num_limbs,
+                *output_bits,
+            ),
             // `MultiScalarMul`'s shared helper takes per-scalar bit
             // arrays (254 bits each). Brillig hands us raw lo/hi limbs,
             // so wiring this would mean nondet-decomposing each scalar
