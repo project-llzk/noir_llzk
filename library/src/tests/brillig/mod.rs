@@ -21,6 +21,7 @@ use crate::Error;
 use crate::program::translate_program;
 
 mod binary_op_tests;
+mod black_box_tests;
 mod cfg_tests;
 mod dispatch_tests;
 mod heap_tests;

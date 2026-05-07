@@ -16,6 +16,7 @@ use llzk::prelude::{
 };
 
 use crate::FIELD_NAME;
+use crate::blackboxes::registry::BlackboxFunction;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 
@@ -363,17 +364,37 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// Appends `function.call @<name>()` (no args, no results) to
     /// `current_block`.
     pub(crate) fn insert_function_call(&self, name: &str) -> Result<(), Error> {
-        let no_results: &[Type<'c>] = &[];
-        let no_args: &[Value<'c, 'a>] = &[];
+        self.call_top_level_function(name, &[], &[])?;
+        Ok(())
+    }
+
+    /// Appends `function.call @<name>(args) -> result_types` (flat symbol
+    /// reference) to `current_block`, returning the call op.
+    pub(crate) fn call_top_level_function(
+        &self,
+        name: &str,
+        args: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
         let call_op = dialect::function::call(
             &OpBuilder::new(self.context),
             self.location,
             FlatSymbolRefAttribute::new(self.context, name),
-            no_args,
-            no_results,
+            args,
+            result_types,
         )?;
-        self.insert_op(call_op.into());
-        Ok(())
+        Ok(self.insert_op(call_op.into()))
+    }
+
+    /// Calls a registered shared blackbox helper from a Brillig function
+    /// body.
+    pub(crate) fn call_blackbox_function(
+        &self,
+        func: BlackboxFunction,
+        args: &[Value<'c, 'a>],
+    ) -> Result<OperationRef<'c, 'a>, Error> {
+        let result_types = func.result_types(self.context);
+        self.call_top_level_function(&func.symbol_name(), args, &result_types)
     }
 
     /// Wraps `before_block` and `after_block` (each already terminated

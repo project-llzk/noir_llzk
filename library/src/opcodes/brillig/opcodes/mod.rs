@@ -16,6 +16,7 @@ use super::translator::TranslationCtx;
 
 mod binary_field_op;
 mod binary_int_op;
+mod black_box;
 mod calldata_copy;
 mod cast;
 mod conditional_mov;
@@ -28,6 +29,7 @@ mod store;
 
 use self::binary_field_op::BinaryFieldOpHandler;
 use self::binary_int_op::BinaryIntOpHandler;
+use self::black_box::BlackBoxOpHandler;
 use self::calldata_copy::CalldataCopyHandler;
 use self::cast::CastHandler;
 use self::conditional_mov::ConditionalMovHandler;
@@ -173,6 +175,8 @@ pub(super) fn build_handler<'a, M: Memory + 'a>(
             source_b: *source_b,
             condition: *condition,
         })),
+
+        B::BlackBox(op) => Some(Box::new(BlackBoxOpHandler { op })),
 
         _ => None,
     }
