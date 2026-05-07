@@ -7,6 +7,7 @@ edition = "2024"
 acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", features = ["bn254"] }
 brillig_vm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19" }
 num-bigint = "0.4"
+keccak = "=0.2.0-rc.1"
 
 # LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
 llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev = "cb836a8"}
