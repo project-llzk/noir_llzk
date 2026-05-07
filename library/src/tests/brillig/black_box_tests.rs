@@ -16,6 +16,38 @@ fn poseidon2_blackbox(message: HeapArray, output: HeapArray) -> BrilligOpcode<ac
     BrilligOpcode::BlackBox(BlackBoxOp::Poseidon2Permutation { message, output })
 }
 
+fn ecdsa_secp256k1_blackbox(
+    hashed_msg: HeapArray,
+    public_key_x: HeapArray,
+    public_key_y: HeapArray,
+    signature: HeapArray,
+    result: u32,
+) -> BrilligOpcode<acir::FieldElement> {
+    BrilligOpcode::BlackBox(BlackBoxOp::EcdsaSecp256k1 {
+        hashed_msg,
+        public_key_x,
+        public_key_y,
+        signature,
+        result: addr(result),
+    })
+}
+
+fn ecdsa_secp256r1_blackbox(
+    hashed_msg: HeapArray,
+    public_key_x: HeapArray,
+    public_key_y: HeapArray,
+    signature: HeapArray,
+    result: u32,
+) -> BrilligOpcode<acir::FieldElement> {
+    BrilligOpcode::BlackBox(BlackBoxOp::EcdsaSecp256r1 {
+        hashed_msg,
+        public_key_x,
+        public_key_y,
+        signature,
+        result: addr(result),
+    })
+}
+
 fn heap_array(pointer: u32, size: u32) -> HeapArray {
     HeapArray {
         pointer: addr(pointer),
@@ -155,6 +187,74 @@ fn poseidon2_blackbox_handles_runtime_pointer() {
     );
 }
 
+#[test]
+fn ecdsa_secp256k1_blackbox_lowers_to_compute_helper() {
+    let context = LlzkContext::new();
+    let body = vec![
+        const_int(10, IntegerBitSize::U32, 100),
+        const_int(11, IntegerBitSize::U32, 200),
+        const_int(12, IntegerBitSize::U32, 300),
+        const_int(13, IntegerBitSize::U32, 400),
+        ecdsa_secp256k1_blackbox(
+            heap_array(10, 32),
+            heap_array(11, 32),
+            heap_array(12, 32),
+            heap_array(13, 64),
+            20,
+        ),
+        brillig_stop(),
+    ];
+
+    let module = translate_body(&context, body).expect("translation should succeed");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "function.def @ecdsa_secp256k1_compute"),
+        1,
+        "shared ECDSA compute helper must be emitted exactly once"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "function.call @ecdsa_secp256k1_compute"),
+        1,
+        "the BlackBox op should emit one call to the compute helper"
+    );
+}
+
+#[test]
+fn ecdsa_secp256r1_blackbox_lowers_to_compute_helper() {
+    let context = LlzkContext::new();
+    let body = vec![
+        const_int(10, IntegerBitSize::U32, 100),
+        const_int(11, IntegerBitSize::U32, 200),
+        const_int(12, IntegerBitSize::U32, 300),
+        const_int(13, IntegerBitSize::U32, 400),
+        ecdsa_secp256r1_blackbox(
+            heap_array(10, 32),
+            heap_array(11, 32),
+            heap_array(12, 32),
+            heap_array(13, 64),
+            20,
+        ),
+        brillig_stop(),
+    ];
+
+    let module = translate_body(&context, body).expect("translation should succeed");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "function.def @ecdsa_secp256r1_compute"),
+        1,
+        "shared ECDSA compute helper must be emitted exactly once"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "function.call @ecdsa_secp256r1_compute"),
+        1,
+        "the BlackBox op should emit one call to the compute helper"
+    );
+}
+
 /// `Poseidon2Permutation` requires HeapArrays of size `STATE_WIDTH` (4)
 /// on both sides — anything else is rejected before any IR is emitted.
 #[test]
@@ -197,4 +297,3 @@ fn unsupported_blackbox_variant_errors_cleanly() {
         Err(crate::Error::UnsupportedBrillig { .. })
     ));
 }
-

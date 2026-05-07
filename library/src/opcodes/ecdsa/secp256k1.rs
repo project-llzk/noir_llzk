@@ -9,7 +9,7 @@ use acir::{
     native_types::Witness,
 };
 
-use llzk::prelude::Value;
+use llzk::prelude::{FuncDefOp, LlzkContext, Value};
 
 use crate::{
     block_writer::BlockWriter,
@@ -23,13 +23,15 @@ use crate::{
         ecdsa::{
             curve::{CurveParams, assert_on_curve, emit_joint_scalar_mul},
             shared::{
-                emit_limbs_constant, emit_not, emit_select_limbs, emit_select_value,
-                pack_bytes_be_to_le_limbs, pack_u64_limbs,
+                emit_ecdsa_compute_helper, emit_limbs_constant, emit_not, emit_select_limbs,
+                emit_select_value, pack_bytes_be_to_le_limbs, pack_u64_limbs,
             },
         },
         emit_blackbox_input,
     },
 };
+
+pub(crate) const ECDSA_SECP256K1_COMPUTE_HELPER_NAME: &str = "ecdsa_secp256k1_compute";
 
 /// secp256k1 base field modulus: 2^256 - 2^32 - 977, little-endian 64-bit limbs.
 pub(super) const SECP256K1_P: [u64; 4] = [
@@ -105,7 +107,7 @@ impl OpcodeEmitter for EcdsaSecp256k1<'_> {
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let is_valid = self.emit_verify_body(writer)?;
+        let is_valid = writer.insert_nondet(writer.felt_type())?;
         writer.write_member(&format!("w{}", self.output.0), is_valid)?;
         writer.mark_known(self.output.0, is_valid);
         Ok(())
@@ -181,6 +183,12 @@ impl EcdsaSecp256k1<'_> {
         let valid = writer.insert_mul(valid, s_is_low)?;
         emit_select_value(writer, predicate, valid, one)
     }
+}
+
+pub(crate) fn emit_secp256k1_compute_helper<'c>(
+    context: &'c LlzkContext,
+) -> Result<FuncDefOp<'c>, Error> {
+    emit_ecdsa_compute_helper(context, ECDSA_SECP256K1_COMPUTE_HELPER_NAME)
 }
 
 pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<EcdsaSecp256k1<'a>> {
