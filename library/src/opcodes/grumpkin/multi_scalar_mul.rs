@@ -47,9 +47,13 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let num_points = validate_multi_scalar_mul_inputs(self.points, self.scalars)?;
+        validate_multi_scalar_mul_inputs(self.points, self.scalars)?;
         let points = emit_points(writer, self.points)?;
-        let scalar_bits = emit_scalar_decompositions(writer, num_points)?;
+        let scalar_inputs = emit_scalar_inputs(writer, self.scalars)?;
+        let scalar_bits = scalar_inputs
+            .iter()
+            .map(|&(lo, hi)| emit_scalar_bits_from_limbs(writer, lo, hi))
+            .collect::<Result<Vec<_>, _>>()?;
         let predicate = emit_blackbox_input(writer, self.predicate)?;
         let helper_call = self.call_helper(writer, &points, &scalar_bits, predicate)?;
         let output_x = helper_call.result(0)?.into();
@@ -160,6 +164,43 @@ fn emit_scalar_decompositions<'c, 'b>(
     num_scalars: usize,
 ) -> Result<Vec<Vec<Value<'c, 'b>>>, Error> {
     (0..num_scalars).map(|_| emit_scalar_bits(writer)).collect()
+}
+
+/// Deterministically derives 254 LSB-first bits of a scalar by peeling
+/// `lo` (128 bits) and `hi` (126 bits) via `felt.uintdiv` / `felt.umod`
+/// against 2. Asserts each limb's high-order remainder is zero so the
+/// decomposition rejects out-of-range limbs at witness-gen time. Used
+/// in `@compute` only — `@constrain` keeps the nondet+reconstruction
+/// pattern (see [`emit_scalar_constraints`]).
+fn emit_scalar_bits_from_limbs<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    lo: Value<'c, 'b>,
+    hi: Value<'c, 'b>,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    let mut bits = Vec::with_capacity(SCALAR_TOTAL_BITS);
+    bits.extend(peel_bits_le(writer, lo, SCALAR_LOW_BITS)?);
+    bits.extend(peel_bits_le(writer, hi, SCALAR_HIGH_BITS)?);
+    Ok(bits)
+}
+
+fn peel_bits_le<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    input: Value<'c, 'b>,
+    num_bits: usize,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    let two = writer.emit_constant(&FieldElement::from(2u128))?;
+    let mut bits = Vec::with_capacity(num_bits);
+    let mut working = input;
+    for _ in 0..num_bits {
+        let quot = writer.insert_uintdiv(working, two)?;
+        let bit = writer.insert_umod(working, two)?;
+        bits.push(bit);
+        working = quot;
+    }
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    let fits = writer.insert_bool_eq(working, zero)?;
+    writer.insert_bool_assert(fits)?;
+    Ok(bits)
 }
 
 fn emit_scalar_bits<'c, 'b>(writer: &BlockWriter<'c, 'b>) -> Result<Vec<Value<'c, 'b>>, Error> {

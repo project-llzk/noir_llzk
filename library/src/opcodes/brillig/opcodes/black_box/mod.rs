@@ -33,6 +33,7 @@ mod blake3;
 mod ecdsa;
 mod embedded_curve_add;
 mod keccak;
+mod multi_scalar_mul;
 mod poseidon2;
 mod sha256;
 mod to_radix;
@@ -43,6 +44,7 @@ use blake3::emit_blake3;
 use ecdsa::emit_ecdsa;
 use embedded_curve_add::emit_embedded_curve_add;
 use keccak::emit_keccakf1600;
+use multi_scalar_mul::emit_multi_scalar_mul;
 use poseidon2::emit_poseidon2;
 use sha256::emit_sha256_compression;
 use to_radix::emit_to_radix;
@@ -143,18 +145,11 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 *num_limbs,
                 *output_bits,
             ),
-            // `MultiScalarMul`'s shared helper takes per-scalar bit
-            // arrays (254 bits each). Brillig hands us raw lo/hi limbs,
-            // so wiring this would mean nondet-decomposing each scalar
-            // into bits and emitting range / reconstruction constraints
-            // — same work the ACIR side does in `emit_scalar_constraints`.
-            BlackBoxOp::MultiScalarMul { .. } => Err(Error::UnsupportedBrillig {
-                reason: format!(
-                    "BlackBox at bytecode index {opcode_index}: variant {} \
-                     is not yet supported",
-                    self.op
-                ),
-            }),
+            BlackBoxOp::MultiScalarMul {
+                points,
+                scalars,
+                outputs,
+            } => emit_multi_scalar_mul(ctx, points, scalars, outputs),
         }
     }
 }

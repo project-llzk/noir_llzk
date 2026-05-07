@@ -277,11 +277,10 @@ fn poseidon2_blackbox_rejects_wrong_arity() {
     ));
 }
 
-/// A BlackBox variant we don't yet lower (e.g. `ToRadix`, which is
-/// Brillig-only and has no shared helper) errors with
-/// `UnsupportedBrillig` rather than silently producing nothing.
+/// `ToRadix` requires its `radix` and `num_limbs` operands to be
+/// translation-time constants.
 #[test]
-fn unsupported_blackbox_variant_errors_cleanly() {
+fn to_radix_with_runtime_radix_errors_cleanly() {
     let context = LlzkContext::new();
     let body = vec![
         BrilligOpcode::BlackBox(BlackBoxOp::ToRadix {
@@ -291,6 +290,69 @@ fn unsupported_blackbox_variant_errors_cleanly() {
             num_limbs: addr(13),
             output_bits: addr(14),
         }),
+        brillig_stop(),
+    ];
+
+    let result = translate_body(&context, body);
+    assert!(matches!(
+        result,
+        Err(crate::Error::UnsupportedBrillig { .. })
+    ));
+}
+
+fn multi_scalar_mul_blackbox(
+    points: HeapArray,
+    scalars: HeapArray,
+    outputs: HeapArray,
+) -> BrilligOpcode<acir::FieldElement> {
+    BrilligOpcode::BlackBox(BlackBoxOp::MultiScalarMul {
+        points,
+        scalars,
+        outputs,
+    })
+}
+
+#[test]
+fn multi_scalar_mul_blackbox_lowers_to_helper_call() {
+    let context = LlzkContext::new();
+    let body = vec![
+        const_int(10, IntegerBitSize::U32, 100), // points base
+        const_int(11, IntegerBitSize::U32, 200), // scalars base
+        const_int(12, IntegerBitSize::U32, 300), // outputs base
+        multi_scalar_mul_blackbox(heap_array(10, 3), heap_array(11, 2), heap_array(12, 3)),
+        brillig_stop(),
+    ];
+
+    let module = translate_body(&context, body).expect("translation should succeed");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "function.def @multi_scalar_mul_1"),
+        1,
+        "shared MSM helper for one point must be emitted exactly once"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "function.call @multi_scalar_mul_1"),
+        1,
+        "the BlackBox op should emit one call to the helper"
+    );
+}
+
+/// `MultiScalarMul` enforces input HeapArray sizing — bad arity is
+/// rejected before any IR is emitted.
+#[test]
+fn multi_scalar_mul_blackbox_rejects_wrong_arity() {
+    let context = LlzkContext::new();
+    let body = vec![
+        const_int(10, IntegerBitSize::U32, 100),
+        const_int(11, IntegerBitSize::U32, 200),
+        const_int(12, IntegerBitSize::U32, 300),
+        multi_scalar_mul_blackbox(
+            heap_array(10, 3),
+            heap_array(11, 4), // mismatched: 2 scalar limbs per point ⇒ expects 2
+            heap_array(12, 3),
+        ),
         brillig_stop(),
     ];
 

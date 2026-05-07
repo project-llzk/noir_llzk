@@ -71,7 +71,7 @@ fn multi_scalar_mul_translates_and_verifies() {
 }
 
 #[test]
-fn multi_scalar_mul_uses_nondet_scalar_decomposition() {
+fn multi_scalar_mul_compute_is_deterministic_constrain_uses_nondet() {
     let context = LlzkContext::new();
     let circuit = make_circuit_with_opcodes(
         8,
@@ -90,8 +90,10 @@ fn multi_scalar_mul_uses_nondet_scalar_decomposition() {
 
     assert_eq!(
         count_ops_by_name(&module, "llzk.nondet"),
-        2 * SCALAR_TOTAL_BITS,
-        "compute and constrain should each materialize a full scalar decomposition"
+        SCALAR_TOTAL_BITS,
+        "@compute peels bits deterministically from lo/hi via felt.uintdiv/umod; \
+         only @constrain still materialises a nondet decomposition for the \
+         reconstruction equations"
     );
 }
 

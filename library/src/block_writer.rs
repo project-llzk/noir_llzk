@@ -173,6 +173,30 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::div(self.location, lhs, rhs)?)
     }
 
+    // ── Felt integer ops ───────────────────────────────────────────────
+    //
+    // Operate on the integer representation of the felt. Marked
+    // `NotFieldNative` in the felt dialect — only valid inside compute
+    // bodies, never inside `@constrain`.
+
+    /// Emits `felt.uintdiv lhs, rhs` (unsigned integer division over felt).
+    pub(crate) fn insert_uintdiv(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `felt.umod lhs, rhs` (unsigned integer remainder over felt).
+    pub(crate) fn insert_umod(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::umod(self.location, lhs, rhs)?)
+    }
+
     /// Emits `felt.neg value`.
     pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
@@ -203,6 +227,15 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::bool::lt(self.location, lhs, rhs)?)
+    }
+
+    /// Emits `bool.cmp eq(lhs, rhs)`.
+    pub(crate) fn insert_bool_eq(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::bool::eq(self.location, lhs, rhs)?)
     }
 
     /// Emits `bool.assert cond`.

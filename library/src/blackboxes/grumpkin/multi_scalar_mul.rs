@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use acir::{
     AcirField, FieldElement,
+    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
     circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
 use llzk::prelude::{
@@ -24,12 +25,17 @@ pub(crate) const SCALAR_HIGH_BITS: usize = 126;
 pub(crate) const SCALAR_TOTAL_BITS: usize = SCALAR_LOW_BITS + SCALAR_HIGH_BITS;
 
 pub(crate) fn used_arities(program: &Program<FieldElement>) -> BTreeSet<usize> {
-    program
+    let acir_arities = program
         .functions
         .iter()
         .flat_map(|circuit| circuit.opcodes.iter())
-        .filter_map(multi_scalar_mul_arity)
-        .collect()
+        .filter_map(multi_scalar_mul_arity);
+    let brillig_arities = program
+        .unconstrained_functions
+        .iter()
+        .flat_map(|func| func.bytecode.iter())
+        .filter_map(brillig_multi_scalar_mul_arity);
+    acir_arities.chain(brillig_arities).collect()
 }
 
 pub(crate) fn multi_scalar_mul_helper_name(num_points: usize) -> String {
@@ -166,6 +172,15 @@ fn multi_scalar_mul_arity(opcode: &Opcode<FieldElement>) -> Option<usize> {
     match opcode {
         Opcode::BlackBoxFuncCall(BlackBoxFuncCall::MultiScalarMul { points, .. }) => {
             Some(points.len() / 3)
+        }
+        _ => None,
+    }
+}
+
+fn brillig_multi_scalar_mul_arity(opcode: &BrilligOpcode<FieldElement>) -> Option<usize> {
+    match opcode {
+        BrilligOpcode::BlackBox(BlackBoxOp::MultiScalarMul { points, .. }) => {
+            Some(points.size.0 as usize / 3)
         }
         _ => None,
     }
