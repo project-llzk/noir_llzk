@@ -11,6 +11,7 @@ use llzk::prelude::Value;
 
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
+use crate::opcodes::brillig::opcodes::require_const;
 
 use super::memory::Memory;
 use super::opcodes::build_handler;
@@ -143,22 +144,11 @@ impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
     pub(super) fn emit_return_data(
         &mut self,
         return_data: &HeapVector,
-        opcode_index: usize,
     ) -> Result<Vec<Value<'c, 'b>>, Error> {
         if self.expected_output_count == 0 {
             return Ok(Vec::new());
         }
-
-        let pointer = self.memory.get_const(return_data.pointer)?.ok_or_else(|| {
-            Error::UnsupportedBrillig {
-                reason: format!(
-                    "Stop at bytecode index {opcode_index}: return_data pointer register {} \
-                     is not a known integer constant",
-                    return_data.pointer.to_u32()
-                ),
-            }
-        })?;
-
+        let pointer = require_const(self, return_data.pointer, "Stop", "return data")?;
         let size = self.expected_output_count;
         let mut returns = Vec::with_capacity(size);
         for j in 0..size {

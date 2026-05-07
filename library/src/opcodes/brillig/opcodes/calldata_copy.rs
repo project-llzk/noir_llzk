@@ -1,6 +1,7 @@
 use acir::brillig::MemoryAddress;
 
 use crate::error::Error;
+use crate::opcodes::brillig::opcodes::require_const;
 
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
@@ -22,25 +23,8 @@ pub(super) struct CalldataCopyHandler {
 
 impl<M: Memory> BrilligHandler<'_, M> for CalldataCopyHandler {
     fn execute(&self, ctx: &mut TranslationCtx<'_, '_, '_, M>, i: usize) -> Result<(), Error> {
-        let size =
-            ctx.memory
-                .get_const(self.size_address)?
-                .ok_or_else(|| Error::UnsupportedBrillig {
-                    reason: format!(
-                        "CalldataCopy at bytecode index {i}: size register {} \
-                     is not a known integer constant",
-                        self.size_address.to_u32()
-                    ),
-                })?;
-        let offset = ctx.memory.get_const(self.offset_address)?.ok_or_else(|| {
-            Error::UnsupportedBrillig {
-                reason: format!(
-                    "CalldataCopy at bytecode index {i}: offset register {} \
-                         is not a known integer constant",
-                    self.offset_address.to_u32()
-                ),
-            }
-        })?;
+        let size = require_const(ctx, self.size_address, "Call Data Copy", "size")?;
+        let offset = require_const(ctx, self.offset_address, "Call Data Copy", "offset")?;
         if offset + size > ctx.calldata.len() {
             return Err(Error::UnsupportedBrillig {
                 reason: format!(

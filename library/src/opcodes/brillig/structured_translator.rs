@@ -66,11 +66,7 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
 
     /// Emits the procedure whose entry is `target` if it hasn't been
     /// emitted yet.
-    fn ensure_emitted<M: Memory>(
-        &mut self,
-        target: BlockId,
-        memory: &mut M,
-    ) -> Result<(), Error> {
+    fn ensure_emitted<M: Memory>(&mut self, target: BlockId, memory: &mut M) -> Result<(), Error> {
         if !self.emitted.insert(target) {
             return Ok(());
         }
@@ -143,7 +139,7 @@ pub(crate) fn translate_structured<'c, 'b, M: Memory>(
     let bd = &emitter.cfg.blocks[stop_block.0];
     let stop_idx = bd.end_exclusive - 1;
     match &emitter.bytecode.bytecode[stop_idx] {
-        BrilligOpcode::Stop { return_data } => ctx.emit_return_data(return_data, stop_idx),
+        BrilligOpcode::Stop { return_data } => ctx.emit_return_data(return_data),
         other => Err(Error::UnsupportedBrillig {
             reason: format!(
                 "Stop region node at b{} expects a Stop opcode at index \

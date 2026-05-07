@@ -34,6 +34,7 @@ mod embedded_curve_add;
 mod keccak;
 mod poseidon2;
 mod sha256;
+mod to_radix;
 
 use aes128::emit_aes128;
 use blake2s::emit_blake2s;
@@ -42,7 +43,7 @@ use embedded_curve_add::emit_embedded_curve_add;
 use keccak::emit_keccakf1600;
 use poseidon2::emit_poseidon2;
 use sha256::emit_sha256_compression;
-
+use to_radix::emit_to_radix;
 pub(super) struct BlackBoxOpHandler<'a> {
     pub op: &'a BlackBoxOp,
 }
@@ -96,6 +97,9 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 result,
                 opcode_index,
             ),
+            BlackBoxOp::ToRadix { input, radix, output_pointer, num_limbs, output_bits } => {
+                emit_to_radix(ctx,  *input, *radix, *output_pointer, *num_limbs, *output_bits)
+            }
             // `MultiScalarMul`'s shared helper takes per-scalar bit
             // arrays (254 bits each). Brillig hands us raw lo/hi limbs,
             // so wiring this would mean nondet-decomposing each scalar
@@ -104,10 +108,7 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
             BlackBoxOp::MultiScalarMul { .. }
             // ECDSA verify has no shared helper yet.
             | BlackBoxOp::EcdsaSecp256k1 { .. }
-            | BlackBoxOp::EcdsaSecp256r1 { .. }
-            // `ToRadix` is Brillig-only (no ACIR analogue, no helper);
-            // it would lower as inline nondet + range constraints.
-            | BlackBoxOp::ToRadix { .. } => Err(Error::UnsupportedBrillig {
+            | BlackBoxOp::EcdsaSecp256r1 { .. } => Err(Error::UnsupportedBrillig {
                 reason: format!(
                     "BlackBox at bytecode index {opcode_index}: variant {} \
                      is not yet supported",

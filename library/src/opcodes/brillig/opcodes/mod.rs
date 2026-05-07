@@ -7,7 +7,7 @@
 //! `Box<dyn OpcodeEmitter>` pattern used for ACIR opcodes.
 
 use acir::FieldElement;
-use acir::brillig::Opcode as B;
+use acir::brillig::{MemoryAddress, Opcode as B};
 
 use crate::error::Error;
 
@@ -180,4 +180,21 @@ pub(super) fn build_handler<'a, M: Memory + 'a>(
 
         _ => None,
     }
+}
+
+pub(super) fn require_const<M: Memory>(
+    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+    addr: MemoryAddress,
+    op_name: &str,
+    field_name: &str,
+) -> Result<usize, Error> {
+    ctx.memory
+        .get_const(addr)?
+        .ok_or_else(|| Error::UnsupportedBrillig {
+            reason: format!(
+                "{op_name}: {field_name} register {} is expected to be a \
+                 known integer constant",
+                addr.to_u32()
+            ),
+        })
 }

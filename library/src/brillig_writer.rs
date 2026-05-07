@@ -134,6 +134,14 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
     }
 
+    pub(crate) fn insert_umod(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::felt::umod(self.location, lhs, rhs)?)
+    }
+
     // ── Felt bitwise / shifts ──────────────────────────────────────────
     //
     // Operate on the integer representation of the felt. Marked
