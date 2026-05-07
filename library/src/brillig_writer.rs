@@ -87,6 +87,13 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         Type::index(self.context)
     }
 
+    /// Returns the writer's current `Location`. Exposed so handlers
+    /// constructing structured-control-flow blocks can attach the same
+    /// debug location used by ordinary op emission.
+    pub(crate) fn location(&self) -> Location<'c> {
+        self.location
+    }
+
     // ── Felt arithmetic ────────────────────────────────────────────────
 
     /// Emits `felt.add lhs, rhs`.
@@ -302,6 +309,21 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(arith::addi(lhs, rhs, self.location))
     }
 
+    /// Emits `arith.cmpi slt(lhs, rhs)`, returning the resulting `i1`.
+    pub(crate) fn insert_cmpi_slt(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(arith::cmpi(
+            self.context,
+            arith::CmpiPredicate::Slt,
+            lhs,
+            rhs,
+            self.location,
+        ))
+    }
+
     // ── RAM operations ─────────────────────────────────────────────────
 
     /// Emits `ram.load %addr`, returning a value of the circuit's felt type.
@@ -317,6 +339,17 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// `addr` must be index-typed.
     pub(crate) fn insert_ram_store(&self, addr: Value<'c, 'a>, val: Value<'c, 'a>) {
         self.insert_op(dialect::ram::store(self.location, addr, val));
+    }
+
+    /// Emits `llzk.nondet : () -> result_type`, returning a prover-supplied
+    /// SSA value of `result_type`.
+    pub(crate) fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::llzk::nondet(self.location, result_type))
+    }
+
+    /// Returns the circuit's felt type.
+    pub(crate) fn felt_type(&self) -> Type<'c> {
+        FeltType::with_field(self.context, FIELD_NAME).into()
     }
 
     // ── Structured control flow ────────────────────────────────────────
@@ -354,19 +387,20 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         Ok(())
     }
 
-    /// Appends `scf.condition cond` (no carried args) to `current_block`.
-    /// Used to terminate the before-region of an `scf.while`. The caller
-    /// is responsible for being inside the before-block when this is
-    /// called (e.g. via `enter_block`).
-    pub(crate) fn insert_scf_condition(&self, cond: Value<'c, 'a>) {
-        self.insert_op(scf::condition(cond, &[], self.location));
+    /// Appends `scf.condition cond, args...` to `current_block`. Used to
+    /// terminate the before-region of an `scf.while`. `args` is the slice
+    /// of values carried into the after-region; pass `&[]` for no-result
+    /// while-loops. The caller is responsible for being inside the
+    /// before-block when this is called (e.g. via `enter_block`).
+    pub(crate) fn insert_scf_condition(&self, cond: Value<'c, 'a>, args: &[Value<'c, 'a>]) {
+        self.insert_op(scf::condition(cond, args, self.location));
     }
 
-    /// Appends `scf.yield` (no values) to `current_block`. Used to
-    /// terminate the after-region of an `scf.while` (and any other
-    /// scf-region whose body carries no result values).
-    pub(crate) fn insert_scf_yield(&self) {
-        self.insert_op(scf::r#yield(&[], self.location));
+    /// Appends `scf.yield args...` to `current_block`. Used to terminate
+    /// the after-region of an `scf.while` (and any other scf-region whose
+    /// body carries values back). Pass `&[]` for no-result variants.
+    pub(crate) fn insert_scf_yield(&self, args: &[Value<'c, 'a>]) {
+        self.insert_op(scf::r#yield(args, self.location));
     }
 
     /// Appends `function.call @<name>()` (no args, no results) to
@@ -406,10 +440,15 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     }
 
     /// Wraps `before_block` and `after_block` (each already terminated
-    /// with `scf.condition` / `scf.yield` by the caller) in a no-result
-    /// `scf.while` and appends it to `current_block`.
+    /// with `scf.condition` / `scf.yield` by the caller) in an
+    /// `scf.while` and appends it to `current_block`. `init` are the
+    /// initial values fed into the before-region; `result_types` are
+    /// the types of the values the loop produces. Pass empty slices for
+    /// loops that carry no values across iterations.
     pub(crate) fn insert_scf_while(
         &self,
+        init: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
         before_block: Block<'c>,
         after_block: Block<'c>,
     ) -> Result<(), Error> {
@@ -419,8 +458,8 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         after_region.append_block(after_block);
 
         self.insert_op(scf::r#while(
-            &[],
-            &[],
+            init,
+            result_types,
             before_region,
             after_region,
             self.location,

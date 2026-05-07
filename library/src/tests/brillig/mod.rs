@@ -24,6 +24,7 @@ mod binary_op_tests;
 mod black_box_tests;
 mod cfg_tests;
 mod dispatch_tests;
+mod foreign_call_tests;
 mod heap_tests;
 mod register_tests;
 mod relative_addressing_tests;

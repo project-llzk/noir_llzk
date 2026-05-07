@@ -21,7 +21,7 @@ use llzk::prelude::{OperationRef, Value};
 
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
-use super::BrilligHandler;
+use super::{BrilligHandler, read_pointer_as_index, slot_at_offset};
 use crate::{
     blackboxes::registry::BlackboxFunction::{EcdsaSecp256k1Compute, EcdsaSecp256r1Compute},
     error::Error,
@@ -163,7 +163,7 @@ pub(super) fn read_heap_array<'c, 'b, M: Memory>(
     pointer: MemoryAddress,
     size: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
-    let base = resolve_base(ctx, pointer)?;
+    let base = read_pointer_as_index(ctx, pointer)?;
     (0..size)
         .map(|i| {
             let slot = slot_at_offset(ctx, base, i)?;
@@ -186,7 +186,7 @@ pub(super) fn write_heap_array<'c, 'b, M: Memory>(
         values.len(),
         "write_heap_array: size must match values length"
     );
-    let base = resolve_base(ctx, pointer)?;
+    let base = read_pointer_as_index(ctx, pointer)?;
     for (i, &value) in values.iter().enumerate() {
         let slot = slot_at_offset(ctx, base, i)?;
         ctx.writer.insert_ram_store(slot, value);
@@ -205,27 +205,3 @@ pub(super) fn collect_results<'c, 'b>(
         .collect()
 }
 
-/// Reads the felt held in `pointer`'s register slot and casts it to
-/// the `index`-typed SSA value used as a base address for `ram.load` /
-/// `ram.store`.
-fn resolve_base<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
-    pointer: MemoryAddress,
-) -> Result<Value<'c, 'b>, Error> {
-    let ptr_felt = ctx.memory.read(ctx.writer, pointer)?;
-    ctx.writer.cast_to_index(ptr_felt)
-}
-
-/// Returns `base` itself when `offset == 0`; otherwise `base +
-/// arith.constant offset` as an `index`-typed value.
-fn slot_at_offset<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
-    base: Value<'c, 'b>,
-    offset: usize,
-) -> Result<Value<'c, 'b>, Error> {
-    if offset == 0 {
-        return Ok(base);
-    }
-    let off = ctx.writer.insert_integer(offset)?;
-    ctx.writer.insert_index_add(base, off)
-}

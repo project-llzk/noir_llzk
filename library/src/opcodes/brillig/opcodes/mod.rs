@@ -8,6 +8,7 @@
 
 use acir::FieldElement;
 use acir::brillig::{MemoryAddress, Opcode as B};
+use llzk::prelude::Value;
 
 use crate::error::Error;
 
@@ -21,6 +22,7 @@ mod calldata_copy;
 mod cast;
 mod conditional_mov;
 mod const_op;
+mod foreign_call;
 mod indirect_const;
 mod load;
 mod mov;
@@ -34,6 +36,7 @@ use self::calldata_copy::CalldataCopyHandler;
 use self::cast::CastHandler;
 use self::conditional_mov::ConditionalMovHandler;
 use self::const_op::ConstHandler;
+use self::foreign_call::ForeignCallHandler;
 use self::indirect_const::IndirectConstHandler;
 use self::load::LoadHandler;
 use self::mov::MovHandler;
@@ -176,6 +179,15 @@ pub(super) fn build_handler<'a, M: Memory + 'a>(
             condition: *condition,
         })),
 
+        B::ForeignCall {
+            destinations,
+            destination_value_types,
+            ..
+        } => Some(Box::new(ForeignCallHandler {
+            destinations,
+            destination_value_types,
+        })),
+
         B::BlackBox(op) => Some(Box::new(BlackBoxOpHandler { op })),
 
         _ => None,
@@ -197,4 +209,29 @@ pub(super) fn require_const<M: Memory>(
                 addr.to_u32()
             ),
         })
+}
+
+/// Returns `base` itself when `offset == 0`; otherwise `base +
+/// arith.constant offset` as an `index`-typed value.
+pub(super) fn slot_at_offset<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    base: Value<'c, 'b>,
+    offset: usize,
+) -> Result<Value<'c, 'b>, Error> {
+    if offset == 0 {
+        return Ok(base);
+    }
+    let off = ctx.writer.insert_integer(offset)?;
+    ctx.writer.insert_index_add(base, off)
+}
+
+/// Reads the felt held at `addr` (a register or RAM slot tracked by
+/// `ctx.memory`) and casts it to the `index`-typed SSA value used as a
+/// base address for `ram.load` / `ram.store`.
+pub(super) fn read_pointer_as_index<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    addr: MemoryAddress,
+) -> Result<Value<'c, 'b>, Error> {
+    let ptr_felt = ctx.memory.read(ctx.writer, addr)?;
+    ctx.writer.cast_to_index(ptr_felt)
 }

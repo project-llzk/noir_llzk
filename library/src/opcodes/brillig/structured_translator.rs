@@ -273,17 +273,18 @@ fn emit_node<'c, 'b, M: Memory>(
                 emit_body(ctx, emitter, test_prefix)?;
                 let continue_cond =
                     compute_loop_continue_cond(ctx, condition, *escape_flag, *header)?;
-                ctx.writer.insert_scf_condition(continue_cond);
+                ctx.writer.insert_scf_condition(continue_cond, &[]);
                 Ok(())
             })?;
             // after-region: emit body, terminate with `scf.yield`.
             let after_block = build_block_with(ctx, |ctx| {
                 emit_body(ctx, emitter, body)?;
-                ctx.writer.insert_scf_yield();
+                ctx.writer.insert_scf_yield(&[]);
                 Ok(())
             })?;
 
-            ctx.writer.insert_scf_while(before_block, after_block)?;
+            ctx.writer
+                .insert_scf_while(&[], &[], before_block, after_block)?;
             Ok(())
         }
 
