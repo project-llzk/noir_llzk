@@ -11,7 +11,7 @@ use acir::native_types::Witness;
 use llzk_interpreter::Felt;
 use num_bigint::{BigInt, BigUint, Sign};
 
-use crate::tests::e2e::{Value, assert_witness_eq, felt_u64, run_e2e_with_nondet};
+use crate::tests::e2e::{Value, assert_witness_eq, felt_u64, run_e2e_with_phase_nondets};
 use crate::tests::make_circuit_with_opcodes;
 
 pub(super) const PK_X_START: u32 = 0;
@@ -672,7 +672,7 @@ pub(super) fn run_predicate_false_test(curve: &Curve) {
     nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
     nondet.extend(limbs_eq_boolean_nondets(&r_final.0, &sig_r));
 
-    let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
+    let computed = run_e2e_with_phase_nondets(circuit, &inputs, &[Felt::from_u64(1)], &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
@@ -722,8 +722,9 @@ pub(super) fn run_verify_input_test(
     nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
     nondet.extend(limbs_eq_boolean_nondets(&r_final.0, sig_r));
 
-    let computed = run_e2e_with_nondet(circuit, &inputs, &nondet);
     let expected = !r_inf && r_final.0 < *n && r_final.0 == *sig_r && sig_s < &half_n_plus_one;
+    let compute_nondet = [Felt::from_u64(if expected { 1 } else { 0 })];
+    let computed = run_e2e_with_phase_nondets(circuit, &inputs, &compute_nondet, &nondet);
     assert_witness_eq(
         &computed.members,
         &format!("w{OUTPUT_W}"),

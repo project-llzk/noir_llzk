@@ -13,10 +13,8 @@
 //! `index`, and then `base + i` slot indices are computed for each
 //! element.
 //!
-//! Variants without a shared helper (`MultiScalarMul`,
-//! `EcdsaSecp256k1`/`r1`, `ToRadix`) currently return
-//! [`Error::UnsupportedBrillig`]; see each one's match arm for what
-//! would be required to support it.
+//! Variants that still need extra constraint/hint plumbing currently return
+//! [`Error::UnsupportedBrillig`]; see each one's match arm for details.
 
 use acir::brillig::{BlackBoxOp, MemoryAddress};
 use llzk::prelude::{OperationRef, Value};
@@ -30,6 +28,7 @@ use super::BrilligHandler;
 mod aes128;
 mod blake2s;
 mod blake3;
+mod ecdsa;
 mod embedded_curve_add;
 mod keccak;
 mod poseidon2;
@@ -39,11 +38,13 @@ mod to_radix;
 use aes128::emit_aes128;
 use blake2s::emit_blake2s;
 use blake3::emit_blake3;
+use ecdsa::emit_ecdsa;
 use embedded_curve_add::emit_embedded_curve_add;
 use keccak::emit_keccakf1600;
 use poseidon2::emit_poseidon2;
 use sha256::emit_sha256_compression;
 use to_radix::emit_to_radix;
+
 pub(super) struct BlackBoxOpHandler<'a> {
     pub op: &'a BlackBoxOp,
 }
@@ -96,18 +97,51 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
                 *input2_infinite,
                 result
             ),
-            BlackBoxOp::ToRadix { input, radix, output_pointer, num_limbs, output_bits } => {
-                emit_to_radix(ctx,  *input, *radix, *output_pointer, *num_limbs, *output_bits)
-            }
+            BlackBoxOp::EcdsaSecp256k1 {
+                hashed_msg,
+                public_key_x,
+                public_key_y,
+                signature,
+                result,
+            } => emit_ecdsa(
+                ctx,
+                crate::blackboxes::registry::BlackboxFunction::EcdsaSecp256k1Compute,
+                hashed_msg,
+                public_key_x,
+                public_key_y,
+                signature,
+                *result,
+                opcode_index,
+            ),
+            BlackBoxOp::EcdsaSecp256r1 {
+                hashed_msg,
+                public_key_x,
+                public_key_y,
+                signature,
+                result,
+            } => emit_ecdsa(
+                ctx,
+                crate::blackboxes::registry::BlackboxFunction::EcdsaSecp256r1Compute,
+                hashed_msg,
+                public_key_x,
+                public_key_y,
+                signature,
+                *result,
+                opcode_index,
+            ),
+            BlackBoxOp::ToRadix {
+                input,
+                radix,
+                output_pointer,
+                num_limbs,
+                output_bits,
+            } => emit_to_radix(ctx, *input, *radix, *output_pointer, *num_limbs, *output_bits),
             // `MultiScalarMul`'s shared helper takes per-scalar bit
             // arrays (254 bits each). Brillig hands us raw lo/hi limbs,
             // so wiring this would mean nondet-decomposing each scalar
             // into bits and emitting range / reconstruction constraints
             // — same work the ACIR side does in `emit_scalar_constraints`.
-            BlackBoxOp::MultiScalarMul { .. }
-            // ECDSA verify has no shared helper yet.
-            | BlackBoxOp::EcdsaSecp256k1 { .. }
-            | BlackBoxOp::EcdsaSecp256r1 { .. } => Err(Error::UnsupportedBrillig {
+            BlackBoxOp::MultiScalarMul { .. } => Err(Error::UnsupportedBrillig {
                 reason: format!(
                     "BlackBox at bytecode index {opcode_index}: variant {} \
                      is not yet supported",
