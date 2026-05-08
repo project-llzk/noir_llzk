@@ -23,7 +23,7 @@ use crate::error::Error;
 
 use super::cfg::{BlockId, Cfg};
 use super::memory::Memory;
-use super::registry::{BrilligRegistry, BrilligVariantKey};
+use super::registry::{BrilligRegistry, BrilligRegistryKey};
 use super::structurer::{
     CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction,
     StructuredProcedure,
@@ -38,7 +38,7 @@ pub(crate) struct ProcedureEmitter<'c, 'p> {
     pub(crate) bytecode: &'p BrilligBytecode<FieldElement>,
     pub(crate) cfg: &'p Cfg,
     pub(crate) procedures: &'p [StructuredProcedure],
-    pub(crate) variant: BrilligVariantKey,
+    pub(crate) variant: BrilligRegistryKey,
     emitted: HashSet<BlockId>,
 }
 
@@ -50,7 +50,7 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
         bytecode: &'p BrilligBytecode<FieldElement>,
         cfg: &'p Cfg,
         procedures: &'p [StructuredProcedure],
-        variant: BrilligVariantKey,
+        variant: BrilligRegistryKey,
     ) -> Self {
         Self {
             context,

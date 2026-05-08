@@ -8,8 +8,8 @@ use acir::brillig::MemoryAddress;
 use super::escape_flag::validate_escape_flag_positions;
 use super::loop_shape::get_loop_shape;
 use super::{EscapeFlagSlot, RegionNode};
+use crate::brillig::cfg::{BlockId, Cfg, Terminator};
 use crate::error::Error;
-use crate::opcodes::brillig::cfg::{BlockId, Cfg, Terminator};
 
 /// Walker state, reused across main and every procedure body.
 /// `escape_flags` is reset per body so slot indices are body-local.

@@ -3,7 +3,7 @@ pub(crate) mod assert_zero;
 pub(crate) mod bitwise;
 pub(crate) mod blake2s;
 pub(crate) mod blake3;
-pub(crate) mod brillig;
+pub(crate) mod brillig_call;
 pub(crate) mod call;
 pub(crate) mod ecdsa;
 pub(crate) mod grumpkin;

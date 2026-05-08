@@ -4,8 +4,8 @@ use acir::brillig::{HeapArray, MemoryAddress};
 use acir::{AcirField, FieldElement};
 
 use crate::blackboxes::registry::BlackboxFunction;
+use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
-use crate::opcodes::brillig::{memory::Memory, translator::TranslationCtx};
 
 use super::{collect_results, read_heap_array};
 

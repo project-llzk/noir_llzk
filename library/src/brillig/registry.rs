@@ -29,13 +29,13 @@ use super::structurer::structure_function;
 
 /// Identifies a single shape variant of a Brillig function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct BrilligVariantKey {
+pub(crate) struct BrilligRegistryKey {
     pub(crate) id: BrilligFunctionId,
     pub(crate) input_count: usize,
     pub(crate) output_count: usize,
 }
 
-impl BrilligVariantKey {
+impl BrilligRegistryKey {
     pub(crate) fn new(id: BrilligFunctionId, input_count: usize, output_count: usize) -> Self {
         Self {
             id,
@@ -47,7 +47,7 @@ impl BrilligVariantKey {
 
 /// Collector of unique Brillig call sites across a program.
 pub(crate) struct BrilligRegistry<'c, 'p> {
-    entries: HashMap<BrilligVariantKey, BrilligEntry<'c, 'p>>,
+    entries: HashMap<BrilligRegistryKey, BrilligEntry<'c, 'p>>,
 }
 
 /// A single Brillig function scheduled for module-level emission.
@@ -65,7 +65,7 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
     }
 
     /// Returns the LLZK symbol name for a Brillig function variant.
-    pub(crate) fn function_name(key: BrilligVariantKey) -> String {
+    pub(crate) fn function_name(key: BrilligRegistryKey) -> String {
         format!(
             "brillig_{}_{}x{}",
             key.id.0, key.input_count, key.output_count
@@ -75,7 +75,7 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
     /// Returns the LLZK symbol name for a procedure inside a
     /// Brillig function variant.
     pub(crate) fn procedure_function_name(
-        key: BrilligVariantKey,
+        key: BrilligRegistryKey,
         entry: super::cfg::BlockId,
     ) -> String {
         format!(
@@ -87,7 +87,7 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
     /// Records a call site for `key`.
     pub(crate) fn register(
         &mut self,
-        key: BrilligVariantKey,
+        key: BrilligRegistryKey,
         input_types: Vec<Type<'c>>,
         output_types: Vec<Type<'c>>,
         bytecode: &'p BrilligBytecode<FieldElement>,
@@ -114,7 +114,7 @@ pub(crate) fn emit_brillig_functions<'c>(
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
     // Order so emitted IR is deterministic across runs.
-    let mut entries: Vec<(&BrilligVariantKey, &BrilligEntry<'c, '_>)> =
+    let mut entries: Vec<(&BrilligRegistryKey, &BrilligEntry<'c, '_>)> =
         registry.entries.iter().collect();
     entries.sort_by_key(|(k, _)| (k.id.0, k.input_count, k.output_count));
 

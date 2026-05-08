@@ -1,10 +1,10 @@
-//! Unit tests for the Brillig CFG recovery ([`crate::opcodes::brillig::cfg`]).
+//! Unit tests for the Brillig CFG recovery ([`crate::brillig::cfg`]).
 
 use acir::FieldElement;
 use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 
 use crate::Error;
-use crate::opcodes::brillig::cfg::{BlockId, Cfg, Terminator};
+use crate::brillig::cfg::{BlockId, Cfg, Terminator};
 
 use super::{brillig_stop, mov};
 

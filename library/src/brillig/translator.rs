@@ -9,12 +9,10 @@ use acir::brillig::{
 };
 use llzk::prelude::Value;
 
+use super::memory::Memory;
+use super::opcodes::{build_handler, require_const};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
-use crate::opcodes::brillig::opcodes::require_const;
-
-use super::memory::Memory;
-use super::opcodes::build_handler;
 
 // ── Core types ─────────────────────────────────────────────────────────
 

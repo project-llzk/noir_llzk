@@ -8,8 +8,8 @@ use llzk::prelude::{
     StructDefOpRef, llzk_module,
 };
 
+use crate::brillig::registry::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
-use crate::opcodes::brillig::registry::BrilligRegistry;
 
 mod brillig;
 use crate::program::translate_program;

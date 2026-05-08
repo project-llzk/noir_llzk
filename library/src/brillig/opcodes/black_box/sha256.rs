@@ -8,8 +8,8 @@ use acir::brillig::HeapArray;
 use llzk::prelude::Value;
 
 use crate::blackboxes::{hash::sha256::SHA256_STATE_WORDS, registry::BlackboxFunction};
+use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
-use crate::opcodes::brillig::{memory::Memory, translator::TranslationCtx};
 
 use super::{collect_results, read_heap_array, write_heap_array};
 

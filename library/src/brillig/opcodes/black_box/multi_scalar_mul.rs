@@ -7,8 +7,8 @@ use crate::blackboxes::grumpkin::multi_scalar_mul::{
     SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS,
 };
 use crate::blackboxes::registry::BlackboxFunction;
+use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
-use crate::opcodes::brillig::{memory::Memory, translator::TranslationCtx};
 
 use super::to_radix::emit_limb_decomp;
 use super::{collect_results, read_heap_array, write_heap_array};

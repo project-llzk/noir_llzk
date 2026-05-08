@@ -19,11 +19,12 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
+    brillig::registry::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
         TranslatedOpcode, aes128,
         assert_zero::AssertZero,
         bitwise, blake2s, blake3,
-        brillig::{BrilligCall, registry::BrilligRegistry},
+        brillig_call::BrilligCall,
         call::Call,
         ecdsa, grumpkin, keccak,
         memory_ops::{self, MemoryInit},
@@ -307,11 +308,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             }
         }
 
-        let key = crate::opcodes::brillig::registry::BrilligVariantKey::new(
-            id,
-            input_types.len(),
-            output_types.len(),
-        );
+        let key = BrilligRegistryKey::new(id, input_types.len(), output_types.len());
         brillig_registry.register(key, input_types, output_types, bytecode)?;
 
         Ok(Box::new(BrilligCall::new(key, inputs, outputs, predicate)))

@@ -13,8 +13,8 @@ use crate::blackboxes::{
     hash::blake3::{BLAKE3_DIGEST_BYTES, blake3_num_blocks_for_len},
     registry::BlackboxFunction,
 };
+use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
-use crate::opcodes::brillig::{memory::Memory, translator::TranslationCtx};
 
 use super::{collect_results, read_heap_array, write_heap_array};
 

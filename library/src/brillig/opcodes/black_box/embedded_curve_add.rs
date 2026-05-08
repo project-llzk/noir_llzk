@@ -11,8 +11,8 @@ use acir::{AcirField, FieldElement};
 use llzk::prelude::Value;
 
 use crate::blackboxes::registry::BlackboxFunction;
+use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
-use crate::opcodes::brillig::{memory::Memory, translator::TranslationCtx};
 
 use super::{collect_results, write_heap_array};
 

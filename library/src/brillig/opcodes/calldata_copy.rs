@@ -1,7 +1,7 @@
 use acir::brillig::MemoryAddress;
 
+use super::require_const;
 use crate::error::Error;
-use crate::opcodes::brillig::opcodes::require_const;
 
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;

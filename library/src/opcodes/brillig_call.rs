@@ -1,23 +1,11 @@
-//! Brillig (`BrilligCall`) opcode translation.
+//! Translation of `Opcode::BrilligCall` — the constrained-side call-site
+//! that invokes a Brillig (unconstrained) function.
 //!
 //! Each `Opcode::BrilligCall` in the caller's ACIR lowers to a
-//! `function.call @brillig_{id}` inside the caller's `@compute`. The sibling
-//! function body itself lives at module scope and is emitted once per
-//! `BrilligFunctionId` after all circuits have been translated — see
-//! [`registry::emit_brillig_functions`].
-//!
-//! Call-site validation (marshalling shapes supported) happens at handler
-//! construction in [`crate::circuit::CircuitTranslator`] so that the
-//! registry only ever sees well-formed entries.
-
-pub(crate) mod cfg;
-mod flow;
-mod memory;
-mod opcodes;
-pub(crate) mod registry;
-mod structured_translator;
-pub(crate) mod structurer;
-mod translator;
+//! `function.call @brillig_{id}_{N}x{M}` inside the caller's `@compute`.
+//! The callee function itself is emitted at module scope by
+//! [`crate::brillig::registry::emit_brillig_functions`] after all circuits
+//! have been translated.
 
 use std::collections::BTreeSet;
 
@@ -30,22 +18,15 @@ use llzk::prelude::{ArrayType, IntegerAttribute, Type, Value, ValueLike};
 
 use crate::{
     block_writer::BlockWriter,
+    brillig::registry::{BrilligRegistry, BrilligRegistryKey},
     common::{collect_witnesses, emit_expression, is_trivial_predicate},
     error::Error,
     opcodes::OpcodeEmitter,
 };
 
-use self::registry::{BrilligRegistry, BrilligVariantKey};
-
 /// Translator for a single `Opcode::BrilligCall`.
-///
-/// Shape validation (input/output marshalling) is performed at construction
-/// time by [`crate::circuit::CircuitTranslator::build_handler`], so
-/// `emit_compute` can emit without re-checking. The shape is captured in
-/// `key` so the emitted call resolves to the matching `@brillig_{id}_{N}x{M}`
-/// variant.
 pub(crate) struct BrilligCall<'p> {
-    key: BrilligVariantKey,
+    key: BrilligRegistryKey,
     inputs: &'p [BrilligInputs<FieldElement>],
     outputs: &'p [BrilligOutputs],
     predicate: &'p Expression<FieldElement>,
@@ -53,7 +34,7 @@ pub(crate) struct BrilligCall<'p> {
 
 impl<'p> BrilligCall<'p> {
     pub(crate) fn new(
-        key: BrilligVariantKey,
+        key: BrilligRegistryKey,
         inputs: &'p [BrilligInputs<FieldElement>],
         outputs: &'p [BrilligOutputs],
         predicate: &'p Expression<FieldElement>,
@@ -102,7 +83,7 @@ impl<'p> OpcodeEmitter for BrilligCall<'p> {
     /// In `@compute`, emits:
     /// 1. Each `Single` input expression evaluated to an SSA value.
     /// 2. `function.call @brillig_{id}(args)` — the callee body is built
-    ///    later by [`registry::emit_brillig_functions`].
+    ///    later by [`crate::brillig::registry::emit_brillig_functions`].
     /// 3. For each `Simple` output, gates the returned value by the
     ///    predicate (`predicate * result`) when the predicate is
     ///    non-trivial, then writes the (possibly gated) value into `%self`

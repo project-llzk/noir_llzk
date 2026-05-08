@@ -3,8 +3,8 @@ use llzk::prelude::Value;
 
 use crate::{
     Error,
+    brillig::{memory::Memory, opcodes::require_const, translator::TranslationCtx},
     brillig_writer::BrilligWriter,
-    opcodes::brillig::{memory::Memory, opcodes::require_const, translator::TranslationCtx},
 };
 
 pub(super) fn emit_to_radix<'c, 'b, M: Memory>(

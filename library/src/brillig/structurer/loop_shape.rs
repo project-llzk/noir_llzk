@@ -6,8 +6,8 @@
 use acir::brillig::MemoryAddress;
 
 use super::{CondPolarity, LoopCondition};
+use crate::brillig::cfg::{BlockId, Cfg, NaturalLoop, Terminator};
 use crate::error::Error;
-use crate::opcodes::brillig::cfg::{BlockId, Cfg, NaturalLoop, Terminator};
 
 /// Classification of a natural loop's header.
 pub(super) struct LoopShape {

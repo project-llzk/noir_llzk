@@ -1,8 +1,8 @@
 //! Validation for [`super::RegionNode::SetEscapeFlag`] placement.
 
 use super::RegionNode;
+use crate::brillig::cfg::BlockId;
 use crate::error::Error;
-use crate::opcodes::brillig::cfg::BlockId;
 
 /// Verifies that every [`RegionNode::SetEscapeFlag`] in `body` sits at a
 /// structurally-tail position. A break elsewhere would require wrapping

@@ -7,8 +7,8 @@
 use acir::FieldElement;
 use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 
-use crate::opcodes::brillig::cfg::{BlockId, Cfg};
-use crate::opcodes::brillig::structurer::{
+use crate::brillig::cfg::{BlockId, Cfg};
+use crate::brillig::structurer::{
     CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction, structure_function,
 };
 use crate::tests::noir_helpers::{

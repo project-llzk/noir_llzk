@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use crate::{Error, opcodes::brillig::flow};
+use crate::{Error, brillig::flow};
 use acir::{FieldElement, brillig::Label, brillig::MemoryAddress, brillig::Opcode as B};
 
 /// Identifier of a basic block in the recovered CFG. Entry is `BlockId(0)`;
