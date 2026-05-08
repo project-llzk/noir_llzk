@@ -227,7 +227,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     .ok_or_else(|| Error::UnsupportedBrillig {
                         reason: format!(
                             "brillig input #{i}: MemoryArray references block {} \
-                                 which has no MemoryInit in this circuit",
+                                 which is not initialised in this circuit",
                             block_id.0
                         ),
                     }),
