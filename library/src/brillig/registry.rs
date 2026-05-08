@@ -79,8 +79,8 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
         entry: super::cfg::BlockId,
     ) -> String {
         format!(
-            "brillig_{}_{}x{}_proc_b{}",
-            key.id.0, key.input_count, key.output_count, entry.0
+            "brillig_{}_proc_b{}_{}x{}",
+            key.id.0, entry.0, key.input_count, key.output_count
         )
     }
 
