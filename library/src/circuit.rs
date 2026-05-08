@@ -18,17 +18,15 @@ use llzk::{
 
 use crate::{
     Error, FIELD_NAME,
+    blackboxes::build_blackbox_handler,
     block_writer::BlockWriter,
     brillig::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
-        TranslatedOpcode, aes128,
+        TranslatedOpcode,
         assert_zero::AssertZero,
-        bitwise, blake2s, blake3,
         brillig_call::BrilligCall,
         call::Call,
-        ecdsa, grumpkin, keccak,
         memory_ops::{self, MemoryInit},
-        poseidon2, sha256,
     },
 };
 
@@ -71,7 +69,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     pub(crate) fn translate(
         self,
         circuit_index: usize,
-        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+        brillig_registry: &mut BrilligRegistry<'p>,
     ) -> Result<StructDefOp<'c>, Error> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
@@ -136,7 +134,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// can build one `@brillig_{id}` function per unique callee.
     fn build_handlers(
         &self,
-        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+        brillig_registry: &mut BrilligRegistry<'p>,
     ) -> Result<Vec<TranslatedOpcode<'p>>, Error> {
         self.circuit
             .opcodes
@@ -151,58 +149,10 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         &self,
         index: usize,
         opcode: &'p Opcode<FieldElement>,
-        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+        brillig_registry: &mut BrilligRegistry<'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
-        if let Some(curve_add_op) = grumpkin::embedded_curve_add::from_opcode(opcode) {
-            return Ok(Box::new(curve_add_op));
-        }
-
-        if let Some(msm_op) = grumpkin::multi_scalar_mul::from_opcode(opcode) {
-            return Ok(Box::new(msm_op));
-        }
-
-        if let Some(range_op) = bitwise::rangecheck::from_opcode(opcode) {
-            return Ok(Box::new(range_op));
-        }
-
-        if let Some(xor_op) = bitwise::xor::from_opcode(opcode) {
-            return Ok(Box::new(xor_op));
-        }
-
-        if let Some(and_op) = bitwise::and::from_opcode(opcode) {
-            return Ok(Box::new(and_op));
-        }
-
-        if let Some(blake2s_op) = blake2s::from_opcode(opcode)? {
-            return Ok(Box::new(blake2s_op));
-        }
-
-        if let Some(blake3_op) = blake3::from_opcode(opcode)? {
-            return Ok(Box::new(blake3_op));
-        }
-
-        if let Some(sha256_op) = sha256::from_opcode(opcode)? {
-            return Ok(Box::new(sha256_op));
-        }
-
-        if let Some(aes_op) = aes128::from_opcode(opcode)? {
-            return Ok(Box::new(aes_op));
-        }
-
-        if let Some(keccak_op) = keccak::from_opcode(opcode)? {
-            return Ok(Box::new(keccak_op));
-        }
-
-        if let Some(poseidon2_op) = poseidon2::from_opcode(opcode)? {
-            return Ok(Box::new(poseidon2_op));
-        }
-
-        if let Some(ecdsa_k1_op) = ecdsa::secp256k1::from_opcode(opcode) {
-            return Ok(Box::new(ecdsa_k1_op));
-        }
-
-        if let Some(ecdsa_r1_op) = ecdsa::secp256r1::from_opcode(opcode) {
-            return Ok(Box::new(ecdsa_r1_op));
+        if let Some(handler) = build_blackbox_handler(opcode)? {
+            return Ok(handler);
         }
 
         match opcode {
@@ -251,7 +201,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         inputs: &'p [BrilligInputs<FieldElement>],
         outputs: &'p [BrilligOutputs],
         predicate: &'p Expression<FieldElement>,
-        brillig_registry: &mut BrilligRegistry<'c, 'p>,
+        brillig_registry: &mut BrilligRegistry<'p>,
     ) -> Result<TranslatedOpcode<'p>, Error> {
         let bytecode = self
             .program
@@ -266,50 +216,34 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                 ),
             })?;
 
-        let felt_ty: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
-
-        let mut input_types: Vec<Type<'c>> = Vec::with_capacity(inputs.len());
-        for (i, input) in inputs.iter().enumerate() {
-            match input {
-                BrilligInputs::Single(_) => input_types.push(felt_ty),
-                BrilligInputs::Array(exprs) => {
-                    // Each array element becomes a separate felt-typed function argument
-                    // (flat calldata convention).
-                    for _ in exprs {
-                        input_types.push(felt_ty);
-                    }
-                }
-                BrilligInputs::MemoryArray(block_id) => {
-                    let len = self.memory_block_len(block_id.0).ok_or_else(|| {
-                        Error::UnsupportedBrillig {
-                            reason: format!(
-                                "brillig input #{i}: MemoryArray references block {} \
+        let input_count: usize = inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| match input {
+                BrilligInputs::Single(_) => Ok(1),
+                BrilligInputs::Array(exprs) => Ok(exprs.len()),
+                BrilligInputs::MemoryArray(block_id) => self
+                    .memory_block_len(block_id.0)
+                    .ok_or_else(|| Error::UnsupportedBrillig {
+                        reason: format!(
+                            "brillig input #{i}: MemoryArray references block {} \
                                  which has no MemoryInit in this circuit",
-                                block_id.0
-                            ),
-                        }
-                    })?;
-                    for _ in 0..len {
-                        input_types.push(felt_ty);
-                    }
-                }
-            }
-        }
+                            block_id.0
+                        ),
+                    }),
+            })
+            .sum::<Result<usize, Error>>()?;
 
-        let mut output_types: Vec<Type<'c>> = Vec::with_capacity(outputs.len());
-        for output in outputs.iter() {
-            match output {
-                BrilligOutputs::Simple(_) => output_types.push(felt_ty),
-                BrilligOutputs::Array(ws) => {
-                    for _ in ws {
-                        output_types.push(felt_ty);
-                    }
-                }
-            }
-        }
+        let output_count: usize = outputs
+            .iter()
+            .map(|output| match output {
+                BrilligOutputs::Simple(_) => 1,
+                BrilligOutputs::Array(ws) => ws.len(),
+            })
+            .sum();
 
-        let key = BrilligRegistryKey::new(id, input_types.len(), output_types.len());
-        brillig_registry.register(key, input_types, output_types, bytecode)?;
+        let key = BrilligRegistryKey::new(id, input_count, output_count);
+        brillig_registry.register(key, bytecode)?;
 
         Ok(Box::new(BrilligCall::new(key, inputs, outputs, predicate)))
     }

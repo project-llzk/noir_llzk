@@ -15,10 +15,11 @@ use acir::{
     circuit::brillig::{BrilligBytecode, BrilligFunctionId},
 };
 use llzk::prelude::{
-    Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
-    RegionLike, Type, Value, dialect,
+    Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
+    OperationLike, RegionLike, Type, Value, dialect,
 };
 
+use crate::FIELD_NAME;
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
@@ -46,18 +47,16 @@ impl BrilligRegistryKey {
 }
 
 /// Collector of unique Brillig call sites across a program.
-pub(crate) struct BrilligRegistry<'c, 'p> {
-    entries: HashMap<BrilligRegistryKey, BrilligEntry<'c, 'p>>,
+pub(crate) struct BrilligRegistry<'p> {
+    entries: HashMap<BrilligRegistryKey, BrilligEntry<'p>>,
 }
 
 /// A single Brillig function scheduled for module-level emission.
-struct BrilligEntry<'c, 'p> {
-    input_types: Vec<Type<'c>>,
-    output_types: Vec<Type<'c>>,
+struct BrilligEntry<'p> {
     bytecode: &'p BrilligBytecode<FieldElement>,
 }
 
-impl<'c, 'p> BrilligRegistry<'c, 'p> {
+impl<'p> BrilligRegistry<'p> {
     pub(crate) fn new() -> Self {
         Self {
             entries: HashMap::new(),
@@ -88,17 +87,9 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
     pub(crate) fn register(
         &mut self,
         key: BrilligRegistryKey,
-        input_types: Vec<Type<'c>>,
-        output_types: Vec<Type<'c>>,
         bytecode: &'p BrilligBytecode<FieldElement>,
     ) -> Result<(), Error> {
-        debug_assert_eq!(input_types.len(), key.input_count);
-        debug_assert_eq!(output_types.len(), key.output_count);
-        self.entries.entry(key).or_insert(BrilligEntry {
-            input_types,
-            output_types,
-            bytecode,
-        });
+        self.entries.entry(key).or_insert(BrilligEntry { bytecode });
         Ok(())
     }
 }
@@ -110,25 +101,28 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
 pub(crate) fn emit_brillig_functions<'c>(
     context: &'c LlzkContext,
     module: &Module<'c>,
-    registry: &BrilligRegistry<'c, '_>,
+    registry: &BrilligRegistry<'_>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
+    let felt_ty: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
     // Order so emitted IR is deterministic across runs.
-    let mut entries: Vec<(&BrilligRegistryKey, &BrilligEntry<'c, '_>)> =
+    let mut entries: Vec<(&BrilligRegistryKey, &BrilligEntry<'_>)> =
         registry.entries.iter().collect();
     entries.sort_by_key(|(k, _)| (k.id.0, k.input_count, k.output_count));
 
     for (key, entry) in entries {
         let name = BrilligRegistry::function_name(*key);
-        let func_type = FunctionType::new(context, &entry.input_types, &entry.output_types);
+        let input_types = vec![felt_ty; key.input_count];
+        let output_types = vec![felt_ty; key.output_count];
+        let func_type = FunctionType::new(context, &input_types, &output_types);
         let func = dialect::function::def(location, &name, func_type, &[], None)?;
         func.set_allow_witness_attr(true);
         func.set_allow_non_native_field_ops_attr(true);
 
         let arg_sig: Vec<(Type<'c>, Location<'c>)> =
-            entry.input_types.iter().map(|ty| (*ty, location)).collect();
+            (0..key.input_count).map(|_| (felt_ty, location)).collect();
         let body_block = Block::new(&arg_sig);
-        let calldata: Vec<Value<'c, '_>> = (0..entry.input_types.len())
+        let calldata: Vec<Value<'c, '_>> = (0..key.input_count)
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
         let mut writer = BrilligWriter::new(context, &body_block);
@@ -155,7 +149,7 @@ pub(crate) fn emit_brillig_functions<'c>(
                 &mut emitter,
                 &structured,
                 &calldata,
-                entry.output_types.len(),
+                key.output_count,
             )?
         } else {
             translate_structured(
@@ -164,7 +158,7 @@ pub(crate) fn emit_brillig_functions<'c>(
                 &mut emitter,
                 &structured,
                 &calldata,
-                entry.output_types.len(),
+                key.output_count,
             )?
         };
 
