@@ -12,6 +12,7 @@ use llzk::prelude::{Block, Value};
 
 use super::memory::Memory;
 use super::opcodes::build_handler;
+use crate::brillig::cfg::BlockId;
 use crate::brillig::opcodes::{require_const, slot_at_offset};
 use crate::brillig::structurer::{CondPolarity, EscapeFlagSlot, LoopCondition};
 use crate::brillig_writer::BrilligWriter;
@@ -284,6 +285,79 @@ pub(super) fn compute_loop_continue_cond<'c, 'b, M: Memory>(
     }
 }
 
+/// Emits an `scf.if` whose then- and else-region bodies are produced by
+/// invoking `emit` against `then_arg` and `else_arg` respectively. The
+/// `i1` condition is materialised in the current block; the memory
+/// cache is snapshotted before the arms and met across them at the
+/// join, so post-`if` cache state never claims a value that holds on
+/// only one path.
+///
+/// `emit` is a single `FnMut` rather than two `FnOnce` closures so the
+/// caller can capture `&mut self` once. Two `FnOnce` closures both
+/// borrowing `&mut self` would conflict at the call site.
+pub(super) fn emit_if_with<'c, 'b, M, T, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    condition: MemoryAddress,
+    then_arg: T,
+    else_arg: T,
+    mut emit: F,
+) -> Result<(), Error>
+where
+    M: Memory,
+    F: FnMut(&mut TranslationCtx<'c, 'b, '_, M>, T) -> Result<(), Error>,
+{
+    let cond_felt = ctx.memory.read(ctx.writer, condition)?;
+    let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
+
+    let pre_branch = ctx.memory.clone();
+    let then_block = build_block_with(ctx, |ctx| emit(ctx, then_arg))?;
+    let after_then = ctx.memory.clone();
+    *ctx.memory = pre_branch;
+    let else_block = build_block_with(ctx, |ctx| emit(ctx, else_arg))?;
+    ctx.memory.meet(&after_then);
+
+    ctx.writer
+        .insert_scf_if(cond_bool, then_block, else_block)?;
+    Ok(())
+}
+
+/// Emits an `scf.while`. The before-region body is `emit(test_prefix_arg)`
+/// followed by a [`compute_loop_continue_cond`]-derived `scf.condition`
+/// terminator; the after-region body is `emit(body_arg)` followed by
+/// `scf.yield`.
+///
+/// `emit` is a single `FnMut` (see [`emit_if_with`] for the rationale).
+pub(super) fn emit_while_with<'c, 'b, M, T, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    test_prefix_arg: T,
+    body_arg: T,
+    escape_flag_addrs: &[Value<'c, 'b>],
+    condition: &Option<LoopCondition>,
+    escape_flag: Option<EscapeFlagSlot>,
+    header: BlockId,
+    mut emit: F,
+) -> Result<(), Error>
+where
+    M: Memory,
+    F: FnMut(&mut TranslationCtx<'c, 'b, '_, M>, T) -> Result<(), Error>,
+{
+    let before_block = build_block_with(ctx, |ctx| {
+        emit(ctx, test_prefix_arg)?;
+        let continue_cond =
+            compute_loop_continue_cond(ctx, escape_flag_addrs, condition, escape_flag, header)?;
+        ctx.writer.insert_scf_condition(continue_cond, &[]);
+        Ok(())
+    })?;
+    let after_block = build_block_with(ctx, |ctx| {
+        emit(ctx, body_arg)?;
+        ctx.writer.insert_scf_yield(&[]);
+        Ok(())
+    })?;
+    ctx.writer
+        .insert_scf_while(&[], &[], before_block, after_block)?;
+    Ok(())
+}
+
 /// Reads the `Stop` opcode's `return_data` HeapVector and emits
 /// `ram.load` ops for each return slot.
 pub(super) fn emit_return_data<'c, 'b, M: Memory>(
@@ -322,5 +396,16 @@ pub(super) fn emit_bool_assert<'c, 'b, M: Memory>(
     let cond_felt = ctx.memory.read(ctx.writer, *condition)?;
     let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
     ctx.writer.insert_bool_assert(cond_bool)?;
+    Ok(())
+}
+
+pub(super) fn emit_set_flag<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    slot: &EscapeFlagSlot,
+    escape_flag_addrs: &[Value<'c, 'b>],
+) -> Result<(), Error> {
+    let one = ctx.writer.emit_constant(&FieldElement::from(1u128))?;
+    let addr = escape_flag_addrs[slot.0];
+    ctx.writer.insert_ram_store(addr, one);
     Ok(())
 }

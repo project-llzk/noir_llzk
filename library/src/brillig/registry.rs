@@ -134,7 +134,7 @@ pub(crate) fn emit_brillig_functions<'c>(
             module,
             location,
             entry.bytecode,
-            &cfg,
+            &cfg.blocks,
             &structured.procedures,
             *key,
         );
