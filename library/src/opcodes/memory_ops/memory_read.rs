@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::uninit_error;
+use crate::writer::Writer;
 /// Translates an ACIR `MemoryOp` with `operation=0` (read).
 ///
 /// In `@compute`: evaluates the index, reads `arr[index]` from the live array,

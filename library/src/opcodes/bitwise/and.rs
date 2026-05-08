@@ -8,7 +8,7 @@ use acir::{
 };
 
 use super::{collect_input_witness, constrain_input_width, emit_blackbox_input};
-use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
+use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, writer::Writer};
 
 pub(crate) struct And<'a> {
     lhs: &'a FunctionInput<FieldElement>,
@@ -29,7 +29,7 @@ impl OpcodeEmitter for And<'_> {
         let lhs = emit_blackbox_input(writer, self.lhs)?;
         let rhs = emit_blackbox_input(writer, self.rhs)?;
 
-        let result = writer.insert_bit_and(lhs, rhs)?;
+        let result = writer.insert_felt_bit_and(lhs, rhs)?;
 
         writer.write_member(&format!("w{}", self.output.0), result)?;
         writer.mark_known(self.output.0, result);
@@ -44,7 +44,7 @@ impl OpcodeEmitter for And<'_> {
         constrain_input_width(writer, self.lhs, lhs, self.num_bits)?;
         constrain_input_width(writer, self.rhs, rhs, self.num_bits)?;
 
-        let and_result = writer.insert_bit_and(lhs, rhs)?;
+        let and_result = writer.insert_felt_bit_and(lhs, rhs)?;
         writer.insert_constrain_eq(output, and_result);
         Ok(())
     }

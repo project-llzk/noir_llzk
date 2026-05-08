@@ -29,6 +29,7 @@ use crate::{
         },
         emit_blackbox_input,
     },
+    writer::Writer,
 };
 
 pub(crate) const ECDSA_SECP256K1_COMPUTE_HELPER_NAME: &str = "ecdsa_secp256k1_compute";

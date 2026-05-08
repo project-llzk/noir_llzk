@@ -6,6 +6,7 @@ use crate::error::Error;
 
 use super::{read_heap_array, write_heap_array};
 use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::writer::Writer;
 pub(super) fn emit_poseidon2<M: Memory>(
     ctx: &mut TranslationCtx<'_, '_, '_, M>,
     message: &HeapArray,

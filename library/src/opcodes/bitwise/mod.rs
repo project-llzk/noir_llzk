@@ -2,6 +2,7 @@ pub(crate) mod and;
 pub(crate) mod rangecheck;
 pub(crate) mod xor;
 
+use crate::writer::Writer;
 use crate::{block_writer::BlockWriter, error::Error};
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
 use llzk::prelude::Value;

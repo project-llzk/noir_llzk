@@ -29,6 +29,7 @@ use super::structurer::{
     StructuredProcedure,
 };
 use super::translator::{TranslationCtx, translate_block_body};
+use crate::writer::Writer;
 
 /// Per-Brillig-function emission state.
 pub(super) struct ProcedureEmitter<'c, 'p> {

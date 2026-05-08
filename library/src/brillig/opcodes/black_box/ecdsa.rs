@@ -8,6 +8,7 @@ use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array};
+use crate::writer::Writer;
 
 const ECDSA_PUBLIC_KEY_BYTES: usize = 32;
 const ECDSA_SIGNATURE_BYTES: usize = 64;

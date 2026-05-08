@@ -12,6 +12,7 @@ use crate::{
     error::Error,
     multiprec::{LIMBS, Limbs256, try_init_limbs},
     opcodes::emit_blackbox_input,
+    writer::Writer,
 };
 
 pub(super) const ECDSA_HELPER_INPUTS: usize = 32 + 32 + 64 + 32 + 1;

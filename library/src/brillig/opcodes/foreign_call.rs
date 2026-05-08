@@ -15,6 +15,7 @@ use crate::error::Error;
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::{BrilligHandler, read_pointer_as_index, slot_at_offset};
+use crate::writer::Writer;
 
 pub(super) struct ForeignCallHandler<'a> {
     pub destinations: &'a [ValueOrArray],

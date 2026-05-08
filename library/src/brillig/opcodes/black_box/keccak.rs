@@ -12,6 +12,7 @@ use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
+use crate::writer::Writer;
 
 pub(super) fn emit_keccakf1600<M: Memory>(
     ctx: &mut TranslationCtx<'_, '_, '_, M>,

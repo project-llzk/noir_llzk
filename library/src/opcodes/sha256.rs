@@ -15,6 +15,7 @@ use crate::{
         OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, emit_blackbox_input,
         validate_u32_input, write_digest_outputs,
     },
+    writer::Writer,
 };
 
 pub(crate) struct Sha256Compression<'a> {

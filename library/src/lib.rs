@@ -8,13 +8,14 @@ mod common;
 mod error;
 mod multiprec;
 mod opcodes;
-pub mod program;
-
-pub use error::Error;
+mod program;
+mod writer;
 
 use acir::{FieldElement, circuit::Program};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+pub use error::Error;
+pub use program::translate_program;
 
 #[cfg(test)]
 mod tests;

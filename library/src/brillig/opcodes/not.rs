@@ -5,6 +5,7 @@ use crate::error::Error;
 use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
+use crate::writer::Writer;
 
 pub(super) struct NotHandler {
     pub destination: MemoryAddress,

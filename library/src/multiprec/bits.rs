@@ -4,6 +4,7 @@ use llzk::prelude::Value;
 use crate::{block_writer::BlockWriter, error::Error};
 
 use super::{LIMB_BITS, LIMBS, Limbs256};
+use crate::writer::Writer;
 
 /// Decomposes a 4-limb value into its 256 little-endian bits.
 ///

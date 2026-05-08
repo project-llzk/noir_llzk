@@ -10,6 +10,7 @@ use crate::{
         LIMBS, Limbs256, emit_add_mod_p, emit_limbs_eq_boolean, emit_mul_mod_p,
         emit_safe_div_mod_p, emit_sub_mod_p, emit_zero_limbs, try_init_limbs,
     },
+    writer::Writer,
 };
 
 pub(super) struct CurveParams {

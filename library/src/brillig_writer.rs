@@ -8,17 +8,16 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::builder::OpBuilder;
 use llzk::prelude::melior_dialects::{arith, scf};
 use llzk::prelude::{
-    Block, BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, IntegerAttribute, LlzkContext,
-    Location, Operation, OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
+    Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
-use crate::blackboxes::registry::BlackboxFunction;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
+use crate::writer::Writer;
 
 /// Treats any type whose textual form starts with `!felt.` as a felt type.
 pub(crate) fn is_felt_type(ty: Type<'_>) -> bool {
@@ -46,6 +45,21 @@ pub(crate) struct BrilligWriter<'c, 'a> {
     /// Cache of `arith.constant` index values — same dominance argument
     /// as [`Self::constant_cache`].
     integer_cache: HashMap<usize, Value<'c, 'a>>,
+}
+
+impl<'c, 'a> Writer<'c, 'a> for BrilligWriter<'c, 'a> {
+    fn context(&self) -> &'c LlzkContext {
+        self.context
+    }
+
+    fn location(&self) -> Location<'c> {
+        self.location
+    }
+
+    /// Appends `op` to the end of `current_block`.
+    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+        self.current_block.append_operation(op)
+    }
 }
 
 impl<'c, 'a> BrilligWriter<'c, 'a> {
@@ -80,30 +94,12 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.current_block = saved;
     }
 
-    // ── Type helpers ────────────────────────────────────────────────────
-
     /// Returns the MLIR `index` type for this context.
     pub(crate) fn index_type(&self) -> Type<'c> {
         Type::index(self.context)
     }
 
-    /// Returns the writer's current `Location`. Exposed so handlers
-    /// constructing structured-control-flow blocks can attach the same
-    /// debug location used by ordinary op emission.
-    pub(crate) fn location(&self) -> Location<'c> {
-        self.location
-    }
-
-    // ── Felt arithmetic ────────────────────────────────────────────────
-
-    /// Emits `felt.add lhs, rhs`.
-    pub(crate) fn insert_add(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::add(self.location, lhs, rhs)?)
-    }
+    // ── Felt arithmetic (BrilligWriter-only) ───────────────────────────
 
     /// Emits `felt.sub lhs, rhs`.
     pub(crate) fn insert_sub(
@@ -114,55 +110,10 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::sub(self.location, lhs, rhs)?)
     }
 
-    /// Emits `felt.mul lhs, rhs`.
-    pub(crate) fn insert_mul(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::mul(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.div lhs, rhs`.
-    pub(crate) fn insert_div(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::div(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.uintdiv lhs, rhs` (unsigned integer division over felt).
-    pub(crate) fn insert_uintdiv(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
-    }
-
-    pub(crate) fn insert_umod(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::umod(self.location, lhs, rhs)?)
-    }
-
-    // ── Felt bitwise / shifts ──────────────────────────────────────────
+    // ── Felt bitwise / shifts (BrilligWriter-only) ─────────────────────
     //
-    // Operate on the integer representation of the felt. Marked
-    // `NotFieldNative` in the felt dialect — used in the brillig
-    // (unconstrained) context to mirror Brillig VM bit-level semantics.
-
-    /// Emits `felt.bit_and lhs, rhs`.
-    pub(crate) fn insert_felt_bit_and(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_and(self.location, lhs, rhs)?)
-    }
+    // `bit_and` / `bit_xor` are shared via the [`Writer`] trait; the
+    // remaining ops below are brillig-specific.
 
     /// Emits `felt.bit_or lhs, rhs`.
     pub(crate) fn insert_felt_bit_or(
@@ -171,15 +122,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::felt::bit_or(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.bit_xor lhs, rhs`.
-    pub(crate) fn insert_felt_bit_xor(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_xor(self.location, lhs, rhs)?)
     }
 
     /// Emits `felt.shl lhs, rhs`.
@@ -200,16 +142,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::felt::shr(self.location, lhs, rhs)?)
     }
 
-    // ── Bool comparisons ───────────────────────────────────────────────
-
-    /// Emits `bool.cmp lt(lhs, rhs)`.
-    pub(crate) fn insert_bool_lt(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::lt(self.location, lhs, rhs)?)
-    }
+    // ── Bool comparisons (BrilligWriter-only) ──────────────────────────
 
     /// Emits `bool.cmp le(lhs, rhs)`.
     pub(crate) fn insert_bool_le(
@@ -220,15 +153,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(dialect::bool::le(self.location, lhs, rhs)?)
     }
 
-    /// Emits `bool.cmp eq(lhs, rhs)`.
-    pub(crate) fn insert_bool_eq(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::eq(self.location, lhs, rhs)?)
-    }
-
     /// Emits `bool.cmp gt(lhs, rhs)`.
     pub(crate) fn insert_bool_gt(
         &self,
@@ -236,12 +160,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::bool::gt(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `bool.assert cond` (no failure message).
-    pub(crate) fn insert_bool_assert(&self, cond: Value<'c, 'a>) -> Result<(), Error> {
-        self.insert_op(dialect::bool::assert(self.location, cond, None)?);
-        Ok(())
     }
 
     /// Emits `bool.not cond`.
@@ -269,11 +187,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     }
 
     // ── Cast operations ────────────────────────────────────────────────
-
-    /// Emits `cast.toindex val`, converting a felt value to the index type.
-    pub(crate) fn insert_cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::cast::toindex(self.location, val))
-    }
 
     /// Emits `cast.tofelt val`, widening an integer value (e.g. the `i1`
     /// result of `bool.cmp`) to the circuit's felt type.
@@ -341,17 +254,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op(dialect::ram::store(self.location, addr, val));
     }
 
-    /// Emits `llzk.nondet : () -> result_type`, returning a prover-supplied
-    /// SSA value of `result_type`.
-    pub(crate) fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::llzk::nondet(self.location, result_type))
-    }
-
-    /// Returns the circuit's felt type.
-    pub(crate) fn felt_type(&self) -> Type<'c> {
-        FeltType::with_field(self.context, FIELD_NAME).into()
-    }
-
     // ── Structured control flow ────────────────────────────────────────
 
     /// Wraps `then_block` and `else_block` (already populated with their
@@ -408,35 +310,6 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     pub(crate) fn insert_function_call(&self, name: &str) -> Result<(), Error> {
         self.call_top_level_function(name, &[], &[])?;
         Ok(())
-    }
-
-    /// Appends `function.call @<name>(args) -> result_types` (flat symbol
-    /// reference) to `current_block`, returning the call op.
-    pub(crate) fn call_top_level_function(
-        &self,
-        name: &str,
-        args: &[Value<'c, 'a>],
-        result_types: &[Type<'c>],
-    ) -> Result<OperationRef<'c, 'a>, Error> {
-        let call_op = dialect::function::call(
-            &OpBuilder::new(self.context),
-            self.location,
-            FlatSymbolRefAttribute::new(self.context, name),
-            args,
-            result_types,
-        )?;
-        Ok(self.insert_op(call_op.into()))
-    }
-
-    /// Calls a registered shared blackbox helper from a Brillig function
-    /// body.
-    pub(crate) fn call_blackbox_function(
-        &self,
-        func: BlackboxFunction,
-        args: &[Value<'c, 'a>],
-    ) -> Result<OperationRef<'c, 'a>, Error> {
-        let result_types = func.result_types(self.context);
-        self.call_top_level_function(&func.symbol_name(), args, &result_types)
     }
 
     /// Wraps `before_block` and `after_block` (each already terminated
@@ -529,17 +402,5 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         let val: Value<'c, 'a> = op.result(0)?.into();
         self.integer_cache.insert(i, val);
         Ok(val)
-    }
-
-    // ── Core IR operations ──────────────────────────────────────────────
-
-    /// Inserts a single-result `op` and returns its first result as a `Value`.
-    fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
-        Ok(self.insert_op(op).result(0)?.into())
-    }
-
-    /// Appends `op` to the end of `current_block`.
-    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
-        self.current_block.append_operation(op)
     }
 }

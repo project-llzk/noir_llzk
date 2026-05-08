@@ -1,7 +1,7 @@
 use acir::{AcirField, FieldElement};
 use llzk::prelude::Value;
 
-use crate::{block_writer::BlockWriter, error::Error};
+use crate::{block_writer::BlockWriter, error::Error, writer::Writer};
 
 use super::{
     LIMBS, Limbs256,

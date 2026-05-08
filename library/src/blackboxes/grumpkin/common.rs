@@ -10,6 +10,7 @@ use crate::{
         append_if_with_results, build_yielding_region, emit_gated_eq, insert_if_with_results,
     },
     error::Error,
+    writer::Writer,
 };
 
 const GRUMPKIN_B: i128 = -17;

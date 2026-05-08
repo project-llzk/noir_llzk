@@ -20,6 +20,7 @@ use crate::{
     common::emit_gated_eq,
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input, validate_constant_fits},
+    writer::Writer,
 };
 
 const GRUMPKIN_SCALAR_MODULUS_BE: [u8; 32] = [

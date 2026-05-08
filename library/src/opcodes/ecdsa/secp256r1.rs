@@ -10,8 +10,6 @@ use acir::{
     native_types::Witness,
 };
 
-use llzk::prelude::{FuncDefOp, LlzkContext, Value};
-
 use crate::{
     block_writer::BlockWriter,
     error::Error,
@@ -30,7 +28,9 @@ use crate::{
         },
         emit_blackbox_input,
     },
+    writer::Writer,
 };
+use llzk::prelude::{FuncDefOp, LlzkContext, Value};
 
 pub(crate) const ECDSA_SECP256R1_COMPUTE_HELPER_NAME: &str = "ecdsa_secp256r1_compute";
 

@@ -12,6 +12,7 @@ use crate::error::Error;
 
 use super::to_radix::emit_limb_decomp;
 use super::{collect_results, read_heap_array, write_heap_array};
+use crate::writer::Writer;
 
 const POINT_FELTS: usize = 3;
 const SCALAR_LIMBS: usize = 2;

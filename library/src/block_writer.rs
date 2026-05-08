@@ -5,15 +5,15 @@ use llzk::builder::OpBuilder;
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, IntegerAttribute, LlzkContext, Location,
-    Operation, OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttrLike, SymbolRefAttribute, Type, Value, dialect,
+    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
+    SymbolRefAttribute, Type, Value, dialect,
 };
 
 use crate::FIELD_NAME;
-use crate::blackboxes::registry::BlackboxFunction;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
+use crate::writer::Writer;
 
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).
@@ -36,6 +36,21 @@ pub(crate) struct BlockWriter<'c, 'a> {
     integer_cache: HashMap<usize, Value<'c, 'a>>,
     /// Current array value for each memory block, threaded through operations in order.
     memories: HashMap<u32, Value<'c, 'a>>,
+}
+
+impl<'c, 'a> Writer<'c, 'a> for BlockWriter<'c, 'a> {
+    fn context(&self) -> &'c LlzkContext {
+        self.context
+    }
+
+    fn location(&self) -> Location<'c> {
+        self.location
+    }
+
+    /// Inserts `op` into the block immediately before the return terminator.
+    fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
+        self.block.insert_operation_before(self.ret_op, op)
+    }
 }
 
 impl<'c, 'a> BlockWriter<'c, 'a> {
@@ -125,16 +140,6 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         Self::from_block(context, block, self_value, input_witnesses, 1, None)
     }
 
-    /// Returns the LLZK context this writer was created with.
-    pub(crate) fn context(&self) -> &'c LlzkContext {
-        self.context
-    }
-
-    /// Returns the location used for all emitted operations.
-    pub(crate) fn location(&self) -> Location<'c> {
-        self.location
-    }
-
     /// Reads the `name` member of `%self` (typed `ty`) before the return terminator.
     pub(crate) fn read_self_member(
         &self,
@@ -144,114 +149,14 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.read_member(ty, self.self_value, name)
     }
 
-    // ── Felt arithmetic ────────────────────────────────────────────────
-
-    /// Emits `felt.add lhs, rhs`.
-    pub(crate) fn insert_add(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::add(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.mul lhs, rhs`.
-    pub(crate) fn insert_mul(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::mul(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.div lhs, rhs`.
-    pub(crate) fn insert_div(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::div(self.location, lhs, rhs)?)
-    }
-
-    // ── Felt integer ops ───────────────────────────────────────────────
-    //
-    // Operate on the integer representation of the felt. Marked
-    // `NotFieldNative` in the felt dialect — only valid inside compute
-    // bodies, never inside `@constrain`.
-
-    /// Emits `felt.uintdiv lhs, rhs` (unsigned integer division over felt).
-    pub(crate) fn insert_uintdiv(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::uintdiv(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.umod lhs, rhs` (unsigned integer remainder over felt).
-    pub(crate) fn insert_umod(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::umod(self.location, lhs, rhs)?)
-    }
-
     /// Emits `felt.neg value`.
     pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
     }
 
-    /// Emits `felt.bit_and lhs, rhs`.
-    pub(crate) fn insert_bit_and(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_and(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `felt.bit_xor lhs, rhs`.
-    pub(crate) fn insert_bit_xor(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_xor(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `bool.cmp lt(lhs, rhs)`.
-    pub(crate) fn insert_bool_lt(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::lt(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `bool.cmp eq(lhs, rhs)`.
-    pub(crate) fn insert_bool_eq(
-        &self,
-        lhs: Value<'c, 'a>,
-        rhs: Value<'c, 'a>,
-    ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::eq(self.location, lhs, rhs)?)
-    }
-
-    /// Emits `bool.assert cond`.
-    pub(crate) fn insert_bool_assert(&self, cond: Value<'c, 'a>) -> Result<(), Error> {
-        self.insert_op(dialect::bool::assert(self.location, cond, None)?);
-        Ok(())
-    }
-
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
-    }
-
-    /// Emits `llzk.nondet` with the given result type.
-    pub(crate) fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::llzk::nondet(self.location, result_type))
     }
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
@@ -268,29 +173,6 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Returns the struct type for the given name.
     pub(crate) fn struct_type(&self, name: &str) -> Type<'c> {
         StructType::from_str(self.context, name).into()
-    }
-
-    /// Calls `@name(args)` (flat symbol reference) before the return terminator.
-    ///
-    /// Used to invoke module-level sibling functions. For calls into another
-    /// struct's `@compute` / `@constrain`, use [`call_function`](Self::call_function)
-    /// instead.
-    pub(crate) fn call_top_level_function(
-        &self,
-        name: &str,
-        args: &[Value<'c, 'a>],
-        result_types: &[Type<'c>],
-    ) -> Result<OperationRef<'c, 'a>, Error> {
-        self.insert_call(
-            FlatSymbolRefAttribute::new(self.context, name),
-            args,
-            result_types,
-        )
-    }
-
-    /// Returns the canonical felt type for this circuit's field.
-    pub(crate) fn felt_type(&self) -> Type<'c> {
-        FeltType::with_field(self.context, FIELD_NAME).into()
     }
 
     // ── Array operations ──────────────────────────────────────────────
@@ -313,18 +195,13 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         if let Some(&val) = self.integer_cache.get(&i) {
             return Ok(val);
         }
-        let val = self.insert_integer_op(i)?;
-        self.integer_cache.insert(i, val);
-        Ok(val)
-    }
-
-    /// Emits an `arith.constant` producing an index value.
-    fn insert_integer_op(&self, i: usize) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(arith::constant(
+        let val = self.insert_op_with_result(arith::constant(
             self.context,
             IntegerAttribute::new(Type::index(self.context), i as i64).into(),
             self.location,
-        ))
+        ))?;
+        self.integer_cache.insert(i, val);
+        Ok(val)
     }
 
     /// Emits `array.write array[indices] = value`.
@@ -337,16 +214,10 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.insert_op(dialect::array::write(self.location, array, indices, value));
     }
 
-    /// Emits `cast.toindex val`, converting a felt circuit value to the index type
-    /// required by `array.read` / `array.write`.
-    pub(crate) fn insert_cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::cast::toindex(self.location, val))
-    }
-
     /// Emits `array.read array[idx]`, returning the felt-typed element.
     ///
     /// `idx` must be index-typed; pass a felt value through
-    /// [`insert_cast_to_index`](Self::insert_cast_to_index) first.
+    /// [`Writer::insert_cast_to_index`] first.
     pub(crate) fn insert_array_read(
         &self,
         array: Value<'c, 'a>,
@@ -378,40 +249,14 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         args: &[Value<'c, 'a>],
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
-        self.insert_call(
+        let call_op = dialect::function::call(
+            &OpBuilder::new(self.context),
+            self.location,
             SymbolRefAttribute::new_from_str(self.context, parent, &[func]),
             args,
             result_types,
-        )
-    }
-
-    /// Emits `function.call` with the given symbol reference before the return terminator.
-    fn insert_call(
-        &self,
-        symbol: impl SymbolRefAttrLike<'c>,
-        args: &[Value<'c, 'a>],
-        result_types: &[Type<'c>],
-    ) -> Result<OperationRef<'c, 'a>, Error> {
-        Ok(self.insert_op(
-            dialect::function::call(
-                &OpBuilder::new(self.context),
-                self.location,
-                symbol,
-                args,
-                result_types,
-            )?
-            .into(),
-        ))
-    }
-
-    /// Calls a registered shared blackbox helper before the return terminator.
-    pub(crate) fn call_blackbox_function(
-        &self,
-        func: BlackboxFunction,
-        args: &[Value<'c, 'a>],
-    ) -> Result<OperationRef<'c, 'a>, Error> {
-        let result_types = func.result_types(self.context);
-        self.call_top_level_function(&func.symbol_name(), args, &result_types)
+        )?;
+        Ok(self.insert_op(call_op.into()))
     }
 
     /// Reads a felt-typed member of `from` by `name`.
@@ -441,16 +286,6 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             from,
             name,
         )?)
-    }
-    // ── Core IR operations ──────────────────────────────────────────────
-
-    /// Inserts a single-result `op` and returns its first result as a `Value`.
-    pub(crate) fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
-        Ok(self.insert_op(op).result(0)?.into())
-    }
-    /// Inserts `op` into the block immediately before the return terminator.
-    pub(crate) fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
-        self.block.insert_operation_before(self.ret_op, op)
     }
 
     // ── Witness management ──────────────────────────────────────────────
@@ -500,14 +335,9 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         if let Some(&val) = self.constant_cache.get(fe) {
             return Ok(val);
         }
-        let val = self.emit_constant_op(fe)?;
+        let attr = field_to_felt_const(self.context, fe);
+        let val = self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)?;
         self.constant_cache.insert(*fe, val);
         Ok(val)
-    }
-
-    /// Emits a `felt.constant` operation for the given field element.
-    fn emit_constant_op(&self, fe: &FieldElement) -> Result<Value<'c, 'a>, Error> {
-        let attr = field_to_felt_const(self.context, fe);
-        self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)
     }
 }

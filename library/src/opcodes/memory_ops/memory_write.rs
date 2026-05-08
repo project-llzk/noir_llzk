@@ -10,6 +10,7 @@ use crate::{
 };
 
 use super::uninit_error;
+use crate::writer::Writer;
 
 /// Translates an ACIR `MemoryOp` with `operation=1` (write).
 ///

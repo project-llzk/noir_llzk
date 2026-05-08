@@ -5,6 +5,7 @@ use crate::{
     Error,
     brillig::{memory::Memory, opcodes::require_const, translator::TranslationCtx},
     brillig_writer::BrilligWriter,
+    writer::Writer,
 };
 
 pub(super) fn emit_to_radix<'c, 'b, M: Memory>(

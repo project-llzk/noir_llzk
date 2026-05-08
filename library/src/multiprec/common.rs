@@ -4,6 +4,7 @@ use llzk::prelude::Value;
 use crate::{block_writer::BlockWriter, error::Error};
 
 use super::{LIMB_BITS, LIMBS, Limbs256};
+use crate::writer::Writer;
 
 /// Witnesses a nondet `k` and constrains `k·(1-k) = 0`, i.e. `k ∈ {0, 1}`.
 pub(super) fn witness_bool<'c, 'a>(

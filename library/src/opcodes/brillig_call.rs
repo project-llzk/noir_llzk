@@ -22,6 +22,7 @@ use crate::{
     common::{collect_witnesses, emit_expression, is_trivial_predicate},
     error::Error,
     opcodes::OpcodeEmitter,
+    writer::Writer,
 };
 
 /// Translator for a single `Opcode::BrilligCall`.

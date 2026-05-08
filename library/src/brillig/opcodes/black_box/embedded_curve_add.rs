@@ -15,6 +15,7 @@ use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
 
 use super::{collect_results, write_heap_array};
+use crate::writer::Writer;
 
 const EMBEDDED_POINT_FELTS: usize = 3;
 

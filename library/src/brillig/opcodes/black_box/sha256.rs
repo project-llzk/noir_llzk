@@ -12,6 +12,7 @@ use crate::brillig::{memory::Memory, translator::TranslationCtx};
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
+use crate::writer::Writer;
 
 const SHA256_BLOCK_WORDS: usize = 16;
 

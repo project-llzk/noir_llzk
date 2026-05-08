@@ -1,12 +1,11 @@
 use acir::{AcirField, FieldElement};
 
-use crate::{block_writer::BlockWriter, error::Error};
-
 use super::{
     LIMBS, Limbs256,
     common::{constrain_signed_trit, two_pow_64, witness_bool, witness_result_limbs},
     compare::emit_assert_lt_modulus,
 };
+use crate::{block_writer::BlockWriter, error::Error, writer::Writer};
 
 /// Emits `r = (a + b) mod p` where a, b < p and p < 2^256.
 ///

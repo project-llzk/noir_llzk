@@ -13,6 +13,7 @@ use super::memory::Memory;
 use super::opcodes::{build_handler, require_const};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
+use crate::writer::Writer;
 
 // ── Core types ─────────────────────────────────────────────────────────
 

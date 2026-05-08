@@ -14,6 +14,7 @@ use crate::{
     common::emit_gated_eq,
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    writer::Writer,
 };
 
 pub(crate) struct EmbeddedCurveAdd<'a> {

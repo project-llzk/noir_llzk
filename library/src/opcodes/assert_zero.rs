@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
 
 use super::OpcodeEmitter;
+
 use crate::{
     block_writer::BlockWriter,
     common::{collect_witnesses, emit_expression, emit_expression_excluding},
     error::Error,
+    writer::Writer,
 };
 use acir::{AcirField, FieldElement, native_types::Expression};
 
