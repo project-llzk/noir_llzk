@@ -18,6 +18,7 @@ use crate::{
         OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_padded_byte_inputs,
         validate_byte_input, write_digest_outputs,
     },
+    writer::Writer,
 };
 
 pub(crate) struct Blake3<'a> {

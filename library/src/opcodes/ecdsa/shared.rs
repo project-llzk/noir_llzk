@@ -1,13 +1,43 @@
 //! Shared helpers for the secp256k1 and secp256r1 ECDSA wrappers.
 
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
+use llzk::prelude::{
+    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
+    Type, dialect,
+};
 
 use crate::{
+    FIELD_NAME,
     block_writer::BlockWriter,
     error::Error,
     multiprec::{LIMBS, Limbs256, try_init_limbs},
     opcodes::emit_blackbox_input,
+    writer::Writer,
 };
+
+pub(super) const ECDSA_HELPER_INPUTS: usize = 32 + 32 + 64 + 32 + 1;
+
+pub(super) fn emit_ecdsa_compute_helper<'c>(
+    context: &'c llzk::prelude::LlzkContext,
+    helper_name: &str,
+) -> Result<FuncDefOp<'c>, Error> {
+    let location = Location::unknown(context);
+    let felt: Type = llzk::prelude::FeltType::with_field(context, FIELD_NAME).into();
+    let inputs = vec![(felt, location); ECDSA_HELPER_INPUTS];
+    let input_types = vec![felt; ECDSA_HELPER_INPUTS];
+    let function_type = FunctionType::new(context, &input_types, &[felt]);
+    let function = dialect::function::def(location, helper_name, function_type, &[], None)?;
+    function.set_allow_witness_attr(true);
+
+    let block = Block::new(&inputs);
+    let result = block
+        .append_operation(dialect::llzk::nondet(location, felt))
+        .result(0)?
+        .into();
+    block.append_operation(dialect::function::r#return(location, &[result]));
+    function.region(0)?.append_block(block);
+    Ok(function)
+}
 
 pub(super) fn emit_limbs_constant<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,

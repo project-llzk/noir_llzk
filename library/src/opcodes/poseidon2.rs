@@ -14,6 +14,7 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    writer::Writer,
 };
 
 pub(crate) struct Poseidon2Permutation<'a> {

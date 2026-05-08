@@ -12,6 +12,7 @@ use num_bigint::BigUint;
 use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::error::Error;
+use crate::writer::Writer;
 
 /// Converts an ACIR `FieldElement` to an LLZK `FeltConstAttribute`.
 pub(crate) fn field_to_felt_const<'c>(

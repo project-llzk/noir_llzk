@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use acir::circuit::Circuit;
+use acir::circuit::{Circuit, Program};
 use acir::{AcirField, FieldElement};
-use llzk::prelude::LlzkContext;
+use llzk::prelude::{LlzkContext, OperationLike};
 pub(super) use llzk_interpreter::Interpreter;
 use llzk_interpreter::{Felt, StructInstance, Value};
 use num_bigint::BigUint;
@@ -13,6 +13,7 @@ use super::make_program;
 use crate::program::translate_program;
 
 mod blackboxes;
+mod brillig;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
@@ -51,16 +52,47 @@ pub(super) fn run_e2e_with_nondet(
     nondet: &[Felt],
 ) -> StructInstance {
     let program = make_program(vec![circuit]);
+    run_e2e_program(&program, inputs, nondet)
+}
+
+pub(super) fn run_e2e_with_phase_nondets(
+    circuit: Circuit<FieldElement>,
+    inputs: &[Value],
+    compute_nondet: &[Felt],
+    constrain_nondet: &[Felt],
+) -> StructInstance {
+    let program = make_program(vec![circuit]);
+    run_e2e_program_with_phase_nondets(&program, inputs, compute_nondet, constrain_nondet)
+}
+
+pub(super) fn run_e2e_program(
+    program: &Program<FieldElement>,
+    inputs: &[Value],
+    nondet: &[Felt],
+) -> StructInstance {
+    run_e2e_program_with_phase_nondets(program, inputs, nondet, nondet)
+}
+
+fn run_e2e_program_with_phase_nondets(
+    program: &Program<FieldElement>,
+    inputs: &[Value],
+    compute_nondet: &[Felt],
+    constrain_nondet: &[Felt],
+) -> StructInstance {
     let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let module = translate_program(&context, program).expect("translation should succeed");
+    assert!(
+        module.as_operation().verify(),
+        "translated LLZK module should verify"
+    );
     let mut interpreter = Interpreter::new(&module);
 
-    interpreter.set_nondet_values(nondet.iter().cloned());
+    interpreter.set_nondet_values(compute_nondet.iter().cloned());
     let computed = interpreter
         .run_compute("Circuit0", inputs)
         .expect("compute should succeed");
 
-    interpreter.set_nondet_values(nondet.iter().cloned());
+    interpreter.set_nondet_values(constrain_nondet.iter().cloned());
     interpreter
         .run_constrain("Circuit0", computed.clone(), inputs)
         .expect("constrain should succeed");

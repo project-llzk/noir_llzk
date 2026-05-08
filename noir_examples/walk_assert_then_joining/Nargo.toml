@@ -1,0 +1,6 @@
+[package]
+name = "walk_assert_then_joining"
+type = "bin"
+authors = []
+
+[dependencies]

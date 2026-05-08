@@ -1,0 +1,6 @@
+[package]
+name = "const_in_branch"
+type = "bin"
+authors = [""]
+
+[dependencies]

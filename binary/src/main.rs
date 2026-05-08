@@ -1,6 +1,6 @@
 use std::{fs, path::Path, process};
 
-use acir_llzk::{load_program, program::translate_program};
+use acir_llzk::{load_program, translate_program};
 use llzk::prelude::LlzkContext;
 
 fn main() {

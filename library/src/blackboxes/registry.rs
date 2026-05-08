@@ -2,11 +2,16 @@ use std::collections::BTreeSet;
 
 use acir::{
     FieldElement,
+    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
     circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
 use llzk::prelude::{FuncDefOp, LlzkContext, Type};
 
 use crate::error::Error;
+use crate::opcodes::ecdsa::{
+    secp256k1::{ECDSA_SECP256K1_COMPUTE_HELPER_NAME, emit_secp256k1_compute_helper},
+    secp256r1::{ECDSA_SECP256R1_COMPUTE_HELPER_NAME, emit_secp256r1_compute_helper},
+};
 
 use super::cipher::aes128::{aes128_helper_name, emit_aes128_helper};
 use super::common::felt_type;
@@ -38,6 +43,8 @@ pub(crate) enum BlackboxFunction {
     Sha256Compression,
     Keccakf1600,
     Aes128Encrypt { num_inputs: usize },
+    EcdsaSecp256k1Compute,
+    EcdsaSecp256r1Compute,
 }
 
 impl BlackboxFunction {
@@ -57,6 +64,8 @@ impl BlackboxFunction {
             Self::Sha256Compression => SHA256_HELPER_NAME.to_string(),
             Self::Keccakf1600 => KECCAK_HELPER_NAME.to_string(),
             Self::Aes128Encrypt { num_inputs } => aes128_helper_name(num_inputs),
+            Self::EcdsaSecp256k1Compute => ECDSA_SECP256K1_COMPUTE_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256r1Compute => ECDSA_SECP256R1_COMPUTE_HELPER_NAME.to_string(),
         }
     }
 
@@ -72,6 +81,8 @@ impl BlackboxFunction {
             Self::Sha256Compression => emit_sha256_helper(context),
             Self::Keccakf1600 => emit_keccak_helper(context),
             Self::Aes128Encrypt { num_inputs } => emit_aes128_helper(context, num_inputs),
+            Self::EcdsaSecp256k1Compute => emit_secp256k1_compute_helper(context),
+            Self::EcdsaSecp256r1Compute => emit_secp256r1_compute_helper(context),
         }
     }
 
@@ -85,6 +96,7 @@ impl BlackboxFunction {
             Self::Sha256Compression => vec![felt; SHA256_STATE_WORDS],
             Self::Keccakf1600 => vec![felt; KECCAK_STATE_WORDS],
             Self::Aes128Encrypt { num_inputs } => vec![felt; num_inputs],
+            Self::EcdsaSecp256k1Compute | Self::EcdsaSecp256r1Compute => vec![felt],
         }
     }
 }
@@ -96,6 +108,8 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
             op,
             Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EmbeddedCurveAdd { .. })
         )
+    }) || uses_brillig_blackbox(program, |op| {
+        matches!(op, BlackBoxOp::EmbeddedCurveAdd { .. })
     }) {
         helpers.push(BlackboxFunction::EmbeddedCurveAdd);
     }
@@ -104,6 +118,8 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
             op,
             Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Poseidon2Permutation { .. })
         )
+    }) || uses_brillig_blackbox(program, |op| {
+        matches!(op, BlackBoxOp::Poseidon2Permutation { .. })
     }) {
         helpers.push(BlackboxFunction::Poseidon2Permutation);
     }
@@ -112,6 +128,8 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
             op,
             Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Sha256Compression { .. })
         )
+    }) || uses_brillig_blackbox(program, |op| {
+        matches!(op, BlackBoxOp::Sha256Compression { .. })
     }) {
         helpers.push(BlackboxFunction::Sha256Compression);
     }
@@ -120,8 +138,19 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
             op,
             Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Keccakf1600 { .. })
         )
-    }) {
+    }) || uses_brillig_blackbox(program, |op| matches!(op, BlackBoxOp::Keccakf1600 { .. }))
+    {
         helpers.push(BlackboxFunction::Keccakf1600);
+    }
+    if uses_brillig_blackbox(program, |op| {
+        matches!(op, BlackBoxOp::EcdsaSecp256k1 { .. })
+    }) {
+        helpers.push(BlackboxFunction::EcdsaSecp256k1Compute);
+    }
+    if uses_brillig_blackbox(program, |op| {
+        matches!(op, BlackBoxOp::EcdsaSecp256r1 { .. })
+    }) {
+        helpers.push(BlackboxFunction::EcdsaSecp256r1Compute);
     }
     helpers
 }
@@ -146,6 +175,26 @@ fn used_shaped_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction>
                 }
                 Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AES128Encrypt { inputs, .. }) => {
                     aes_input_lengths.insert(inputs.len());
+                }
+                _ => {}
+            }
+        }
+    }
+    for func in &program.unconstrained_functions {
+        for op in &func.bytecode {
+            let BrilligOpcode::BlackBox(bb) = op else {
+                continue;
+            };
+            match bb {
+                BlackBoxOp::Blake2s { message, .. } => {
+                    blake2s_input_lengths
+                        .insert(blake2s_num_blocks_for_len(message.size.0 as usize));
+                }
+                BlackBoxOp::Blake3 { message, .. } => {
+                    blake3_input_lengths.insert(blake3_num_blocks_for_len(message.size.0 as usize));
+                }
+                BlackBoxOp::AES128Encrypt { inputs, .. } => {
+                    aes_input_lengths.insert(inputs.size.0 as usize);
                 }
                 _ => {}
             }
@@ -178,4 +227,19 @@ fn uses_blackbox(
         .functions
         .iter()
         .any(|circuit| circuit.opcodes.iter().any(&predicate))
+}
+
+/// Walks every Brillig bytecode in `program.unconstrained_functions`,
+/// returning `true` when any `BrilligOpcode::BlackBox(op)` matches
+/// `predicate`.
+fn uses_brillig_blackbox(
+    program: &Program<FieldElement>,
+    predicate: impl Fn(&BlackBoxOp) -> bool,
+) -> bool {
+    program.unconstrained_functions.iter().any(|func| {
+        func.bytecode.iter().any(|op| match op {
+            BrilligOpcode::BlackBox(bb) => predicate(bb),
+            _ => false,
+        })
+    })
 }

@@ -10,8 +10,8 @@ use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 use crate::{
     Error,
     blackboxes::registry::BlackboxFunction,
+    brillig::{BrilligRegistry, emit_brillig_functions},
     circuit::CircuitTranslator,
-    opcodes::brillig::registry::{BrilligRegistry, emit_brillig_functions},
 };
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";

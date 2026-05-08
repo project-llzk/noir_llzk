@@ -1,0 +1,6 @@
+[package]
+name = "continue_with_trailing"
+type = "bin"
+authors = []
+
+[dependencies]

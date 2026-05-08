@@ -1,0 +1,6 @@
+[package]
+name = "break_with_trailing"
+type = "bin"
+authors = []
+
+[dependencies]
