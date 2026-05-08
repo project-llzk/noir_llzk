@@ -1,14 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 
-use super::{block_splitting::BlockId, dom_tree::DomTree};
-
-/// A natural loop: a header and the set of blocks reached by walking
-/// backwards from the loop's back-edge source until the header is hit.
-#[derive(Clone, Debug)]
-pub(crate) struct NaturalLoop {
-    pub(crate) header: BlockId,
-    pub(crate) body: BTreeSet<BlockId>,
-}
+use super::{BlockId, DomTree, NaturalLoop};
 
 /// Detects every natural loop. A back-edge is an edge `u → v` with `v`
 /// dominating `u`; the loop body is the set of blocks from which `u` is

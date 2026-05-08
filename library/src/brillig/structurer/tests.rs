@@ -8,14 +8,14 @@ use acir::FieldElement;
 use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 
 use crate::brillig::cfg::{BlockId, Cfg};
-use crate::brillig::structurer::{
-    CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction, structure_function,
-};
+use crate::brillig::test_helpers::{brillig_stop, mov};
 use crate::tests::noir_helpers::{
     circuits_dir, load_program_from_file, nargo_available, nargo_compile,
 };
 
-use super::{brillig_stop, mov};
+use super::{
+    CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction, structure_function,
+};
 
 // ── Fixture constructors ────────────────────────────────────────────────
 

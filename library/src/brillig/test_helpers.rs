@@ -1,4 +1,7 @@
-//! Tests for Brillig translation, split by issue:
+//! Shared helpers for the Brillig submodules' unit tests.
+//!
+//! Bytecode constructors for hand-written fixtures, plus module / `@compute`
+//! / `@brillig_*` lookup helpers used across multiple test files.
 
 use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
@@ -14,21 +17,11 @@ use llzk::prelude::{
     StructDefOpLike,
 };
 
-use super::{
-    first_struct_def, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
-};
 use crate::Error;
 use crate::program::translate_program;
-
-mod binary_op_tests;
-mod black_box_tests;
-mod cfg_tests;
-mod dispatch_tests;
-mod foreign_call_tests;
-mod heap_tests;
-mod register_tests;
-mod relative_addressing_tests;
-mod structurer_tests;
+use crate::tests::{
+    first_struct_def, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
+};
 
 // ── Bytecode / opcode constructors ─────────────────────────────────────
 

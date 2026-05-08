@@ -28,6 +28,8 @@ mod load;
 mod mov;
 mod not;
 mod store;
+#[cfg(test)]
+mod tests;
 
 use self::binary_field_op::BinaryFieldOpHandler;
 use self::binary_int_op::BinaryIntOpHandler;

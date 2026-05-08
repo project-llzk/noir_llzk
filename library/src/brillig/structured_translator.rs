@@ -31,19 +31,19 @@ use super::structurer::{
 use super::translator::{TranslationCtx, translate_block_body};
 
 /// Per-Brillig-function emission state.
-pub(crate) struct ProcedureEmitter<'c, 'p> {
-    pub(crate) context: &'c LlzkContext,
-    pub(crate) module: &'p Module<'c>,
-    pub(crate) location: Location<'c>,
-    pub(crate) bytecode: &'p BrilligBytecode<FieldElement>,
-    pub(crate) cfg: &'p Cfg,
-    pub(crate) procedures: &'p [StructuredProcedure],
-    pub(crate) variant: BrilligRegistryKey,
+pub(super) struct ProcedureEmitter<'c, 'p> {
+    pub(super) context: &'c LlzkContext,
+    pub(super) module: &'p Module<'c>,
+    pub(super) location: Location<'c>,
+    pub(super) bytecode: &'p BrilligBytecode<FieldElement>,
+    pub(super) cfg: &'p Cfg,
+    pub(super) procedures: &'p [StructuredProcedure],
+    pub(super) variant: BrilligRegistryKey,
     emitted: HashSet<BlockId>,
 }
 
 impl<'c, 'p> ProcedureEmitter<'c, 'p> {
-    pub(crate) fn new(
+    pub(super) fn new(
         context: &'c LlzkContext,
         module: &'p Module<'c>,
         location: Location<'c>,
@@ -104,7 +104,7 @@ impl<'c, 'p> ProcedureEmitter<'c, 'p> {
 /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
 /// function. Procedures referenced from the walk are emitted lazily via
 /// `emitter`.
-pub(crate) fn translate_structured<'c, 'b, M: Memory>(
+pub(super) fn translate_structured<'c, 'b, M: Memory>(
     writer: &mut BrilligWriter<'c, 'b>,
     memory: &mut M,
     emitter: &mut ProcedureEmitter<'c, '_>,

@@ -18,7 +18,7 @@ use llzk::prelude::{ArrayType, IntegerAttribute, Type, Value, ValueLike};
 
 use crate::{
     block_writer::BlockWriter,
-    brillig::registry::{BrilligRegistry, BrilligRegistryKey},
+    brillig::{BrilligRegistry, BrilligRegistryKey},
     common::{collect_witnesses, emit_expression, is_trivial_predicate},
     error::Error,
     opcodes::OpcodeEmitter,

@@ -4,9 +4,9 @@ use acir::FieldElement;
 use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 
 use crate::Error;
-use crate::brillig::cfg::{BlockId, Cfg, Terminator};
+use crate::brillig::test_helpers::{brillig_stop, mov};
 
-use super::{brillig_stop, mov};
+use super::{BlockId, Cfg, Terminator};
 
 // ── Fixture constructors ────────────────────────────────────────────────
 

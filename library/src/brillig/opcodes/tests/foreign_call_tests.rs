@@ -11,10 +11,10 @@ use acir::brillig::{
 };
 use llzk::prelude::LlzkContext;
 
-use super::super::print_and_verify_module;
-use super::{
+use crate::brillig::test_helpers::{
     addr, brillig_stop, const_int, count_loads, count_op, count_stores, store, translate_body,
 };
+use crate::tests::print_and_verify_module;
 
 fn foreign_call_empty(name: &str) -> BrilligOpcode<acir::FieldElement> {
     BrilligOpcode::ForeignCall {

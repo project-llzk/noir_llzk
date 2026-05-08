@@ -1,22 +1,6 @@
-use super::block_splitting::{Block, BlockId, Terminator};
+use super::{Block, BlockId, Procedure, Terminator};
 use crate::Error;
 use std::collections::BTreeSet;
-
-/// A Brillig procedure: the region of blocks reachable from a
-/// [`Terminator::Call`] target. Either ends in a single `Return` (normal
-/// procedure, possibly with `Trap` branches in conditional failure paths),
-/// or has no `Return` and all leaves are `Trap` (a diverging helper — only
-/// `RevertWithString` matches this shape today).
-#[derive(Clone, Debug)]
-pub(crate) struct Procedure {
-    /// Entry block of the procedure (a `Call` target).
-    pub(crate) entry: BlockId,
-    /// Every block reachable from `entry` without crossing nested calls.
-    pub(crate) body: BTreeSet<BlockId>,
-    /// `Some(b)` for the unique `Return`-terminated block; `None` for
-    /// diverging procedures whose only leaves are `Trap`.
-    pub(crate) return_block: Option<BlockId>,
-}
 
 /// For each distinct `Call` target, walk forward without crossing into
 /// nested procedures (follow only `continuation` out of a non-divergent

@@ -10,7 +10,7 @@ use llzk_sys::{LANG_ATTR_NAME, MAIN_ATTR_NAME};
 use crate::{
     Error,
     blackboxes::registry::BlackboxFunction,
-    brillig::registry::{BrilligRegistry, emit_brillig_functions},
+    brillig::{BrilligRegistry, emit_brillig_functions},
     circuit::CircuitTranslator,
 };
 

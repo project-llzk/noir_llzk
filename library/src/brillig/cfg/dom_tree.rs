@@ -1,26 +1,14 @@
 // ── Dominator tree (Cooper-Harvey-Kennedy) ─────────────────────────────
 
-use super::block_splitting::{Block, BlockId, Terminator};
-use crate::Error;
-
-/// Immediate-dominator table. `idom[i]` is the immediate dominator of
-/// block `i`, or `None` for the entry and for blocks unreachable from
-/// the entry.
-#[derive(Debug)]
-pub(crate) struct DomTree {
-    idom: Vec<Option<BlockId>>,
-    /// Position of each reachable block in reverse-postorder. Used for the
-    /// O(log n) `intersect` step and for fast `dominates` queries.
-    /// Unreachable blocks hold `usize::MAX`.
-    rpo_index: Vec<usize>,
-}
+use super::{Block, BlockId, Terminator};
+use crate::{Error, brillig::cfg::DomTree};
 
 impl DomTree {
     /// Dominator tree over the *caller's* view of the CFG, rooted at a
     /// virtual super-entry `S` with edges to every block in `roots`. After
     /// the fixed-point converges, `S` is stripped: a `roots` block whose
     /// only dominator was `S` comes back with `idom = None`.
-    pub(crate) fn build_with_super_entry(
+    pub(super) fn build_with_super_entry(
         caller_succ: &[Vec<BlockId>],
         caller_pred: &[Vec<BlockId>],
         roots: &[BlockId],
@@ -59,7 +47,7 @@ impl DomTree {
     /// also dropped (they're dead code). From the calling function's
     /// perspective, the procedure entry is not a structural successor of
     /// the call site for join-finding purposes.
-    pub(crate) fn build_post(
+    pub(super) fn build_post(
         blocks: &[Block],
         caller_succ: &[Vec<BlockId>],
         caller_pred: &[Vec<BlockId>],
@@ -74,10 +62,7 @@ impl DomTree {
         for (i, b) in blocks.iter().enumerate() {
             if matches!(
                 b.terminator,
-                super::block_splitting::Terminator::Return
-                    | Terminator::Stop
-                    | Terminator::Trap
-                    | Terminator::TrapReturn
+                Terminator::Return | Terminator::Stop | Terminator::Trap | Terminator::TrapReturn
             ) {
                 rev_succ[virt.0].push(BlockId(i));
                 rev_pred[i].push(virt);
@@ -136,13 +121,13 @@ impl DomTree {
 
     /// Returns the immediate dominator of `b`, or `None` if `b` is the
     /// entry or unreachable.
-    pub(crate) fn idom(&self, b: BlockId) -> Option<BlockId> {
+    pub(in crate::brillig) fn idom(&self, b: BlockId) -> Option<BlockId> {
         self.idom[b.0]
     }
 
     /// `true` iff `dom` dominates `sub` (inclusive — every block dominates
     /// itself). Unreachable `sub` returns `false`.
-    pub(crate) fn dominates(&self, dom: BlockId, sub: BlockId) -> bool {
+    pub(super) fn dominates(&self, dom: BlockId, sub: BlockId) -> bool {
         if self.rpo_index[sub.0] == usize::MAX {
             return false;
         }

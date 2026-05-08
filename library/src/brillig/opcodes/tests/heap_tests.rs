@@ -6,11 +6,11 @@
 use acir::brillig::IntegerBitSize;
 use llzk::prelude::LlzkContext;
 
-use super::super::print_and_verify_module;
-use super::{
+use crate::brillig::test_helpers::{
     brillig_stop, const_field, const_int, count_loads, count_op, count_stores, load, store,
     translate_body,
 };
+use crate::tests::print_and_verify_module;
 /// `Store` followed by `Load` at the same pointer emits one `ram.store`
 /// and one `ram.load`.
 #[test]

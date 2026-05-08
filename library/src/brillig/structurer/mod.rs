@@ -17,12 +17,14 @@ use crate::error::Error;
 mod display;
 mod escape_flag;
 mod loop_shape;
+#[cfg(test)]
+mod tests;
 mod walker;
 
 /// One node of the structured-control-flow tree. Sequence positions in
 /// the parent `Vec<RegionNode>` encode fall-through.
 #[derive(Clone)]
-pub(crate) enum RegionNode {
+pub(super) enum RegionNode {
     /// Body opcodes of `block`, excluding its terminator (which has
     /// already driven the surrounding structure).
     Linear {
@@ -85,13 +87,13 @@ pub(crate) enum RegionNode {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct LoopCondition {
-    pub(crate) register: MemoryAddress,
-    pub(crate) polarity: CondPolarity,
+pub(super) struct LoopCondition {
+    pub(super) register: MemoryAddress,
+    pub(super) polarity: CondPolarity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CondPolarity {
+pub(super) enum CondPolarity {
     /// `JumpIf(cond, body_entry, exit)` — true continues the loop.
     ContinueOnTrue,
     /// `JumpIf(cond, exit, body_entry)` — true exits the loop.
@@ -100,26 +102,26 @@ pub(crate) enum CondPolarity {
 
 /// Synthetic RAM slot used to unify multi-exit loops.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct EscapeFlagSlot(pub(crate) usize);
+pub(super) struct EscapeFlagSlot(pub(super) usize);
 
 /// Result of structuring a single Brillig function. Slot indices are
 /// local to each body — slot 0 in `main` is distinct from slot 0 in any
 /// procedure.
-pub(crate) struct StructuredFunction {
-    pub(crate) main: Vec<RegionNode>,
-    pub(crate) main_escape_flag_count: usize,
-    pub(crate) procedures: Vec<StructuredProcedure>,
+pub(super) struct StructuredFunction {
+    pub(super) main: Vec<RegionNode>,
+    pub(super) main_escape_flag_count: usize,
+    pub(super) procedures: Vec<StructuredProcedure>,
 }
 
-pub(crate) struct StructuredProcedure {
-    pub(crate) entry: BlockId,
-    pub(crate) body: Vec<RegionNode>,
-    pub(crate) escape_flag_count: usize,
+pub(super) struct StructuredProcedure {
+    pub(super) entry: BlockId,
+    pub(super) body: Vec<RegionNode>,
+    pub(super) escape_flag_count: usize,
 }
 
 impl StructuredFunction {
     #[cfg(test)]
-    pub(crate) fn body_of(&self, target: BlockId) -> Option<&[RegionNode]> {
+    fn body_of(&self, target: BlockId) -> Option<&[RegionNode]> {
         self.procedures
             .iter()
             .find(|p| p.entry == target)
@@ -127,7 +129,7 @@ impl StructuredFunction {
     }
 }
 
-pub(crate) fn structure_function(cfg: &Cfg) -> Result<StructuredFunction, Error> {
+pub(super) fn structure_function(cfg: &Cfg) -> Result<StructuredFunction, Error> {
     let mut state = walker::State::new(cfg);
     let mut procedures = Vec::with_capacity(cfg.procedures.len());
     for proc in &cfg.procedures {

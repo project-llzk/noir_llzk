@@ -1,4 +1,4 @@
-use super::block_splitting::{Block, BlockId, Terminator};
+use super::{Block, BlockId, Terminator};
 use crate::Error;
 use std::collections::BTreeSet;
 
@@ -58,7 +58,7 @@ pub(super) fn compute_always_divergent(
 ///
 /// This shape is currently emitted by the Noir `RevertWithString`
 /// procedure
-pub(crate) fn rewrite_trap_return_pattern(blocks: &mut [Block], predecessors: &[Vec<BlockId>]) {
+pub(super) fn rewrite_trap_return_pattern(blocks: &mut [Block], predecessors: &[Vec<BlockId>]) {
     for i in 0..blocks.len() {
         if !matches!(blocks[i].terminator, Terminator::Trap) {
             continue;
@@ -144,7 +144,7 @@ pub(super) fn rewrite_dead_jumpif_to_procedure_entry(
 
 /// Procedure entries whose entry block terminates with
 /// [`Terminator::TrapReturn`].
-pub(crate) fn compute_non_returning_calls(
+pub(super) fn compute_non_returning_calls(
     blocks: &[Block],
     call_targets: &[BlockId],
 ) -> BTreeSet<BlockId> {

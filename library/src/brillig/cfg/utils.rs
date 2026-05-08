@@ -1,8 +1,8 @@
-use super::block_splitting::{Block, BlockId, Terminator};
+use super::{Block, BlockId, Terminator};
 use std::collections::BTreeSet;
 // ── Successor / predecessor edges ──────────────────────────────────────
 
-pub(crate) fn compute_successors(blocks: &[Block]) -> Vec<Vec<BlockId>> {
+pub(super) fn compute_successors(blocks: &[Block]) -> Vec<Vec<BlockId>> {
     blocks
         .iter()
         .map(|b| match b.terminator {
@@ -25,7 +25,7 @@ pub(crate) fn compute_successors(blocks: &[Block]) -> Vec<Vec<BlockId>> {
         .collect()
 }
 
-pub(crate) fn invert_edges(successors: &[Vec<BlockId>]) -> Vec<Vec<BlockId>> {
+pub(super) fn invert_edges(successors: &[Vec<BlockId>]) -> Vec<Vec<BlockId>> {
     let n = successors.len();
     let mut predecessors = vec![Vec::new(); n];
     for (from, succs) in successors.iter().enumerate() {

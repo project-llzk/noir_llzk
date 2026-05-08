@@ -7,14 +7,14 @@ use std::process::Command;
 
 use crate::load_program;
 
-pub(in crate::tests) fn circuits_dir() -> PathBuf {
+pub(crate) fn circuits_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .join("noir_examples")
 }
 
-pub(in crate::tests) fn nargo_available() -> bool {
+pub(crate) fn nargo_available() -> bool {
     Command::new("nargo")
         .arg("--version")
         .output()
@@ -22,7 +22,7 @@ pub(in crate::tests) fn nargo_available() -> bool {
         .unwrap_or(false)
 }
 
-pub(in crate::tests) fn nargo_compile(project_dir: &Path) -> PathBuf {
+pub(crate) fn nargo_compile(project_dir: &Path) -> PathBuf {
     let status = Command::new("nargo")
         .arg("compile")
         .current_dir(project_dir)
@@ -47,7 +47,7 @@ pub(in crate::tests) fn nargo_compile(project_dir: &Path) -> PathBuf {
     project_dir.join("target").join(format!("{name}.json"))
 }
 
-pub(in crate::tests) fn load_program_from_file(
+pub(crate) fn load_program_from_file(
     artifact_path: &Path,
 ) -> acir::circuit::Program<acir::FieldElement> {
     let json_str = read_to_string(artifact_path)

@@ -7,11 +7,15 @@
 //! emitted once per `(BrilligFunctionId, input_count, output_count)` after
 //! all circuits have been translated — see [`registry::emit_brillig_functions`].
 
-pub(crate) mod cfg;
+mod cfg;
 mod flow;
 mod memory;
 mod opcodes;
-pub(crate) mod registry;
+mod registry;
 mod structured_translator;
-pub(crate) mod structurer;
+mod structurer;
+#[cfg(test)]
+mod test_helpers;
 mod translator;
+
+pub(crate) use registry::{BrilligRegistry, BrilligRegistryKey, emit_brillig_functions};

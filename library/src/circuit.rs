@@ -19,7 +19,7 @@ use llzk::{
 use crate::{
     Error, FIELD_NAME,
     block_writer::BlockWriter,
-    brillig::registry::{BrilligRegistry, BrilligRegistryKey},
+    brillig::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
         TranslatedOpcode, aes128,
         assert_zero::AssertZero,

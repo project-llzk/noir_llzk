@@ -30,9 +30,9 @@ use super::structurer::structure_function;
 /// Identifies a single shape variant of a Brillig function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct BrilligRegistryKey {
-    pub(crate) id: BrilligFunctionId,
-    pub(crate) input_count: usize,
-    pub(crate) output_count: usize,
+    pub(super) id: BrilligFunctionId,
+    pub(super) input_count: usize,
+    pub(super) output_count: usize,
 }
 
 impl BrilligRegistryKey {
@@ -51,7 +51,7 @@ pub(crate) struct BrilligRegistry<'c, 'p> {
 }
 
 /// A single Brillig function scheduled for module-level emission.
-pub(crate) struct BrilligEntry<'c, 'p> {
+struct BrilligEntry<'c, 'p> {
     input_types: Vec<Type<'c>>,
     output_types: Vec<Type<'c>>,
     bytecode: &'p BrilligBytecode<FieldElement>,
@@ -74,7 +74,7 @@ impl<'c, 'p> BrilligRegistry<'c, 'p> {
 
     /// Returns the LLZK symbol name for a procedure inside a
     /// Brillig function variant.
-    pub(crate) fn procedure_function_name(
+    pub(super) fn procedure_function_name(
         key: BrilligRegistryKey,
         entry: super::cfg::BlockId,
     ) -> String {
@@ -175,3 +175,6 @@ pub(crate) fn emit_brillig_functions<'c>(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

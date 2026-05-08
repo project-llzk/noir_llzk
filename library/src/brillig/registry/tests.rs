@@ -13,17 +13,17 @@ use llzk::prelude::{
     BlockLike, FuncDefOpLike, FuncDefOpRef, LlzkContext, OperationLike, RegionLike,
 };
 
-use super::super::{
-    count_occurrences, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
-    print_and_verify_module,
-};
-use super::{
+use crate::Error;
+use crate::brillig::test_helpers::{
     brillig_call_opcode, brillig_stop, bytecode, const_field, const_int, count_brillig_fns,
     count_compute_calls, count_compute_op, find_brillig_fn, first_compute_call, single_witness,
     store, witness_predicate,
 };
-use crate::Error;
 use crate::program::translate_program;
+use crate::tests::{
+    count_occurrences, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
+    print_and_verify_module,
+};
 
 /// Empty BrilligCall — zero inputs, zero outputs, bytecode is just `Stop`.
 /// Emits a module-level `@brillig_0` function (with `allow_witness = true`)

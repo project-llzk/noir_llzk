@@ -36,6 +36,8 @@ mod keccak;
 mod multi_scalar_mul;
 mod poseidon2;
 mod sha256;
+#[cfg(test)]
+mod tests;
 mod to_radix;
 
 use aes128::emit_aes128;

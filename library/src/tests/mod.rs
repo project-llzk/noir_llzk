@@ -8,10 +8,9 @@ use llzk::prelude::{
     StructDefOpRef, llzk_module,
 };
 
-use crate::brillig::registry::BrilligRegistry;
+use crate::brillig::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
 
-mod brillig;
 use crate::program::translate_program;
 
 mod blackboxes;
@@ -24,7 +23,7 @@ mod e2e;
 mod integration_tests;
 mod memory_init_tests;
 mod memory_op_tests;
-mod noir_helpers;
+pub(crate) mod noir_helpers;
 
 /// Helper to build a Circuit with specified witness count, private params,
 /// public params, and return values.
@@ -44,7 +43,7 @@ fn make_program(circuits: Vec<Circuit<FieldElement>>) -> Program<FieldElement> {
     }
 }
 
-fn make_program_with_brillig(
+pub(crate) fn make_program_with_brillig(
     circuits: Vec<Circuit<FieldElement>>,
     unconstrained_functions: Vec<acir::circuit::brillig::BrilligBytecode<FieldElement>>,
 ) -> Program<FieldElement> {
@@ -55,7 +54,7 @@ fn make_program_with_brillig(
 }
 
 /// Counts occurrences of `needle` in `haystack`.
-fn count_occurrences(haystack: &str, needle: &str) -> usize {
+pub(crate) fn count_occurrences(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
 }
 
@@ -65,7 +64,7 @@ fn count_occurrences(haystack: &str, needle: &str) -> usize {
 /// this circuit, as required by the ACIR `Circuit` struct. It must be at least as large as
 /// the highest witness index referenced in `private`, `public`, `returns`, or any opcode
 /// operand. Struct members are only emitted for witnesses actually referenced by opcodes.
-fn make_circuit_with_opcodes(
+pub(crate) fn make_circuit_with_opcodes(
     current_witness_index: u32,
     private: &[u32],
     public: &[u32],
@@ -222,7 +221,7 @@ pub(super) fn iter_block_ops<'c, 'a>(
 }
 
 /// Prints the module IR and asserts it verifies successfully.
-fn print_and_verify_module(module: &Module, label: &str) {
+pub(crate) fn print_and_verify_module(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
     println!("{label}:\n{ir}");
     assert!(module.as_operation().verify(), "Module should verify");

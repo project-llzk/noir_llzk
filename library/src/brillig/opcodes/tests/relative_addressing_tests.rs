@@ -4,8 +4,10 @@ use acir::FieldElement;
 use acir::brillig::{BinaryIntOp, BitSize, IntegerBitSize, Opcode as BrilligOpcode};
 use llzk::prelude::{LlzkContext, OperationLike};
 
-use super::{addr, binary_int_op, brillig_stop, const_field, const_int, rel, translate_body};
 use crate::Error;
+use crate::brillig::test_helpers::{
+    addr, binary_int_op, brillig_stop, const_field, const_int, rel, translate_body,
+};
 
 #[test]
 fn relative_address_aliases_with_direct_after_sp_init() {

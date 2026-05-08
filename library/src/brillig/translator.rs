@@ -21,12 +21,12 @@ use crate::error::Error;
 /// Bundles the mutable state that every handler needs: the LLZK writer, the
 /// Brillig memory model (register file + tracked integer constants), and
 /// the function's calldata.
-pub(crate) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
-    pub(crate) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(crate) memory: &'r mut M,
-    pub(crate) calldata: &'r [Value<'c, 'b>],
-    pub(crate) expected_output_count: usize,
-    pub(crate) escape_flag_addrs: Vec<Value<'c, 'b>>,
+pub(super) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
+    pub(super) writer: &'r mut BrilligWriter<'c, 'b>,
+    pub(super) memory: &'r mut M,
+    pub(super) calldata: &'r [Value<'c, 'b>],
+    pub(super) expected_output_count: usize,
+    pub(super) escape_flag_addrs: Vec<Value<'c, 'b>>,
 }
 
 // ── TranslationCtx shared helpers ──────────────────────────────────────
@@ -54,7 +54,7 @@ impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
 
     /// Applies `v & (2^n - 1)` via `felt.bit_and` with a constant mask,
     /// forcing `v` into the `[0, 2^n)` range.
-    pub(super) fn emit_mask(
+    fn emit_mask(
         &mut self,
         val: Value<'c, 'b>,
         int_size: IntegerBitSize,
@@ -174,7 +174,7 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
 /// against `ctx`. Terminator opcodes (those for which [`build_handler`]
 /// returns `None`) are skipped — the structured emitter translates them
 /// via region nodes, not per-opcode.
-pub(crate) fn translate_block_body<M: Memory>(
+pub(super) fn translate_block_body<M: Memory>(
     ctx: &mut TranslationCtx<'_, '_, '_, M>,
     bytecode: &[BrilligOpcode<FieldElement>],
     range: Range<usize>,

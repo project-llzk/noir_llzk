@@ -1,20 +1,17 @@
 use std::collections::BTreeSet;
 
 use crate::Error;
-use acir::FieldElement;
-use acir::brillig::Opcode as B;
-use block_splitting::{Block, classify, index_ranges, split_blocks};
+use acir::brillig::{MemoryAddress, Opcode as B};
+use acir::{FieldElement, brillig::Label};
+use block_splitting::{classify, index_ranges, split_blocks};
 use divergence::{
     compute_always_divergent, compute_non_returning_calls, rewrite_dead_jumpif_to_procedure_entry,
     rewrite_trap_return_pattern,
 };
-use dom_tree::{DomTree, check_reducible};
+use dom_tree::check_reducible;
 use loops::detect_natural_loops;
-use procedures::{Procedure, identify_procedures};
+use procedures::identify_procedures;
 use utils::{caller_successors, compute_successors, invert_edges, unique_call_targets};
-
-pub(crate) use block_splitting::{BlockId, Terminator};
-pub(super) use loops::NaturalLoop;
 
 // ── Cfg ─────────────────────────────────────────────────────────────────
 mod block_splitting;
@@ -23,41 +20,44 @@ mod divergence;
 mod dom_tree;
 mod loops;
 mod procedures;
+#[cfg(test)]
+mod tests;
 mod utils;
+
 /// Control-flow graph recovered from Brillig bytecode.
 ///
 /// Blocks are indexed by [`BlockId`]. Block `0` is always the entry.
-pub(crate) struct Cfg {
-    pub(crate) blocks: Vec<Block>,
+pub(super) struct Cfg {
+    pub(super) blocks: Vec<Block>,
     /// `successors[i]` — successor [`BlockId`]s of block `i`.
-    pub(crate) successors: Vec<Vec<BlockId>>,
+    pub(super) successors: Vec<Vec<BlockId>>,
     /// `predecessors[i]` — predecessor [`BlockId`]s of block `i`.
-    pub(crate) predecessors: Vec<Vec<BlockId>>,
+    pub(super) predecessors: Vec<Vec<BlockId>>,
     /// Caller-view successors: a non-divergent `Call` yields only its
     /// `continuation`; a divergent `Call` yields nothing; everything else
     /// mirrors `successors`. See [`utils::caller_successors`].
-    pub(crate) caller_succ: Vec<Vec<BlockId>>,
+    pub(super) caller_succ: Vec<Vec<BlockId>>,
     /// Caller-view predecessors: inverse of `caller_succ`. Excludes
     /// divergent-`Call` continuations (the bytecode reserves a block
     /// after every `Call` even when the callee never returns; that edge
     /// is never traversed at runtime).
-    pub(crate) caller_pred: Vec<Vec<BlockId>>,
-    pub(crate) dominators: DomTree,
+    pub(super) caller_pred: Vec<Vec<BlockId>>,
+    pub(super) dominators: DomTree,
     /// Post-dominator tree built over the live caller view (edges into
     /// [`Self::divergent_blocks`] are dropped — see trap-peephole join finding).
-    pub(crate) post_dominators: DomTree,
-    pub(crate) loops: Vec<NaturalLoop>,
+    pub(super) post_dominators: DomTree,
+    pub(super) loops: Vec<NaturalLoop>,
     /// One entry per distinct `Call` target.
-    pub(crate) procedures: Vec<Procedure>,
+    pub(super) procedures: Vec<Procedure>,
     /// Blocks where every forward path ends at a
     /// *divergent* leaf — `Trap`, `TrapReturn`, or `Call` to a divergent
     /// procedure.
-    pub(crate) divergent_blocks: BTreeSet<BlockId>,
+    pub(super) divergent_blocks: BTreeSet<BlockId>,
 }
 
 impl Cfg {
     /// Builds the CFG for `bytecode`.
-    pub(crate) fn build(bytecode: &[B<FieldElement>]) -> Result<Self, Error> {
+    pub(super) fn build(bytecode: &[B<FieldElement>]) -> Result<Self, Error> {
         let block_ranges = split_blocks(bytecode)?;
         let index_to_block = index_ranges(&block_ranges);
         let mut blocks = classify(bytecode, &block_ranges, &index_to_block)?;
@@ -133,4 +133,96 @@ impl Cfg {
             divergent_blocks,
         })
     }
+}
+
+/// Identifier of a basic block in the recovered CFG. Entry is `BlockId(0)`;
+/// the rest are allocated in first-seen order during the pre-walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(super) struct BlockId(pub(super) usize);
+
+// ── Blocks and terminators ──────────────────────────────────────────────
+
+/// A basic block spans bytecode indices `[start, end_exclusive)`. The final
+/// opcode in the range is the block's [`Terminator`]; prior opcodes are the
+/// block body.
+#[derive(Clone, Debug)]
+pub(super) struct Block {
+    pub(super) start: Label,
+    pub(super) end_exclusive: Label,
+    pub(super) terminator: Terminator,
+}
+
+/// A Brillig procedure: the region of blocks reachable from a
+/// [`Terminator::Call`] target. Either ends in a single `Return` (normal
+/// procedure, possibly with `Trap` branches in conditional failure paths),
+/// or has no `Return` and all leaves are `Trap` (a diverging helper — only
+/// `RevertWithString` matches this shape today).
+#[derive(Clone, Debug)]
+pub(super) struct Procedure {
+    /// Entry block of the procedure (a `Call` target).
+    pub(super) entry: BlockId,
+    /// Every block reachable from `entry` without crossing nested calls.
+    body: BTreeSet<BlockId>,
+    /// `Some(b)` for the unique `Return`-terminated block; `None` for
+    /// diverging procedures whose only leaves are `Trap`.
+    pub(super) return_block: Option<BlockId>,
+}
+
+/// A natural loop: a header and the set of blocks reached by walking
+/// backwards from the loop's back-edge source until the header is hit.
+#[derive(Clone, Debug)]
+pub(super) struct NaturalLoop {
+    pub(super) header: BlockId,
+    pub(super) body: BTreeSet<BlockId>,
+}
+
+/// Classification of a block's last opcode. Drives CFG edge construction
+/// and structurer dispatch.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Terminator {
+    /// `Jump L` — unconditional branch.
+    Jump(BlockId),
+    /// `JumpIf cond, then_block`. `else_block` is the fall-through (the
+    /// instruction immediately after the `JumpIf`).
+    JumpIf {
+        condition: MemoryAddress,
+        then_block: BlockId,
+        else_block: BlockId,
+    },
+    /// `Call L`. `target` is the callee's entry; `continuation` is the
+    /// block starting at the instruction after the `Call`. Noir's codegen
+    /// always emits SP-restore and return-copy opcodes after `Call`, so
+    /// `continuation` is always present — bytecode with `Call` as the
+    /// final opcode is rejected by [`classify`].
+    Call {
+        target: BlockId,
+        continuation: BlockId,
+    },
+    /// `Return` — procedure exit. No CFG successors.
+    Return,
+    /// `Stop` — function exit with return data. No CFG successors.
+    Stop,
+    /// `Trap` — execution failure. No CFG successors.
+    Trap,
+    /// Synthesized terminator for the `RevertWithString` shape: a `Trap`
+    /// opcode immediately followed by an orphan `Return` opcode.
+    TrapReturn,
+    /// Synthesized when a block's last opcode is not a flow op and a
+    /// jump/call target lands at the next index, splitting an implicit
+    /// fall-through edge.
+    Fallthrough(BlockId),
+    /// Statically-dead block.
+    Unreachable,
+}
+
+/// Immediate-dominator table. `idom[i]` is the immediate dominator of
+/// block `i`, or `None` for the entry and for blocks unreachable from
+/// the entry.
+#[derive(Debug)]
+pub(super) struct DomTree {
+    idom: Vec<Option<BlockId>>,
+    /// Position of each reachable block in reverse-postorder. Used for the
+    /// O(log n) `intersect` step and for fast `dominates` queries.
+    /// Unreachable blocks hold `usize::MAX`.
+    rpo_index: Vec<usize>,
 }
