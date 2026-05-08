@@ -1,6 +1,6 @@
 //! Validation for [`super::RegionNode::SetEscapeFlag`] placement.
 
-use super::RegionNode;
+use super::StructureNode;
 use crate::brillig::cfg::BlockId;
 use crate::error::Error;
 
@@ -9,18 +9,18 @@ use crate::error::Error;
 /// subsequent code in `scf.if !flag` during emission; that work is
 /// deferred until real bytecode needs it.
 pub(super) fn validate_escape_flag_positions(
-    body: &[RegionNode],
+    body: &[StructureNode],
     header: BlockId,
 ) -> Result<(), Error> {
     validate_seq(body, header, true)
 }
 
-fn validate_seq(seq: &[RegionNode], header: BlockId, tail_inherited: bool) -> Result<(), Error> {
+fn validate_seq(seq: &[StructureNode], header: BlockId, tail_inherited: bool) -> Result<(), Error> {
     let last = seq.len().saturating_sub(1);
     for (i, node) in seq.iter().enumerate() {
         let is_tail = tail_inherited && i == last;
         match node {
-            RegionNode::SetEscapeFlag { .. } if !is_tail => {
+            StructureNode::SetEscapeFlag { .. } if !is_tail => {
                 return Err(Error::UnsupportedBrillig {
                     reason: format!(
                         "Brillig loop b{}: break at non-tail position is not \
@@ -29,8 +29,8 @@ fn validate_seq(seq: &[RegionNode], header: BlockId, tail_inherited: bool) -> Re
                     ),
                 });
             }
-            RegionNode::SetEscapeFlag { .. } => {}
-            RegionNode::IfThenElse {
+            StructureNode::SetEscapeFlag { .. } => {}
+            StructureNode::IfThenElse {
                 then_branch,
                 else_branch,
                 ..

@@ -19,13 +19,13 @@ use llzk::prelude::{
     OperationLike, RegionLike, Type, Value, dialect,
 };
 
-use crate::FIELD_NAME;
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
+use crate::{FIELD_NAME, brillig::translator::TranslationCtx};
 
 use super::cfg::Cfg;
 use super::memory::{DynamicMemory, StaticMemory, should_be_dynamic};
-use super::structured_translator::{ProcedureEmitter, translate_structured};
+use super::structured_translator::BrilligFunctionEmitter;
 use super::structurer::structure_function;
 
 /// Identifies a single shape variant of a Brillig function.
@@ -129,7 +129,7 @@ pub(crate) fn emit_brillig_functions<'c>(
         let cfg = Cfg::build(&entry.bytecode.bytecode)?;
         let structured = structure_function(&cfg)?;
 
-        let mut emitter = ProcedureEmitter::new(
+        let mut emitter = BrilligFunctionEmitter::new(
             context,
             module,
             location,
@@ -143,23 +143,13 @@ pub(crate) fn emit_brillig_functions<'c>(
         // Brillig function.
         let dynamic_sp = should_be_dynamic(&entry.bytecode.bytecode);
         let returns = if dynamic_sp {
-            translate_structured(
-                &mut writer,
-                &mut DynamicMemory::new(),
-                &mut emitter,
-                &structured,
-                &calldata,
-                key.output_count,
-            )?
+            let mut memory = DynamicMemory::new();
+            let ctx = TranslationCtx::new(&mut writer, &mut memory, &calldata);
+            emitter.translate_main(&structured, ctx, key.output_count)?
         } else {
-            translate_structured(
-                &mut writer,
-                &mut StaticMemory::new(),
-                &mut emitter,
-                &structured,
-                &calldata,
-                key.output_count,
-            )?
+            let mut memory = StaticMemory::new();
+            let ctx = TranslationCtx::new(&mut writer, &mut memory, &calldata);
+            emitter.translate_main(&structured, ctx, key.output_count)?
         };
 
         body_block.append_operation(dialect::function::r#return(location, &returns));

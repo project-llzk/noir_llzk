@@ -5,7 +5,7 @@ use std::fmt;
 
 use acir::brillig::MemoryAddress;
 
-use super::{CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction};
+use super::{CondPolarity, EscapeFlagSlot, LoopCondition, StructureNode, StructuredFunction};
 
 impl fmt::Debug for StructuredFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -37,7 +37,7 @@ impl fmt::Debug for StructuredFunction {
     }
 }
 
-impl fmt::Debug for RegionNode {
+impl fmt::Debug for StructureNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_node(f, self, "", "")
     }
@@ -45,7 +45,7 @@ impl fmt::Debug for RegionNode {
 
 // ── Tree walker ────────────────────────────────────────────────────────
 
-fn write_seq(f: &mut fmt::Formatter<'_>, seq: &[RegionNode], prefix: &str) -> fmt::Result {
+fn write_seq(f: &mut fmt::Formatter<'_>, seq: &[StructureNode], prefix: &str) -> fmt::Result {
     let last = seq.len().saturating_sub(1);
     for (i, node) in seq.iter().enumerate() {
         let connector = if i == last {
@@ -60,16 +60,16 @@ fn write_seq(f: &mut fmt::Formatter<'_>, seq: &[RegionNode], prefix: &str) -> fm
 
 fn write_node(
     f: &mut fmt::Formatter<'_>,
-    node: &RegionNode,
+    node: &StructureNode,
     prefix: &str,
     connector: &str,
 ) -> fmt::Result {
     let child_prefix = format!("{prefix}{}", cont(connector));
     match node {
-        RegionNode::Linear { block } => {
+        StructureNode::Linear { block } => {
             writeln!(f, "{prefix}{connector}Linear(b{})", block.0)
         }
-        RegionNode::IfThenElse {
+        StructureNode::IfThenElse {
             cond_block,
             condition,
             then_branch,
@@ -84,7 +84,7 @@ fn write_node(
             write_arm(f, "then", then_branch, &child_prefix, false)?;
             write_arm(f, "else", else_branch, &child_prefix, true)
         }
-        RegionNode::Loop {
+        StructureNode::Loop {
             header,
             test_prefix,
             condition,
@@ -101,13 +101,13 @@ fn write_node(
             write_arm(f, "test_prefix", test_prefix, &child_prefix, false)?;
             write_arm(f, "body", body, &child_prefix, true)
         }
-        RegionNode::SetEscapeFlag { slot } => {
+        StructureNode::SetEscapeFlag { slot } => {
             writeln!(f, "{prefix}{connector}SetEscapeFlag({})", fmt_slot(slot))
         }
-        RegionNode::Call { target } => {
+        StructureNode::Call { target } => {
             writeln!(f, "{prefix}{connector}Call(target=b{})", target.0)
         }
-        RegionNode::BoolAssert {
+        StructureNode::BoolAssert {
             cond_block,
             condition,
         } => {
@@ -118,13 +118,13 @@ fn write_node(
                 cond_block.0
             )
         }
-        RegionNode::Trap { block } => {
+        StructureNode::Trap { block } => {
             writeln!(f, "{prefix}{connector}Trap(b{})", block.0)
         }
-        RegionNode::Stop { block } => {
+        StructureNode::Stop { block } => {
             writeln!(f, "{prefix}{connector}Stop(b{})", block.0)
         }
-        RegionNode::Return { block } => {
+        StructureNode::Return { block } => {
             writeln!(f, "{prefix}{connector}Return(b{})", block.0)
         }
     }
@@ -133,7 +133,7 @@ fn write_node(
 fn write_arm(
     f: &mut fmt::Formatter<'_>,
     label: &str,
-    seq: &[RegionNode],
+    seq: &[StructureNode],
     prefix: &str,
     is_last: bool,
 ) -> fmt::Result {

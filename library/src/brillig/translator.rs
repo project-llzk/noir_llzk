@@ -7,32 +7,61 @@ use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
-use llzk::prelude::Value;
+use brillig_vm::FREE_MEMORY_POINTER_ADDRESS;
+use llzk::prelude::{Block, Value};
 
 use super::memory::Memory;
-use super::opcodes::{build_handler, require_const};
+use super::opcodes::build_handler;
+use crate::brillig::opcodes::{require_const, slot_at_offset};
+use crate::brillig::structurer::{CondPolarity, EscapeFlagSlot, LoopCondition};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 use crate::writer::Writer;
 
 // ── Core types ─────────────────────────────────────────────────────────
 
-/// Shared translation state passed to each opcode handler.
-///
-/// Bundles the mutable state that every handler needs: the LLZK writer, the
-/// Brillig memory model (register file + tracked integer constants), and
-/// the function's calldata.
+/// Shared state passed to each per-opcode handler.
 pub(super) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
     pub(super) writer: &'r mut BrilligWriter<'c, 'b>,
     pub(super) memory: &'r mut M,
     pub(super) calldata: &'r [Value<'c, 'b>],
-    pub(super) expected_output_count: usize,
-    pub(super) escape_flag_addrs: Vec<Value<'c, 'b>>,
+}
+
+// ── Per-range emission ─────────────────────────────────────────────────
+
+/// Runs per-opcode handlers over `bytecode[range.start..range.end]`
+/// against `ctx`. Terminator opcodes (those for which [`build_handler`]
+/// returns `None`) are skipped — the structured emitter translates them
+/// via region nodes, not per-opcode.
+pub(super) fn translate_block_body<M: Memory>(
+    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+    bytecode: &[BrilligOpcode<FieldElement>],
+    range: Range<usize>,
+) -> Result<(), Error> {
+    for i in range {
+        let Some(handler) = build_handler::<M>(&bytecode[i]) else {
+            continue;
+        };
+        handler.execute(ctx, i)?;
+    }
+    Ok(())
 }
 
 // ── TranslationCtx shared helpers ──────────────────────────────────────
 
 impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
+    pub(super) fn new(
+        writer: &'r mut BrilligWriter<'c, 'b>,
+        memory: &'r mut M,
+        calldata: &'r [Value<'c, 'b>],
+    ) -> Self {
+        Self {
+            writer,
+            memory,
+            calldata,
+        }
+    }
+
     /// Emits a felt constant. ACVM produces canonical bytecode, so integer
     /// width is enforced downstream on cast/use rather than here.
     pub(super) fn emit_const(&mut self, value: &FieldElement) -> Result<Value<'c, 'b>, Error> {
@@ -137,26 +166,6 @@ impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
         };
         self.emit_mask(raw, bit_size)
     }
-
-    /// Reads the `Stop` opcode's `return_data` HeapVector and emits
-    /// `ram.load` ops for each return slot.
-    pub(super) fn emit_return_data(
-        &mut self,
-        return_data: &HeapVector,
-    ) -> Result<Vec<Value<'c, 'b>>, Error> {
-        if self.expected_output_count == 0 {
-            return Ok(Vec::new());
-        }
-        let pointer = require_const(self, return_data.pointer, "Stop", "return data")?;
-        let size = self.expected_output_count;
-        let mut returns = Vec::with_capacity(size);
-        for j in 0..size {
-            let addr = MemoryAddress::Direct((pointer + j) as u32);
-            let val = self.memory.read(self.writer, addr)?;
-            returns.push(val);
-        }
-        Ok(returns)
-    }
 }
 
 /// Returns `2^n - 1` as a `u128`, saturating at `u128::MAX` for `n = 128`.
@@ -169,22 +178,149 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
     }
 }
 
-// ── Per-range emission ─────────────────────────────────────────────────
+/// Creates a fresh [`Block`], runs `f` with the writer redirected to it,
+/// then restores the previous insertion target. Returns the populated
+/// block (or propagates the closure's error).
+pub(super) fn build_block_with<'c, 'b, M, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    f: F,
+) -> Result<Block<'c>, Error>
+where
+    M: Memory,
+    F: FnOnce(&mut TranslationCtx<'c, 'b, '_, M>) -> Result<(), Error>,
+{
+    let block = Block::new(&[]);
+    let saved = ctx.writer.enter_block(&block);
+    let outcome = f(ctx);
+    ctx.writer.leave_block(saved);
+    outcome?;
+    Ok(block)
+}
 
-/// Runs per-opcode handlers over `bytecode[range.start..range.end]`
-/// against `ctx`. Terminator opcodes (those for which [`build_handler`]
-/// returns `None`) are skipped — the structured emitter translates them
-/// via region nodes, not per-opcode.
-pub(super) fn translate_block_body<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
-    bytecode: &[BrilligOpcode<FieldElement>],
-    range: Range<usize>,
-) -> Result<(), Error> {
-    for i in range {
-        let Some(handler) = build_handler::<M>(&bytecode[i]) else {
-            continue;
-        };
-        handler.execute(ctx, i)?;
+/// Allocates `count` escape-flag cells from the Brillig heap by bumping
+/// `FREE_MEMORY_POINTER_ADDRESS` (`@1`), zero-initialises them so loop
+/// test-prefix reads observe `flag = 0` on the first iteration, and
+/// returns their index-typed addresses.
+///
+/// Cooperates with the Brillig program's own allocator: the bump tells
+/// any subsequent FMP-routed allocation to skip our slots.
+pub(super) fn init_escape_flags<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    count: usize,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    if count == 0 {
+        return Ok(Vec::new());
     }
+
+    let fmp_slot = match FREE_MEMORY_POINTER_ADDRESS {
+        MemoryAddress::Direct(s) => s as usize,
+        MemoryAddress::Relative(_) => {
+            unreachable!("FREE_MEMORY_POINTER_ADDRESS is defined as Direct in brillig_vm")
+        }
+    };
+    let fmp_addr = ctx.writer.insert_integer(fmp_slot)?;
+    let fmp_felt = ctx.writer.insert_ram_load(fmp_addr)?;
+    let fmp_idx = ctx.writer.cast_to_index(fmp_felt)?;
+
+    let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
+    let mut escape_flag_addrs = Vec::with_capacity(count);
+    for i in 0..count {
+        let slot_addr = slot_at_offset(ctx, fmp_idx, i)?;
+        ctx.writer.insert_ram_store(slot_addr, zero);
+        escape_flag_addrs.push(slot_addr);
+    }
+
+    let count_idx = ctx.writer.insert_integer(count)?;
+    let bumped_idx = ctx.writer.insert_index_add(fmp_idx, count_idx)?;
+    let bumped_felt = ctx.writer.insert_cast_to_felt(bumped_idx)?;
+    ctx.writer.insert_ram_store(fmp_addr, bumped_felt);
+    Ok(escape_flag_addrs)
+}
+
+/// Builds the `i1` continuation condition for an `scf.while`:
+///   - `Some(loop_cond)`: load the register, convert felt → i1; invert
+///     when polarity is `ExitOnTrue` so "true means continue".
+///   - `Some(slot)`: load the escape flag, convert to i1, invert (we
+///     want "true means *not* set, i.e. continue").
+///   - When both are present, AND them.
+pub(super) fn compute_loop_continue_cond<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    escape_flag_addrs: &[Value<'c, 'b>],
+    condition: &Option<LoopCondition>,
+    escape_flag: Option<EscapeFlagSlot>,
+    header: super::cfg::BlockId,
+) -> Result<Value<'c, 'b>, Error> {
+    let from_cond = match condition {
+        Some(loop_cond) => {
+            let cond_felt = ctx.memory.read(ctx.writer, loop_cond.register)?;
+            let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
+            Some(match loop_cond.polarity {
+                CondPolarity::ContinueOnTrue => cond_bool,
+                CondPolarity::ExitOnTrue => ctx.writer.insert_bool_not(cond_bool)?,
+            })
+        }
+        None => None,
+    };
+    let from_flag = match escape_flag {
+        Some(slot) => {
+            let addr = escape_flag_addrs[slot.0];
+            let flag_felt = ctx.writer.insert_ram_load(addr)?;
+            let flag_bool = ctx.writer.insert_felt_to_bool(flag_felt)?;
+            Some(ctx.writer.insert_bool_not(flag_bool)?)
+        }
+        None => None,
+    };
+    match (from_cond, from_flag) {
+        (Some(c), Some(f)) => ctx.writer.insert_bool_and(c, f),
+        (Some(c), None) => Ok(c),
+        (None, Some(f)) => Ok(f),
+        (None, None) => Err(Error::UnsupportedBrillig {
+            reason: format!(
+                "Loop(header=b{}): no condition and no escape flag — \
+                 infinite loop with no exit",
+                header.0
+            ),
+        }),
+    }
+}
+
+/// Reads the `Stop` opcode's `return_data` HeapVector and emits
+/// `ram.load` ops for each return slot.
+pub(super) fn emit_return_data<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    expected_output_count: usize,
+    return_data: &HeapVector,
+) -> Result<Vec<Value<'c, 'b>>, Error> {
+    if expected_output_count == 0 {
+        return Ok(Vec::new());
+    }
+    let pointer = require_const(ctx, return_data.pointer, "Stop", "return data")?;
+    let mut returns = Vec::with_capacity(expected_output_count);
+    for j in 0..expected_output_count {
+        let addr = MemoryAddress::Direct((pointer + j) as u32);
+        let val = ctx.memory.read(ctx.writer, addr)?;
+        returns.push(val);
+    }
+    Ok(returns)
+}
+
+pub(super) fn emit_trap<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+) -> Result<(), Error> {
+    // Unconditional failure: assert(0 == 1).
+    let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
+    let one = ctx.writer.emit_constant(&FieldElement::from(1u128))?;
+    let always_false = ctx.writer.insert_bool_eq(zero, one)?;
+    ctx.writer.insert_bool_assert(always_false)?;
+    Ok(())
+}
+
+pub(super) fn emit_bool_assert<'c, 'b, M: Memory>(
+    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+    condition: &MemoryAddress,
+) -> Result<(), Error> {
+    let cond_felt = ctx.memory.read(ctx.writer, *condition)?;
+    let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
+    ctx.writer.insert_bool_assert(cond_bool)?;
     Ok(())
 }
