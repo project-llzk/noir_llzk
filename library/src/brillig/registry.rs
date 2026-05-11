@@ -24,7 +24,7 @@ use crate::error::Error;
 use crate::{FIELD_NAME, brillig::translator::TranslationCtx};
 
 use super::cfg::Cfg;
-use super::memory::{Memory, precompute_calldata_copy_params};
+use super::memory::precompute_calldata_copy_params;
 use super::structured_translator::BrilligFunctionEmitter;
 use super::structurer::structure_function;
 
@@ -141,14 +141,8 @@ pub(crate) fn emit_brillig_functions<'c>(
 
         // One Memory shared by the main body and every procedure of this
         // Brillig function.
-        let mut memory = Memory::new();
         let calldata_copy_params = precompute_calldata_copy_params(&entry.bytecode.bytecode)?;
-        let ctx = TranslationCtx::new(
-            &mut writer,
-            &mut memory,
-            &calldata,
-            Some(calldata_copy_params),
-        );
+        let ctx = TranslationCtx::new(&mut writer, &calldata, Some(calldata_copy_params));
         let returns = emitter.translate(&structured, ctx, key.output_count)?;
 
         body_block.append_operation(dialect::function::r#return(location, &returns));

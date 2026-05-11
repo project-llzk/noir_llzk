@@ -10,7 +10,6 @@ use acir::brillig::{
 use brillig_vm::FREE_MEMORY_POINTER_ADDRESS;
 use llzk::prelude::{Block, Value};
 
-use super::memory::Memory;
 use super::opcodes::build_handler;
 use crate::brillig::cfg::BlockId;
 use crate::brillig::opcodes::slot_at_offset;
@@ -24,7 +23,6 @@ use crate::writer::Writer;
 /// Shared state passed to each per-opcode handler.
 pub(super) struct TranslationCtx<'c, 'b, 'r> {
     pub(super) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(super) memory: &'r mut Memory,
     pub(super) calldata: &'r [Value<'c, 'b>],
     pub(super) calldata_copy_params: Option<(u32, usize, usize)>,
 }
@@ -54,13 +52,11 @@ pub(super) fn translate_block_body(
 impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     pub(super) fn new(
         writer: &'r mut BrilligWriter<'c, 'b>,
-        memory: &'r mut Memory,
         calldata: &'r [Value<'c, 'b>],
         calldata_copy_params: Option<(u32, usize, usize)>,
     ) -> Self {
         Self {
             writer,
-            memory,
             calldata,
             calldata_copy_params,
         }
@@ -255,7 +251,7 @@ pub(super) fn compute_loop_continue_cond<'c, 'b>(
 ) -> Result<Value<'c, 'b>, Error> {
     let from_cond = match condition {
         Some(loop_cond) => {
-            let cond_felt = ctx.memory.read(ctx.writer, loop_cond.register)?;
+            let cond_felt = ctx.writer.insert_read(loop_cond.register)?;
             let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
             Some(match loop_cond.polarity {
                 CondPolarity::ContinueOnTrue => cond_bool,
@@ -305,7 +301,7 @@ pub(super) fn emit_if_with<'c, 'b, T, F>(
 where
     F: FnMut(&mut TranslationCtx<'c, 'b, '_>, T) -> Result<(), Error>,
 {
-    let cond_felt = ctx.memory.read(ctx.writer, condition)?;
+    let cond_felt = ctx.writer.insert_read(condition)?;
     let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
 
     let then_block = build_block_with(ctx, |ctx| emit(ctx, then_arg))?;
@@ -363,7 +359,7 @@ pub(super) fn emit_return_data<'c, 'b>(
     if expected_output_count == 0 {
         return Ok(Vec::new());
     }
-    let ptr_felt = ctx.memory.read(ctx.writer, return_data.pointer)?;
+    let ptr_felt = ctx.writer.insert_read(return_data.pointer)?;
     let ptr_idx = ctx.writer.cast_to_index(ptr_felt)?;
     let mut returns = Vec::with_capacity(expected_output_count);
     for j in 0..expected_output_count {
@@ -387,7 +383,7 @@ pub(super) fn emit_bool_assert<'c, 'b>(
     ctx: &mut TranslationCtx<'c, 'b, '_>,
     condition: &MemoryAddress,
 ) -> Result<(), Error> {
-    let cond_felt = ctx.memory.read(ctx.writer, *condition)?;
+    let cond_felt = ctx.writer.insert_read(*condition)?;
     let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
     ctx.writer.insert_bool_assert(cond_bool)?;
     Ok(())

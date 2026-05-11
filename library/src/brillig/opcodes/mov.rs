@@ -16,8 +16,8 @@ impl BrilligHandler<'_> for MovHandler {
         ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
-        let src = ctx.memory.read(ctx.writer, self.source)?;
-        ctx.memory.write(ctx.writer, self.destination, src)?;
+        let src = ctx.writer.insert_read(self.source)?;
+        ctx.writer.insert_write(self.destination, src)?;
         Ok(())
     }
 }

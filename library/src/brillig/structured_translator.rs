@@ -18,7 +18,6 @@ use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
 use super::cfg::Block as CFGBlock;
-use super::memory::Memory;
 use super::registry::{BrilligRegistry, BrilligRegistryKey};
 use super::structurer::{StructureNode, StructuredFunction, StructuredProcedure};
 use super::translator::{TranslationCtx, translate_block_body};
@@ -64,7 +63,7 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         ctx: TranslationCtx<'c, 'b, 'r>,
         expected_output_count: usize,
     ) -> Result<Vec<Value<'c, 'b>>, Error> {
-        self.translate_procedures(ctx.memory)?;
+        self.translate_procedures()?;
         self.translate_main(structured, ctx, expected_output_count)
     }
 
@@ -194,19 +193,15 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
     }
 
     /// Emits all brillig function procedure bodies.
-    fn translate_procedures(&mut self, memory: &mut Memory) -> Result<(), Error> {
+    fn translate_procedures(&mut self) -> Result<(), Error> {
         for procedure in self.procedures {
-            self.translate_procedure(memory, procedure)?;
+            self.translate_procedure(procedure)?;
         }
         Ok(())
     }
 
     /// Emits one [`StructuredProcedure`]'s body.
-    fn translate_procedure(
-        &mut self,
-        memory: &mut Memory,
-        procedure: &StructuredProcedure,
-    ) -> Result<(), Error> {
+    fn translate_procedure(&mut self, procedure: &StructuredProcedure) -> Result<(), Error> {
         let proc_func_type = FunctionType::new(self.context, &[], &[]);
         let proc_name = BrilligRegistry::procedure_function_name(self.variant, procedure.entry);
         let proc_func = def(self.location, &proc_name, proc_func_type, &[], None)?;
@@ -215,7 +210,7 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
 
         let proc_body = Block::new(&[]);
         let mut proc_writer = BrilligWriter::new(self.context, &proc_body);
-        let mut ctx = TranslationCtx::new(&mut proc_writer, memory, &[], None);
+        let mut ctx = TranslationCtx::new(&mut proc_writer, &[], None);
         let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
         self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)?;
         proc_body.append_operation(dialect::function::r#return(self.location, &[]));

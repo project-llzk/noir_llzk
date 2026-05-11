@@ -211,6 +211,6 @@ pub(super) fn read_pointer_as_index<'c, 'b>(
     ctx: &mut TranslationCtx<'c, 'b, '_>,
     addr: MemoryAddress,
 ) -> Result<Value<'c, 'b>, Error> {
-    let ptr_felt = ctx.memory.read(ctx.writer, addr)?;
+    let ptr_felt = ctx.writer.insert_read(addr)?;
     ctx.writer.cast_to_index(ptr_felt)
 }

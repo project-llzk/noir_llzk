@@ -21,10 +21,10 @@ impl BrilligHandler<'_> for NotHandler {
         // Brillig `Not` is n-bit complement, not felt-wide complement.
         // `felt.bit_not` would flip all bits of the prime's representation,
         // so we implement it as `src XOR (2^n - 1)` instead.
-        let src = ctx.memory.read(ctx.writer, self.source)?;
+        let src = ctx.writer.insert_read(self.source)?;
         let mask_val = ctx.emit_mask_constant(self.bit_size)?;
         let result = ctx.writer.insert_felt_bit_xor(src, mask_val)?;
-        ctx.memory.write(ctx.writer, self.destination, result)?;
+        ctx.writer.insert_write(self.destination, result)?;
         Ok(())
     }
 }

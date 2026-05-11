@@ -18,7 +18,7 @@ impl<'a> BrilligHandler<'a> for ConstHandler<'a> {
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let ssa = ctx.emit_const(self.value)?;
-        ctx.memory.write(ctx.writer, self.destination, ssa)?;
+        ctx.writer.insert_write(self.destination, ssa)?;
         Ok(())
     }
 }

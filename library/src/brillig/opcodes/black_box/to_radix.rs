@@ -18,13 +18,13 @@ pub(super) fn emit_to_radix(
     num_limbs_addr: MemoryAddress,
     output_bits_addr: MemoryAddress,
 ) -> Result<(), Error> {
-    let input = ctx.memory.read(ctx.writer, input_addr)?;
-    let radix = ctx.memory.read(ctx.writer, radix_addr)?;
-    let num_limbs_felt = ctx.memory.read(ctx.writer, num_limbs_addr)?;
+    let input = ctx.writer.insert_read(input_addr)?;
+    let radix = ctx.writer.insert_read(radix_addr)?;
+    let num_limbs_felt = ctx.writer.insert_read(num_limbs_addr)?;
     let num_limbs_idx = ctx.writer.cast_to_index(num_limbs_felt)?;
-    let base_ptr_felt = ctx.memory.read(ctx.writer, output_pointer_addr)?;
+    let base_ptr_felt = ctx.writer.insert_read(output_pointer_addr)?;
     let base_ptr_idx = ctx.writer.cast_to_index(base_ptr_felt)?;
-    let output_bits = ctx.memory.read(ctx.writer, output_bits_addr)?;
+    let output_bits = ctx.writer.insert_read(output_bits_addr)?;
 
     // `output_bits == 1 -> radix == 2`.
     let two = ctx.writer.emit_constant(&FieldElement::from(2u128))?;

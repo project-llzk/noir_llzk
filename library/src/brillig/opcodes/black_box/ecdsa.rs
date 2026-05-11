@@ -44,7 +44,7 @@ pub(super) fn emit_ecdsa(
 
     let call = ctx.writer.call_blackbox_function(func, &args)?;
     let output = collect_results(call, 1)?;
-    ctx.memory.write(ctx.writer, result, output[0])
+    ctx.writer.insert_write(result, output[0])
 }
 
 fn validate_array(name: &str, array: &HeapArray, expected: usize) -> Result<(), Error> {

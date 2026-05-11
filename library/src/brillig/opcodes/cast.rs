@@ -17,9 +17,9 @@ impl<'a> BrilligHandler<'a> for CastHandler<'a> {
         ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
-        let src = ctx.memory.read(ctx.writer, self.source)?;
+        let src = ctx.writer.insert_read(self.source)?;
         let casted = ctx.emit_cast(src, self.bit_size)?;
-        ctx.memory.write(ctx.writer, self.destination, casted)?;
+        ctx.writer.insert_write(self.destination, casted)?;
         Ok(())
     }
 }

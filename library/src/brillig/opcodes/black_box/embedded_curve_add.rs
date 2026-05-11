@@ -42,12 +42,12 @@ pub(super) fn emit_embedded_curve_add(
 
     let predicate = ctx.writer.emit_constant(&FieldElement::one())?;
     let args: [Value<'_, '_>; 7] = [
-        ctx.memory.read(ctx.writer, input1_x)?,
-        ctx.memory.read(ctx.writer, input1_y)?,
-        ctx.memory.read(ctx.writer, input1_infinite)?,
-        ctx.memory.read(ctx.writer, input2_x)?,
-        ctx.memory.read(ctx.writer, input2_y)?,
-        ctx.memory.read(ctx.writer, input2_infinite)?,
+        ctx.writer.insert_read(input1_x)?,
+        ctx.writer.insert_read(input1_y)?,
+        ctx.writer.insert_read(input1_infinite)?,
+        ctx.writer.insert_read(input2_x)?,
+        ctx.writer.insert_read(input2_y)?,
+        ctx.writer.insert_read(input2_infinite)?,
         predicate,
     ];
 

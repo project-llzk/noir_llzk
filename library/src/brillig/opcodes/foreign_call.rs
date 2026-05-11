@@ -46,7 +46,7 @@ fn emit_destination(
     match (dest, ty) {
         (ValueOrArray::MemoryAddress(addr), HeapValueType::Simple(_)) => {
             let value = emit_leaf_value(ctx)?;
-            ctx.memory.write(ctx.writer, *addr, value)?;
+            ctx.writer.insert_write(*addr, value)?;
         }
         (
             ValueOrArray::HeapArray(HeapArray { pointer, .. }),
@@ -95,7 +95,7 @@ fn emit_heap_vector(
         // otherwise have stride 0 and never terminate.
         return Ok(());
     }
-    let size_val = ctx.memory.read(ctx.writer, size_addr)?;
+    let size_val = ctx.writer.insert_read(size_addr)?;
     let size_idx = ctx.writer.cast_to_index(size_val)?;
     emit_runtime_size_loop(ctx, base, size_idx, value_types)
 }

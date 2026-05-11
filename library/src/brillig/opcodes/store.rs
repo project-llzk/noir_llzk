@@ -16,9 +16,9 @@ impl BrilligHandler<'_> for StoreHandler {
         ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
-        let val = ctx.memory.read(ctx.writer, self.source)?;
-        ctx.memory
-            .write_dynamic(ctx.writer, self.destination_pointer, val)?;
+        let val = ctx.writer.insert_read(self.source)?;
+        ctx.writer
+            .insert_dynamic_write(self.destination_pointer, val)?;
         Ok(())
     }
 }

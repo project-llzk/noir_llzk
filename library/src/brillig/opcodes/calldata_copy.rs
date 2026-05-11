@@ -41,7 +41,7 @@ impl BrilligHandler<'_> for CalldataCopyHandler {
         for j in 0..size {
             let addr = MemoryAddress::Direct((dst_base + j) as u32);
             let val = ctx.calldata[offset + j];
-            ctx.memory.write(ctx.writer, addr, val)?;
+            ctx.writer.insert_write(addr, val)?;
         }
         Ok(())
     }

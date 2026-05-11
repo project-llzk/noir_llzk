@@ -18,8 +18,8 @@ impl<'a> BrilligHandler<'a> for IndirectConstHandler<'a> {
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let ssa = ctx.emit_const(self.value)?;
-        ctx.memory
-            .write_dynamic(ctx.writer, self.destination_pointer, ssa)?;
+        ctx.writer
+            .insert_dynamic_write(self.destination_pointer, ssa)?;
         Ok(())
     }
 }
