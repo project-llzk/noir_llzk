@@ -15,15 +15,12 @@ use llzk::prelude::{
 
 use crate::Error;
 use crate::brillig::test_helpers::{
-    brillig_call_opcode, brillig_stop, bytecode, const_field, const_int, count_brillig_fns,
-    count_compute_calls, count_compute_op, find_brillig_fn, first_compute_call, single_witness,
-    store, witness_predicate,
+    brillig_call_opcode, brillig_stop, bytecode_no_calldata, const_field, const_int,
+    count_brillig_fns, count_compute_calls, count_compute_op, find_brillig_fn, first_compute_call,
+    single_witness, store, witness_predicate,
 };
 use crate::program::translate_program;
-use crate::tests::{
-    count_occurrences, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
-    print_and_verify_module,
-};
+use crate::tests::{make_circuit_with_opcodes, make_program_with_brillig, print_and_verify_module};
 
 /// Empty BrilligCall — zero inputs, zero outputs, bytecode is just `Stop`.
 /// Emits a module-level `@brillig_0` function (with `allow_witness = true`)
@@ -39,7 +36,10 @@ fn empty_brillig_call_verifies() {
         &[],
         vec![brillig_call_opcode(0, vec![], vec![])],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module = translate_program(&context, &program).expect("translation should succeed");
 
@@ -74,7 +74,10 @@ fn brillig_with_nontrivial_predicate_no_outputs() {
         predicate: witness_predicate(0),
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![opcode]);
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module = translate_program(&context, &program)
         .expect("non-trivial predicate with no outputs should succeed");
@@ -122,7 +125,7 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
     };
     // w0 is the predicate witness (public input); w1 is the output.
     let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(body)]);
+    let program = make_program_with_brillig(vec![circuit], vec![bytecode_no_calldata(body)]);
 
     let module = translate_program(&context, &program)
         .expect("non-trivial predicate with outputs should succeed");
@@ -151,7 +154,7 @@ fn brillig_stop_short_circuits_unsupported_ops() {
     );
     let program = make_program_with_brillig(
         vec![circuit],
-        vec![bytecode(vec![
+        vec![bytecode_no_calldata(vec![
             brillig_stop(),
             BrilligOpcode::Jump { location: 0 },
             brillig_stop(),
@@ -178,7 +181,10 @@ fn brillig_reads_single_input_from_self() {
         &[],
         vec![brillig_call_opcode(0, vec![single_witness(0)], vec![])],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module = translate_program(&context, &program).expect("translation should succeed");
 
@@ -237,7 +243,10 @@ fn brillig_array_input_is_accepted() {
         &[],
         vec![brillig_call_opcode(0, vec![array_in], vec![])],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module = translate_program(&context, &program).expect("array inputs should be accepted");
 
@@ -262,10 +271,8 @@ fn brillig_array_input_is_accepted() {
     print_and_verify_module(&module, "brillig_array_input_is_accepted");
 }
 
-/// A call site declaring outputs is rejected when the `Stop` opcode's
-/// `return_data.size` register has no statically known constant.
 #[test]
-fn brillig_simple_output_without_body_is_rejected() {
+fn brillig_simple_output_with_empty_body_translates() {
     let context = LlzkContext::new();
 
     let circuit = make_circuit_with_opcodes(
@@ -279,49 +286,14 @@ fn brillig_simple_output_without_body_is_rejected() {
             vec![BrilligOutputs::Simple(Witness(0))],
         )],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
-
-    let err = translate_program(&context, &program)
-        .expect_err("Simple output with empty body should error until register marshalling lands");
-    assert!(
-        matches!(err, Error::UnsupportedBrillig { .. }),
-        "expected UnsupportedBrillig, got {err:?}"
-    );
-}
-
-/// Sanity check: the emitted `@brillig_{id}` function body has exactly one
-/// operation — the terminating `function.return` — for an empty-bytecode call.
-#[test]
-fn empty_brillig_body_is_just_a_return() {
-    let context = LlzkContext::new();
-
-    let circuit = make_circuit_with_opcodes(
-        0,
-        &[],
-        &[],
-        &[],
-        vec![brillig_call_opcode(0, vec![], vec![])],
-    );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
-
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let brillig_op = find_brillig_fn(&module, 0).expect("module should contain @brillig_0");
-
-    let body_block = brillig_op.region(0).unwrap().first_block().unwrap();
-    let op_count = iter_block_ops(body_block).count();
-    assert_eq!(
-        op_count, 1,
-        "empty-bytecode @brillig_0 body should contain a single function.return"
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
-    let ir = format!("{}", module.as_operation());
-    assert_eq!(
-        count_occurrences(&ir, "function.return"),
-        // @compute has a return, @constrain has a return, @brillig_0 has a return.
-        3,
-        "IR should contain exactly three function.return operations, got:\n{ir}"
-    );
-    print_and_verify_module(&module, "Empty Brillig");
+    let module = translate_program(&context, &program)
+        .expect("empty-body Simple output now lowers via runtime ram.load");
+    assert!(module.as_operation().verify());
 }
 
 /// Two BrilligCall sites that reference the same `BrilligFunctionId` share a
@@ -341,7 +313,10 @@ fn duplicate_brillig_calls_dedup_to_single_function() {
             brillig_call_opcode(0, vec![], vec![]),
         ],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module = translate_program(&context, &program).expect("translation should succeed");
 
@@ -377,7 +352,10 @@ fn duplicate_brillig_calls_with_mismatched_shapes_emit_distinct_variants() {
             brillig_call_opcode(0, vec![single_witness(0)], vec![]),
         ],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(vec![brillig_stop()])]);
+    let program = make_program_with_brillig(
+        vec![circuit],
+        vec![bytecode_no_calldata(vec![brillig_stop()])],
+    );
 
     let module =
         translate_program(&context, &program).expect("mismatched shapes should emit two variants");

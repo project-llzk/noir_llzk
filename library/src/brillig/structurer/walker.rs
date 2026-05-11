@@ -7,7 +7,7 @@ use acir::brillig::MemoryAddress;
 
 use super::escape_flag::validate_escape_flag_positions;
 use super::loop_shape::get_loop_shape;
-use super::{EscapeFlagSlot, RegionNode};
+use super::{EscapeFlagSlot, StructureNode};
 use crate::brillig::cfg::{BlockId, Cfg, Terminator};
 use crate::error::Error;
 
@@ -63,7 +63,7 @@ impl<'a> State<'a> {
     pub(super) fn structure_one_body(
         &mut self,
         entry: BlockId,
-    ) -> Result<(Vec<RegionNode>, usize), Error> {
+    ) -> Result<(Vec<StructureNode>, usize), Error> {
         self.escape_flags = 0;
         let regions = self.structure_region(entry, None, None, None)?;
         Ok((regions, self.escape_flags))
@@ -81,7 +81,7 @@ impl<'a> State<'a> {
         end_block: Option<BlockId>,
         loop_ctx: Option<LoopCtx>,
         back_edge_stop: Option<BlockId>,
-    ) -> Result<Vec<RegionNode>, Error> {
+    ) -> Result<Vec<StructureNode>, Error> {
         let mut nodes = Vec::new();
         let mut current = entry;
         loop {
@@ -94,7 +94,7 @@ impl<'a> State<'a> {
                     "reaching the loop's exit_dest implies a body-internal \
                      exit edge, which guarantees an escape flag was allocated",
                 );
-                nodes.push(RegionNode::SetEscapeFlag { slot });
+                nodes.push(StructureNode::SetEscapeFlag { slot });
                 return Ok(nodes);
             }
             // Other stopping reasons — the named join block or a
@@ -121,8 +121,8 @@ impl<'a> State<'a> {
 
             // Trap peephole.
             if let Some(peephole) = self.try_trap_peephole(current) {
-                nodes.push(RegionNode::Linear { block: current });
-                nodes.push(RegionNode::BoolAssert {
+                nodes.push(StructureNode::Linear { block: current });
+                nodes.push(StructureNode::BoolAssert {
                     cond_block: current,
                     condition: peephole.condition,
                 });
@@ -131,7 +131,7 @@ impl<'a> State<'a> {
             }
 
             // Generic per-block dispatch.
-            nodes.push(RegionNode::Linear { block: current });
+            nodes.push(StructureNode::Linear { block: current });
             match self.cfg.blocks[current.0].terminator {
                 Terminator::Jump(target) | Terminator::Fallthrough(target) => {
                     // Back-edges/exits/headers are intercepted at the
@@ -177,25 +177,25 @@ impl<'a> State<'a> {
                 } => {
                     let proc_idx = self.procedure_index_by_entry[&target];
                     let is_diverging = self.cfg.procedures[proc_idx].return_block.is_none();
-                    nodes.push(RegionNode::Call { target });
+                    nodes.push(StructureNode::Call { target });
                     if is_diverging {
                         return Ok(nodes);
                     }
                     current = continuation;
                 }
                 Terminator::Return => {
-                    nodes.push(RegionNode::Return { block: current });
+                    nodes.push(StructureNode::Return { block: current });
                     return Ok(nodes);
                 }
                 Terminator::Stop => {
-                    nodes.push(RegionNode::Stop { block: current });
+                    nodes.push(StructureNode::Stop { block: current });
                     return Ok(nodes);
                 }
                 Terminator::Trap | Terminator::TrapReturn => {
                     // TrapReturn (RevertWithString) emits like Trap; the
                     // distinction lives at the call site, which skips
                     // the continuation.
-                    nodes.push(RegionNode::Trap { block: current });
+                    nodes.push(StructureNode::Trap { block: current });
                     return Ok(nodes);
                 }
                 Terminator::Unreachable => {
@@ -219,13 +219,13 @@ impl<'a> State<'a> {
         else_block: BlockId,
         join: BlockId,
         loop_ctx: Option<LoopCtx>,
-    ) -> Result<(RegionNode, Option<BlockId>), Error> {
+    ) -> Result<(StructureNode, Option<BlockId>), Error> {
         let back_edge_stop = loop_ctx.map(|c| c.header);
         let then_branch =
             self.structure_region(then_block, Some(join), loop_ctx, back_edge_stop)?;
         let else_branch =
             self.structure_region(else_block, Some(join), loop_ctx, back_edge_stop)?;
-        let node = RegionNode::IfThenElse {
+        let node = StructureNode::IfThenElse {
             cond_block,
             condition,
             then_branch,
@@ -245,7 +245,7 @@ impl<'a> State<'a> {
         then_block: BlockId,
         else_block: BlockId,
         loop_ctx: Option<LoopCtx>,
-    ) -> Result<(RegionNode, Option<BlockId>), Error> {
+    ) -> Result<(StructureNode, Option<BlockId>), Error> {
         let then_divergent = self.cfg.divergent_blocks.contains(&then_block);
         let else_divergent = self.cfg.divergent_blocks.contains(&else_block);
         let back_edge_stop = loop_ctx.map(|c| c.header);
@@ -265,7 +265,7 @@ impl<'a> State<'a> {
                 } else {
                     (Vec::new(), divergent_branch)
                 };
-                let node = RegionNode::IfThenElse {
+                let node = StructureNode::IfThenElse {
                     cond_block,
                     condition,
                     then_branch,
@@ -281,7 +281,7 @@ impl<'a> State<'a> {
                     self.structure_region(then_block, None, loop_ctx, back_edge_stop)?;
                 let else_branch =
                     self.structure_region(else_block, None, loop_ctx, back_edge_stop)?;
-                let node = RegionNode::IfThenElse {
+                let node = StructureNode::IfThenElse {
                     cond_block,
                     condition,
                     then_branch,
@@ -298,7 +298,7 @@ impl<'a> State<'a> {
     fn structure_loop(
         &mut self,
         loop_idx: usize,
-    ) -> Result<(Vec<RegionNode>, Option<BlockId>), Error> {
+    ) -> Result<(Vec<StructureNode>, Option<BlockId>), Error> {
         let r#loop = self.cfg.loops[loop_idx].clone();
         let header = r#loop.header;
 
@@ -331,7 +331,7 @@ impl<'a> State<'a> {
         } else {
             Vec::new()
         };
-        test_prefix.push(RegionNode::Linear {
+        test_prefix.push(StructureNode::Linear {
             block: shape.effective_header,
         });
 
@@ -344,7 +344,7 @@ impl<'a> State<'a> {
             validate_escape_flag_positions(&body, header)?;
         }
 
-        let mut nodes = vec![RegionNode::Loop {
+        let mut nodes = vec![StructureNode::Loop {
             header,
             test_prefix,
             condition: shape.condition,
@@ -355,7 +355,7 @@ impl<'a> State<'a> {
             shape
                 .exit_prefix
                 .into_iter()
-                .map(|block| RegionNode::Linear { block }),
+                .map(|block| StructureNode::Linear { block }),
         );
         Ok((nodes, Some(shape.exit_dest)))
     }

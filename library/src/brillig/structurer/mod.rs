@@ -24,7 +24,7 @@ mod walker;
 /// One node of the structured-control-flow tree. Sequence positions in
 /// the parent `Vec<RegionNode>` encode fall-through.
 #[derive(Clone)]
-pub(super) enum RegionNode {
+pub(super) enum StructureNode {
     /// Body opcodes of `block`, excluding its terminator (which has
     /// already driven the surrounding structure).
     Linear {
@@ -36,8 +36,8 @@ pub(super) enum RegionNode {
     IfThenElse {
         cond_block: BlockId,
         condition: MemoryAddress,
-        then_branch: Vec<RegionNode>,
-        else_branch: Vec<RegionNode>,
+        then_branch: Vec<StructureNode>,
+        else_branch: Vec<StructureNode>,
     },
 
     /// Loop targeting `scf.while`. Emission ANDs `!flag` into the
@@ -46,13 +46,13 @@ pub(super) enum RegionNode {
         header: BlockId,
         /// Iteration-test region: runs on entry and after every
         /// back-edge, before `condition` is observed.
-        test_prefix: Vec<RegionNode>,
+        test_prefix: Vec<StructureNode>,
         /// `None` for `Jump`-terminated headers (`loop { … }`); `Some`
         /// for `JumpIf`-terminated headers (`while … { … }`).
         condition: Option<LoopCondition>,
         escape_flag: Option<EscapeFlagSlot>,
         /// Body proper. Ends at the back-edge.
-        body: Vec<RegionNode>,
+        body: Vec<StructureNode>,
     },
 
     /// Replaces an exit-edge `Jump`; falls through to end-of-iteration
@@ -108,20 +108,20 @@ pub(super) struct EscapeFlagSlot(pub(super) usize);
 /// local to each body — slot 0 in `main` is distinct from slot 0 in any
 /// procedure.
 pub(super) struct StructuredFunction {
-    pub(super) main: Vec<RegionNode>,
+    pub(super) main: Vec<StructureNode>,
     pub(super) main_escape_flag_count: usize,
     pub(super) procedures: Vec<StructuredProcedure>,
 }
 
 pub(super) struct StructuredProcedure {
     pub(super) entry: BlockId,
-    pub(super) body: Vec<RegionNode>,
+    pub(super) body: Vec<StructureNode>,
     pub(super) escape_flag_count: usize,
 }
 
 impl StructuredFunction {
     #[cfg(test)]
-    fn body_of(&self, target: BlockId) -> Option<&[RegionNode]> {
+    fn body_of(&self, target: BlockId) -> Option<&[StructureNode]> {
         self.procedures
             .iter()
             .find(|p| p.entry == target)

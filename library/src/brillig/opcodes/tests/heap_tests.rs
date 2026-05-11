@@ -30,14 +30,9 @@ fn brillig_store_then_load_emits_ram_ops() {
 
     let store_count = count_stores(&module, 0);
     let load_count = count_loads(&module, 0);
-    // Every register write is backed by a ram.store and every register read
-    // by a ram.load. So:
-    //   ram.store: 1 per const_int, 1 per const_field, 1 for the Store opcode
-    //              itself, and 1 for the Load's write_constant_address of
-    //              the destination register = 4.
-    //   ram.load:  2 from the Store (source slot + pointer slot),
-    //              2 from the Load (pointer slot + dynamic load) = 4.
-    assert_eq!(store_count, 4, "expected four ram.store ops");
+    // Preamble Const adds one store. The user-side accounting is the same
+    // as before (Const x2 + Store + Load = 4 stores, Store + Load = 4 loads).
+    assert_eq!(store_count, 5, "expected five ram.store ops");
     assert_eq!(load_count, 4, "expected four ram.load ops");
 
     print_and_verify_module(&module, "brillig_store_then_load_emits_ram_ops");
@@ -63,9 +58,8 @@ fn brillig_two_stores_emit_two_ram_stores() {
     .expect("translation should succeed");
 
     let store_count = count_stores(&module, 0);
-    // Every register write is backed by a ram.store, so each of the 4
-    // Const opcodes emits one, plus one per actual Store opcode = 6.
-    assert_eq!(store_count, 6, "expected six ram.store ops");
+    // Preamble Const + 4 user Const opcodes + 2 user Store opcodes = 7.
+    assert_eq!(store_count, 7, "expected seven ram.store ops");
 
     // Each dynamic store reads its pointer register and goes through
     // `cast.toindex`, so two Store opcodes should produce two

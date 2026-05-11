@@ -19,13 +19,13 @@ use llzk::prelude::{
     OperationLike, RegionLike, Type, Value, dialect,
 };
 
-use crate::FIELD_NAME;
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
+use crate::{FIELD_NAME, brillig::translator::TranslationCtx};
 
 use super::cfg::Cfg;
-use super::memory::{DynamicMemory, StaticMemory, should_be_dynamic};
-use super::structured_translator::{ProcedureEmitter, translate_structured};
+use super::memory::precompute_calldata_copy_params;
+use super::structured_translator::BrilligFunctionEmitter;
 use super::structurer::structure_function;
 
 /// Identifies a single shape variant of a Brillig function.
@@ -78,8 +78,8 @@ impl<'p> BrilligRegistry<'p> {
         entry: super::cfg::BlockId,
     ) -> String {
         format!(
-            "brillig_{}_proc_b{}_{}x{}",
-            key.id.0, entry.0, key.input_count, key.output_count
+            "brillig_{}_{}x{}_proc_b{}",
+            key.id.0, key.input_count, key.output_count, entry.0
         )
     }
 
@@ -129,38 +129,19 @@ pub(crate) fn emit_brillig_functions<'c>(
         let cfg = Cfg::build(&entry.bytecode.bytecode)?;
         let structured = structure_function(&cfg)?;
 
-        let mut emitter = ProcedureEmitter::new(
+        let mut emitter = BrilligFunctionEmitter::new(
             context,
             module,
             location,
             entry.bytecode,
-            &cfg,
+            &cfg.blocks,
             &structured.procedures,
             *key,
         );
 
-        // One Memory shared by the main body and every procedure of this
-        // Brillig function.
-        let dynamic_sp = should_be_dynamic(&entry.bytecode.bytecode);
-        let returns = if dynamic_sp {
-            translate_structured(
-                &mut writer,
-                &mut DynamicMemory::new(),
-                &mut emitter,
-                &structured,
-                &calldata,
-                key.output_count,
-            )?
-        } else {
-            translate_structured(
-                &mut writer,
-                &mut StaticMemory::new(),
-                &mut emitter,
-                &structured,
-                &calldata,
-                key.output_count,
-            )?
-        };
+        let calldata_copy_params = precompute_calldata_copy_params(&entry.bytecode.bytecode)?;
+        let ctx = TranslationCtx::new(&mut writer, &calldata, Some(calldata_copy_params));
+        let returns = emitter.translate(&structured, ctx, key.output_count)?;
 
         body_block.append_operation(dialect::function::r#return(location, &returns));
         func.region(0)?.append_block(body_block);

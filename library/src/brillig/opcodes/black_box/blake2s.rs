@@ -14,7 +14,7 @@ use crate::blackboxes::{
     hash::blake2s::{BLAKE2S_DIGEST_BYTES, blake2s_num_blocks_for_len},
     registry::BlackboxFunction,
 };
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
@@ -22,8 +22,8 @@ use crate::writer::Writer;
 
 const BLAKE2S_BLOCK_BYTES: usize = 64;
 
-pub(super) fn emit_blake2s<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_blake2s(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     message: &HeapArray,
     output: &HeapArray,
     opcode_index: usize,

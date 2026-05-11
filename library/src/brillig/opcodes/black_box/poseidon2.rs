@@ -5,10 +5,10 @@ use crate::blackboxes::{hash::poseidon2::STATE_WIDTH, registry::BlackboxFunction
 use crate::error::Error;
 
 use super::{read_heap_array, write_heap_array};
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::writer::Writer;
-pub(super) fn emit_poseidon2<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_poseidon2(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     message: &HeapArray,
     output: &HeapArray,
     opcode_index: usize,

@@ -7,7 +7,7 @@ use crate::blackboxes::grumpkin::multi_scalar_mul::{
     SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS,
 };
 use crate::blackboxes::registry::BlackboxFunction;
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::to_radix::emit_limb_decomp;
@@ -18,8 +18,8 @@ const POINT_FELTS: usize = 3;
 const SCALAR_LIMBS: usize = 2;
 const OUTPUT_FELTS: usize = 3;
 
-pub(super) fn emit_multi_scalar_mul<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_multi_scalar_mul(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     points: &HeapArray,
     scalars: &HeapArray,
     outputs: &HeapArray,

@@ -17,13 +17,13 @@ fn brillig_const_field_emits_felt_const() {
 
     let body_op_count = count_op(&module, 0, "felt.const");
     assert_eq!(
-        body_op_count, 1,
-        "@brillig_0 should contain exactly one felt.const op"
+        body_op_count, 2,
+        "@brillig_0 should contain two felt.const ops: the preamble's 0 plus the test's 5"
     );
     assert_eq!(
         count_stores(&module, 0),
-        1,
-        "Const should emit one ram.store for the destination register"
+        2,
+        "ram.stores: preamble Const + test Const = 2"
     );
     print_and_verify_module(&module, "brillig_const_field_emits_felt_const");
 }
@@ -43,13 +43,13 @@ fn brillig_const_int_emits_felt_const() {
 
     let felt_const_count = count_op(&module, 0, "felt.const");
     assert_eq!(
-        felt_const_count, 1,
-        "@brillig_0 should contain exactly one felt.const op for the integer value"
+        felt_const_count, 2,
+        "@brillig_0 should contain two felt.const ops: the preamble's 0 plus the test's 42"
     );
     assert_eq!(
         count_stores(&module, 0),
-        1,
-        "Const should emit one ram.store for the destination register"
+        2,
+        "ram.stores: preamble Const + test Const = 2"
     );
     print_and_verify_module(&module, "brillig_const_int_emits_felt_const");
 }
@@ -71,8 +71,8 @@ fn brillig_const_int_accepts_all_bit_sizes() {
             .unwrap_or_else(|e| panic!("bit size {bs:?} value {v} failed: {e}"));
         let felt_const_count = count_op(&module, 0, "felt.const");
         assert_eq!(
-            felt_const_count, 1,
-            "bit size {bs:?} should emit exactly one felt.const"
+            felt_const_count, 2,
+            "bit size {bs:?}: preamble's felt.const 0 plus the test's value = 2"
         );
         assert!(module.as_operation().verify());
     }
@@ -86,8 +86,8 @@ fn brillig_mov_emits_load_store_pair() {
     let module = translate_body(&context, vec![const_field(0, 7), mov(1, 0), brillig_stop()])
         .expect("translation should succeed");
 
-    // Const: 1 store. Mov: 1 load + 1 store.
-    assert_eq!(count_stores(&module, 0), 2);
+    // Preamble Const: 1 store. User Const: 1 store. Mov: 1 load + 1 store.
+    assert_eq!(count_stores(&module, 0), 3);
     assert_eq!(count_loads(&module, 0), 1);
 }
 
@@ -172,7 +172,7 @@ fn brillig_conditional_mov_emits_scf_if() {
         3,
         "ConditionalMov should load source_a, source_b, and condition"
     );
-    // 3 Const stores + 1 ConditionalMov store.
-    assert_eq!(count_stores(&module, 0), 4);
+    // Preamble Const + 3 user Const stores + 1 ConditionalMov store = 5.
+    assert_eq!(count_stores(&module, 0), 5);
     print_and_verify_module(&module, "brillig_conditional_mov_emits_scf_if");
 }

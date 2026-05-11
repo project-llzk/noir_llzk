@@ -222,6 +222,16 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         self.insert_op_with_result(arith::addi(lhs, rhs, self.location))
     }
 
+    /// Emits `arith.subi lhs, rhs`. Both operands must share an integer
+    /// (or `index`) type; the result is the same type.
+    pub(crate) fn insert_index_sub(
+        &self,
+        lhs: Value<'c, 'a>,
+        rhs: Value<'c, 'a>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(arith::subi(lhs, rhs, self.location))
+    }
+
     /// Emits `arith.cmpi slt(lhs, rhs)`, returning the resulting `i1`.
     pub(crate) fn insert_cmpi_slt(
         &self,
@@ -325,19 +335,32 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         before_block: Block<'c>,
         after_block: Block<'c>,
     ) -> Result<(), Error> {
+        self.insert_scf_while_op(init, result_types, before_block, after_block)?;
+        Ok(())
+    }
+
+    /// Like [`Self::insert_scf_while`], but returns the inserted op so the
+    /// caller can read the loop's results (the values yielded by the
+    /// `scf.condition` that exited the loop).
+    pub(crate) fn insert_scf_while_op(
+        &self,
+        init: &[Value<'c, 'a>],
+        result_types: &[Type<'c>],
+        before_block: Block<'c>,
+        after_block: Block<'c>,
+    ) -> Result<OperationRef<'c, 'a>, Error> {
         let before_region = Region::new();
         before_region.append_block(before_block);
         let after_region = Region::new();
         after_region.append_block(after_block);
 
-        self.insert_op(scf::r#while(
+        Ok(self.insert_op(scf::r#while(
             init,
             result_types,
             before_region,
             after_region,
             self.location,
-        ));
-        Ok(())
+        )))
     }
 
     /// Emits `scf.if` as a branchless select: yields `then_val` when `cond`

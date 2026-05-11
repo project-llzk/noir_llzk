@@ -11,14 +11,14 @@ use acir::brillig::HeapArray;
 use llzk::prelude::Value;
 
 use crate::blackboxes::{cipher::aes128::AES_BLOCK_SIZE, registry::BlackboxFunction};
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
 use crate::writer::Writer;
 
-pub(super) fn emit_aes128<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_aes128(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     inputs: &HeapArray,
     iv: &HeapArray,
     key: &HeapArray,

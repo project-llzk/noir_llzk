@@ -14,7 +14,8 @@ use crate::tests::noir_helpers::{
 };
 
 use super::{
-    CondPolarity, EscapeFlagSlot, LoopCondition, RegionNode, StructuredFunction, structure_function,
+    CondPolarity, EscapeFlagSlot, LoopCondition, StructureNode, StructuredFunction,
+    structure_function,
 };
 
 // ── Fixture constructors ────────────────────────────────────────────────
@@ -60,9 +61,9 @@ fn structure(bytecode: &[BrilligOpcode<FieldElement>]) -> StructuredFunction {
 // Pattern-matching helpers — destructure a node, panic with a clear
 // message if it doesn't match.
 
-fn as_if(node: &RegionNode) -> (BlockId, MemoryAddress, &[RegionNode], &[RegionNode]) {
+fn as_if(node: &StructureNode) -> (BlockId, MemoryAddress, &[StructureNode], &[StructureNode]) {
     match node {
-        RegionNode::IfThenElse {
+        StructureNode::IfThenElse {
             cond_block,
             condition,
             then_branch,
@@ -72,9 +73,9 @@ fn as_if(node: &RegionNode) -> (BlockId, MemoryAddress, &[RegionNode], &[RegionN
     }
 }
 
-fn as_loop(node: &RegionNode) -> (BlockId, Option<EscapeFlagSlot>, &[RegionNode]) {
+fn as_loop(node: &StructureNode) -> (BlockId, Option<EscapeFlagSlot>, &[StructureNode]) {
     match node {
-        RegionNode::Loop {
+        StructureNode::Loop {
             header,
             escape_flag,
             body,
@@ -84,9 +85,9 @@ fn as_loop(node: &RegionNode) -> (BlockId, Option<EscapeFlagSlot>, &[RegionNode]
     }
 }
 
-fn as_call(node: &RegionNode) -> BlockId {
+fn as_call(node: &StructureNode) -> BlockId {
     match node {
-        RegionNode::Call { target } => *target,
+        StructureNode::Call { target } => *target,
         other => panic!("expected Call, got {other:?}"),
     }
 }
@@ -117,7 +118,7 @@ fn structure_diamond_emits_if_then_else_with_post_dom_join() {
     assert_eq!(condition, MemoryAddress::Direct(7));
     assert!(!then_branch.is_empty(), "then-branch should be non-empty");
     assert!(!else_branch.is_empty(), "else-branch should be non-empty");
-    assert!(matches!(f.main.last(), Some(RegionNode::Stop { .. })));
+    assert!(matches!(f.main.last(), Some(StructureNode::Stop { .. })));
 }
 
 #[test]
@@ -132,7 +133,7 @@ fn trap_peephole_collapses_assert_pattern() {
     assert!(
         !f.main
             .iter()
-            .any(|n| matches!(n, RegionNode::IfThenElse { .. })),
+            .any(|n| matches!(n, StructureNode::IfThenElse { .. })),
         "trap peephole should suppress IfThenElse: {:#?}",
         f.main,
     );
@@ -140,7 +141,7 @@ fn trap_peephole_collapses_assert_pattern() {
         .main
         .iter()
         .find_map(|n| match n {
-            RegionNode::BoolAssert { condition, .. } => Some(*condition),
+            StructureNode::BoolAssert { condition, .. } => Some(*condition),
             _ => None,
         })
         .expect("expected BoolAssert");
@@ -161,7 +162,7 @@ fn structure_simple_while_loop_emits_loop_with_continue_on_true() {
     let loop_node = f
         .main
         .iter()
-        .find(|n| matches!(n, RegionNode::Loop { .. }))
+        .find(|n| matches!(n, StructureNode::Loop { .. }))
         .expect("expected a Loop region");
     let (header, flag, body) = as_loop(loop_node);
     assert_eq!(header, BlockId(0));
@@ -169,7 +170,7 @@ fn structure_simple_while_loop_emits_loop_with_continue_on_true() {
     assert!(!body.is_empty());
 
     let cond = match loop_node {
-        RegionNode::Loop {
+        StructureNode::Loop {
             condition: Some(c), ..
         } => *c,
         _ => panic!("expected JumpIf-shaped condition"),
@@ -207,7 +208,7 @@ fn structure_multi_break_loop_unifies_via_escape_flag() {
     let loop_node = f
         .main
         .iter()
-        .find(|n| matches!(n, RegionNode::Loop { .. }))
+        .find(|n| matches!(n, StructureNode::Loop { .. }))
         .expect("expected a Loop region");
     let (_, flag, body) = as_loop(loop_node);
     let slot = flag.expect("multi-exit loop should have an escape flag");
@@ -229,14 +230,15 @@ fn structure_call_emits_call_node_and_separate_procedure_body() {
     let call_node = f
         .main
         .iter()
-        .find(|n| matches!(n, RegionNode::Call { .. }))
+        .find(|n| matches!(n, StructureNode::Call { .. }))
         .expect("expected a Call region in main");
     assert_eq!(as_call(call_node), BlockId(2));
     let body = f
         .body_of(BlockId(2))
         .expect("procedure body should be available via body_of");
     assert!(
-        body.iter().any(|n| matches!(n, RegionNode::Return { .. })),
+        body.iter()
+            .any(|n| matches!(n, StructureNode::Return { .. })),
         "procedure body must end with a Return marker: {body:#?}",
     );
 }
@@ -308,7 +310,7 @@ fn noir_inclusive_break_structures() {
     // Find the body hosting the for-break Loop. Noir may emit extra
     // Loop-bearing bodies (caller wrappers etc.) — filter to the one with
     // a single escape flag (the break path).
-    let bodies: Vec<(&[RegionNode], usize)> = funcs
+    let bodies: Vec<(&[StructureNode], usize)> = funcs
         .iter()
         .flat_map(|f| {
             std::iter::once((f.main.as_slice(), f.main_escape_flag_count)).chain(
@@ -324,18 +326,18 @@ fn noir_inclusive_break_structures() {
             *n == 1
                 && seq
                     .iter()
-                    .any(|node| matches!(node, RegionNode::Loop { .. }))
+                    .any(|node| matches!(node, StructureNode::Loop { .. }))
         })
         .expect("expected one body with a Loop and exactly one escape flag");
 
     let loop_pos = host
         .iter()
-        .position(|n| matches!(n, RegionNode::Loop { .. }))
+        .position(|n| matches!(n, StructureNode::Loop { .. }))
         .expect("host body should contain a Loop");
     assert!(
         host[loop_pos + 1..]
             .iter()
-            .all(|n| !matches!(n, RegionNode::Loop { .. })),
+            .all(|n| !matches!(n, StructureNode::Loop { .. })),
         "expected exactly one top-level Loop in the host body: {host:#?}",
     );
 
@@ -344,7 +346,7 @@ fn noir_inclusive_break_structures() {
     let slot = escape_flag.expect("break path must allocate an escape flag");
 
     let condition = match loop_node {
-        RegionNode::Loop {
+        StructureNode::Loop {
             condition: Some(c), ..
         } => *c,
         _ => panic!("for-loop should be JumpIf-headed: {loop_node:?}"),
@@ -365,7 +367,7 @@ fn noir_inclusive_break_structures() {
     assert!(
         host[loop_pos + 1..]
             .iter()
-            .any(|n| matches!(n, RegionNode::IfThenElse { .. })),
+            .any(|n| matches!(n, StructureNode::IfThenElse { .. })),
         "expected a post-loop IfThenElse for the inclusive-range \
          final-iteration diamond: {host:#?}",
     );
@@ -515,12 +517,12 @@ fn noir_while_loop_recovers_continue_on_true_polarity() {
 
 // ── Tree-walking helpers ────────────────────────────────────────────────
 
-fn count_set_escape_flag(seq: &[RegionNode], slot: EscapeFlagSlot) -> usize {
+fn count_set_escape_flag(seq: &[StructureNode], slot: EscapeFlagSlot) -> usize {
     let mut total = 0;
     for n in seq {
         match n {
-            RegionNode::SetEscapeFlag { slot: s } if *s == slot => total += 1,
-            RegionNode::IfThenElse {
+            StructureNode::SetEscapeFlag { slot: s } if *s == slot => total += 1,
+            StructureNode::IfThenElse {
                 then_branch,
                 else_branch,
                 ..
@@ -528,7 +530,7 @@ fn count_set_escape_flag(seq: &[RegionNode], slot: EscapeFlagSlot) -> usize {
                 total += count_set_escape_flag(then_branch, slot);
                 total += count_set_escape_flag(else_branch, slot);
             }
-            RegionNode::Loop {
+            StructureNode::Loop {
                 test_prefix, body, ..
             } => {
                 total += count_set_escape_flag(test_prefix, slot);
@@ -542,19 +544,19 @@ fn count_set_escape_flag(seq: &[RegionNode], slot: EscapeFlagSlot) -> usize {
 
 /// Counts `Loop` regions that are nested inside another `Loop` region's
 /// body (at any depth).
-fn count_nested_loops(seq: &[RegionNode]) -> usize {
-    fn count_loops_in(seq: &[RegionNode]) -> usize {
+fn count_nested_loops(seq: &[StructureNode]) -> usize {
+    fn count_loops_in(seq: &[StructureNode]) -> usize {
         let mut n = 0;
         for node in seq {
             match node {
-                RegionNode::Loop {
+                StructureNode::Loop {
                     test_prefix, body, ..
                 } => {
                     n += 1;
                     n += count_loops_in(test_prefix);
                     n += count_loops_in(body);
                 }
-                RegionNode::IfThenElse {
+                StructureNode::IfThenElse {
                     then_branch,
                     else_branch,
                     ..
@@ -570,10 +572,10 @@ fn count_nested_loops(seq: &[RegionNode]) -> usize {
     let mut nested = 0;
     for node in seq {
         match node {
-            RegionNode::Loop {
+            StructureNode::Loop {
                 test_prefix, body, ..
             } => nested += count_loops_in(test_prefix) + count_loops_in(body),
-            RegionNode::IfThenElse {
+            StructureNode::IfThenElse {
                 then_branch,
                 else_branch,
                 ..
@@ -586,16 +588,16 @@ fn count_nested_loops(seq: &[RegionNode]) -> usize {
 
 /// Maximum nesting depth of `IfThenElse` regions in `seq`. A standalone
 /// `IfThenElse` is depth 1; one whose branches contain another is depth 2.
-fn if_then_else_depth(seq: &[RegionNode]) -> usize {
+fn if_then_else_depth(seq: &[StructureNode]) -> usize {
     let mut max = 0;
     for node in seq {
         let depth = match node {
-            RegionNode::IfThenElse {
+            StructureNode::IfThenElse {
                 then_branch,
                 else_branch,
                 ..
             } => 1 + if_then_else_depth(then_branch).max(if_then_else_depth(else_branch)),
-            RegionNode::Loop {
+            StructureNode::Loop {
                 test_prefix, body, ..
             } => if_then_else_depth(test_prefix).max(if_then_else_depth(body)),
             _ => 0,
@@ -608,12 +610,12 @@ fn if_then_else_depth(seq: &[RegionNode]) -> usize {
 /// Counts top-level `IfThenElse` nodes in `seq` whose `then_branch` or
 /// `else_branch` is empty — the half-joining shape produced when one arm
 /// of a `JumpIf` is always-divergent.
-fn count_half_joining_if(seq: &[RegionNode]) -> usize {
+fn count_half_joining_if(seq: &[StructureNode]) -> usize {
     seq.iter()
         .filter(|n| {
             matches!(
                 n,
-                RegionNode::IfThenElse { then_branch, else_branch, .. }
+                StructureNode::IfThenElse { then_branch, else_branch, .. }
                 if then_branch.is_empty() || else_branch.is_empty()
             )
         })
@@ -622,14 +624,14 @@ fn count_half_joining_if(seq: &[RegionNode]) -> usize {
 
 /// First `LoopCondition` found in any `Loop` region, recursing through
 /// `IfThenElse` arms. Returns `None` for Jump-headed `loop {}` bodies.
-fn find_loop_condition(seq: &[RegionNode]) -> Option<LoopCondition> {
+fn find_loop_condition(seq: &[StructureNode]) -> Option<LoopCondition> {
     for node in seq {
         match node {
-            RegionNode::Loop {
+            StructureNode::Loop {
                 condition: Some(cond),
                 ..
             } => return Some(*cond),
-            RegionNode::Loop {
+            StructureNode::Loop {
                 test_prefix, body, ..
             } => {
                 if let Some(c) = find_loop_condition(test_prefix) {
@@ -639,7 +641,7 @@ fn find_loop_condition(seq: &[RegionNode]) -> Option<LoopCondition> {
                     return Some(c);
                 }
             }
-            RegionNode::IfThenElse {
+            StructureNode::IfThenElse {
                 then_branch,
                 else_branch,
                 ..
@@ -658,10 +660,10 @@ fn find_loop_condition(seq: &[RegionNode]) -> Option<LoopCondition> {
 }
 
 /// True iff `seq` contains a `Loop` region at any depth.
-fn contains_loop(seq: &[RegionNode]) -> bool {
+fn contains_loop(seq: &[StructureNode]) -> bool {
     seq.iter().any(|n| match n {
-        RegionNode::Loop { .. } => true,
-        RegionNode::IfThenElse {
+        StructureNode::Loop { .. } => true,
+        StructureNode::IfThenElse {
             then_branch,
             else_branch,
             ..

@@ -19,7 +19,6 @@
 use acir::brillig::{BlackBoxOp, MemoryAddress};
 use llzk::prelude::{OperationRef, Value};
 
-use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::{BrilligHandler, read_pointer_as_index, slot_at_offset};
 use crate::{
@@ -55,10 +54,10 @@ pub(super) struct BlackBoxOpHandler<'a> {
     pub op: &'a BlackBoxOp,
 }
 
-impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
+impl<'a> BrilligHandler<'a> for BlackBoxOpHandler<'a> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         opcode_index: usize,
     ) -> Result<(), Error> {
         match self.op {
@@ -160,8 +159,8 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for BlackBoxOpHandler<'a> {
 /// address is held at runtime in `pointer`'s register slot. Emits one
 /// `ram.load` + `cast.toindex` for the pointer felt, then `size`
 /// `ram.load`s at `base + i`.
-pub(super) fn read_heap_array<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn read_heap_array<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     pointer: MemoryAddress,
     size: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
@@ -177,8 +176,8 @@ pub(super) fn read_heap_array<'c, 'b, M: Memory>(
 /// Stores `size` felts into `size` consecutive `HeapArray` slots
 /// whose base is read at runtime from `pointer`'s register. Mirrors
 /// [`read_heap_array`]. `values.len()` must equal `size`.
-pub(super) fn write_heap_array<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn write_heap_array<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     pointer: MemoryAddress,
     size: usize,
     values: &[Value<'c, 'b>],

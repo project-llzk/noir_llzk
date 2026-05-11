@@ -4,7 +4,6 @@ use llzk::prelude::ValueLike;
 
 use crate::error::Error;
 
-use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -19,22 +18,22 @@ pub(super) struct ConditionalMovHandler {
     pub condition: MemoryAddress,
 }
 
-impl<M: Memory> BrilligHandler<'_, M> for ConditionalMovHandler {
+impl BrilligHandler<'_> for ConditionalMovHandler {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
-        let a = ctx.memory.read(ctx.writer, self.source_a)?;
-        let b = ctx.memory.read(ctx.writer, self.source_b)?;
-        let cond = ctx.memory.read(ctx.writer, self.condition)?;
+        let a = ctx.writer.insert_read(self.source_a)?;
+        let b = ctx.writer.insert_read(self.source_b)?;
+        let cond = ctx.writer.insert_read(self.condition)?;
 
         let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
         let cond_i1 = ctx.writer.insert_bool_gt(cond, zero)?;
 
         let result = ctx.writer.insert_scf_if_select(cond_i1, a, b, a.r#type())?;
 
-        ctx.memory.write(ctx.writer, self.destination, result)?;
+        ctx.writer.insert_write(self.destination, result)?;
         Ok(())
     }
 }
