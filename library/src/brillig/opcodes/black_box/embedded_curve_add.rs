@@ -11,7 +11,7 @@ use acir::{AcirField, FieldElement};
 use llzk::prelude::Value;
 
 use crate::blackboxes::registry::BlackboxFunction;
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, write_heap_array};
@@ -20,8 +20,8 @@ use crate::writer::Writer;
 const EMBEDDED_POINT_FELTS: usize = 3;
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn emit_embedded_curve_add<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_embedded_curve_add(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     input1_x: MemoryAddress,
     input1_y: MemoryAddress,
     input1_infinite: MemoryAddress,

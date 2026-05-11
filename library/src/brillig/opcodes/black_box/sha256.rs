@@ -8,7 +8,7 @@ use acir::brillig::HeapArray;
 use llzk::prelude::Value;
 
 use crate::blackboxes::{hash::sha256::SHA256_STATE_WORDS, registry::BlackboxFunction};
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
@@ -16,8 +16,8 @@ use crate::writer::Writer;
 
 const SHA256_BLOCK_WORDS: usize = 16;
 
-pub(super) fn emit_sha256_compression<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_sha256_compression(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     input: &HeapArray,
     hash_values: &HeapArray,
     output: &HeapArray,

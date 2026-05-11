@@ -4,7 +4,7 @@ use acir::brillig::{HeapArray, MemoryAddress};
 use acir::{AcirField, FieldElement};
 
 use crate::blackboxes::registry::BlackboxFunction;
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array};
@@ -14,8 +14,8 @@ const ECDSA_PUBLIC_KEY_BYTES: usize = 32;
 const ECDSA_SIGNATURE_BYTES: usize = 64;
 const ECDSA_HASH_BYTES: usize = 32;
 
-pub(super) fn emit_ecdsa<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_ecdsa(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     func: BlackboxFunction,
     hashed_msg: &HeapArray,
     public_key_x: &HeapArray,

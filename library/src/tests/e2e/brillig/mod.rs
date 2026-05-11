@@ -6,4 +6,5 @@ mod count_down;
 mod inclusive_break;
 mod multi_exit_loop_tests;
 mod provekit_basic_tests;
+mod to_radix_tests;
 mod while_loop_tests;

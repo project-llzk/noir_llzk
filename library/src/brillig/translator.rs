@@ -13,7 +13,7 @@ use llzk::prelude::{Block, Value};
 use super::memory::Memory;
 use super::opcodes::build_handler;
 use crate::brillig::cfg::BlockId;
-use crate::brillig::opcodes::{require_const, slot_at_offset};
+use crate::brillig::opcodes::slot_at_offset;
 use crate::brillig::structurer::{CondPolarity, EscapeFlagSlot, LoopCondition};
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
@@ -22,10 +22,11 @@ use crate::writer::Writer;
 // ── Core types ─────────────────────────────────────────────────────────
 
 /// Shared state passed to each per-opcode handler.
-pub(super) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
+pub(super) struct TranslationCtx<'c, 'b, 'r> {
     pub(super) writer: &'r mut BrilligWriter<'c, 'b>,
-    pub(super) memory: &'r mut M,
+    pub(super) memory: &'r mut Memory,
     pub(super) calldata: &'r [Value<'c, 'b>],
+    pub(super) calldata_copy_params: Option<(u32, usize, usize)>,
 }
 
 // ── Per-range emission ─────────────────────────────────────────────────
@@ -34,13 +35,13 @@ pub(super) struct TranslationCtx<'c, 'b, 'r, M: Memory> {
 /// against `ctx`. Terminator opcodes (those for which [`build_handler`]
 /// returns `None`) are skipped — the structured emitter translates them
 /// via region nodes, not per-opcode.
-pub(super) fn translate_block_body<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn translate_block_body(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     bytecode: &[BrilligOpcode<FieldElement>],
     range: Range<usize>,
 ) -> Result<(), Error> {
     for i in range {
-        let Some(handler) = build_handler::<M>(&bytecode[i]) else {
+        let Some(handler) = build_handler(&bytecode[i]) else {
             continue;
         };
         handler.execute(ctx, i)?;
@@ -50,16 +51,18 @@ pub(super) fn translate_block_body<M: Memory>(
 
 // ── TranslationCtx shared helpers ──────────────────────────────────────
 
-impl<'c, 'b, 'r, M: Memory> TranslationCtx<'c, 'b, 'r, M> {
+impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     pub(super) fn new(
         writer: &'r mut BrilligWriter<'c, 'b>,
-        memory: &'r mut M,
+        memory: &'r mut Memory,
         calldata: &'r [Value<'c, 'b>],
+        calldata_copy_params: Option<(u32, usize, usize)>,
     ) -> Self {
         Self {
             writer,
             memory,
             calldata,
+            calldata_copy_params,
         }
     }
 
@@ -182,13 +185,12 @@ fn mask_for(int_size: IntegerBitSize) -> u128 {
 /// Creates a fresh [`Block`], runs `f` with the writer redirected to it,
 /// then restores the previous insertion target. Returns the populated
 /// block (or propagates the closure's error).
-pub(super) fn build_block_with<'c, 'b, M, F>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn build_block_with<'c, 'b, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     f: F,
 ) -> Result<Block<'c>, Error>
 where
-    M: Memory,
-    F: FnOnce(&mut TranslationCtx<'c, 'b, '_, M>) -> Result<(), Error>,
+    F: FnOnce(&mut TranslationCtx<'c, 'b, '_>) -> Result<(), Error>,
 {
     let block = Block::new(&[]);
     let saved = ctx.writer.enter_block(&block);
@@ -205,8 +207,8 @@ where
 ///
 /// Cooperates with the Brillig program's own allocator: the bump tells
 /// any subsequent FMP-routed allocation to skip our slots.
-pub(super) fn init_escape_flags<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn init_escape_flags<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     count: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
     if count == 0 {
@@ -244,8 +246,8 @@ pub(super) fn init_escape_flags<'c, 'b, M: Memory>(
 ///   - `Some(slot)`: load the escape flag, convert to i1, invert (we
 ///     want "true means *not* set, i.e. continue").
 ///   - When both are present, AND them.
-pub(super) fn compute_loop_continue_cond<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn compute_loop_continue_cond<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     escape_flag_addrs: &[Value<'c, 'b>],
     condition: &Option<LoopCondition>,
     escape_flag: Option<EscapeFlagSlot>,
@@ -287,34 +289,27 @@ pub(super) fn compute_loop_continue_cond<'c, 'b, M: Memory>(
 
 /// Emits an `scf.if` whose then- and else-region bodies are produced by
 /// invoking `emit` against `then_arg` and `else_arg` respectively. The
-/// `i1` condition is materialised in the current block; the memory
-/// cache is snapshotted before the arms and met across them at the
-/// join, so post-`if` cache state never claims a value that holds on
-/// only one path.
+/// `i1` condition is materialised in the current block before the arms
+/// are built.
 ///
 /// `emit` is a single `FnMut` rather than two `FnOnce` closures so the
 /// caller can capture `&mut self` once. Two `FnOnce` closures both
 /// borrowing `&mut self` would conflict at the call site.
-pub(super) fn emit_if_with<'c, 'b, M, T, F>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn emit_if_with<'c, 'b, T, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     condition: MemoryAddress,
     then_arg: T,
     else_arg: T,
     mut emit: F,
 ) -> Result<(), Error>
 where
-    M: Memory,
-    F: FnMut(&mut TranslationCtx<'c, 'b, '_, M>, T) -> Result<(), Error>,
+    F: FnMut(&mut TranslationCtx<'c, 'b, '_>, T) -> Result<(), Error>,
 {
     let cond_felt = ctx.memory.read(ctx.writer, condition)?;
     let cond_bool = ctx.writer.insert_felt_to_bool(cond_felt)?;
 
-    let pre_branch = ctx.memory.clone();
     let then_block = build_block_with(ctx, |ctx| emit(ctx, then_arg))?;
-    let after_then = ctx.memory.clone();
-    *ctx.memory = pre_branch;
     let else_block = build_block_with(ctx, |ctx| emit(ctx, else_arg))?;
-    ctx.memory.meet(&after_then);
 
     ctx.writer
         .insert_scf_if(cond_bool, then_block, else_block)?;
@@ -327,8 +322,9 @@ where
 /// `scf.yield`.
 ///
 /// `emit` is a single `FnMut` (see [`emit_if_with`] for the rationale).
-pub(super) fn emit_while_with<'c, 'b, M, T, F>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_while_with<'c, 'b, T, F>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     test_prefix_arg: T,
     body_arg: T,
     escape_flag_addrs: &[Value<'c, 'b>],
@@ -338,8 +334,7 @@ pub(super) fn emit_while_with<'c, 'b, M, T, F>(
     mut emit: F,
 ) -> Result<(), Error>
 where
-    M: Memory,
-    F: FnMut(&mut TranslationCtx<'c, 'b, '_, M>, T) -> Result<(), Error>,
+    F: FnMut(&mut TranslationCtx<'c, 'b, '_>, T) -> Result<(), Error>,
 {
     let before_block = build_block_with(ctx, |ctx| {
         emit(ctx, test_prefix_arg)?;
@@ -358,29 +353,28 @@ where
     Ok(())
 }
 
-/// Reads the `Stop` opcode's `return_data` HeapVector and emits
-/// `ram.load` ops for each return slot.
-pub(super) fn emit_return_data<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+/// Reads the `Stop` opcode's `return_data` HeapVector and emits one
+/// `ram.load` per output slot.
+pub(super) fn emit_return_data<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     expected_output_count: usize,
     return_data: &HeapVector,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
     if expected_output_count == 0 {
         return Ok(Vec::new());
     }
-    let pointer = require_const(ctx, return_data.pointer, "Stop", "return data")?;
+    let ptr_felt = ctx.memory.read(ctx.writer, return_data.pointer)?;
+    let ptr_idx = ctx.writer.cast_to_index(ptr_felt)?;
     let mut returns = Vec::with_capacity(expected_output_count);
     for j in 0..expected_output_count {
-        let addr = MemoryAddress::Direct((pointer + j) as u32);
-        let val = ctx.memory.read(ctx.writer, addr)?;
+        let slot_idx = slot_at_offset(ctx, ptr_idx, j)?;
+        let val = ctx.writer.insert_ram_load(slot_idx)?;
         returns.push(val);
     }
     Ok(returns)
 }
 
-pub(super) fn emit_trap<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
-) -> Result<(), Error> {
+pub(super) fn emit_trap<'c, 'b>(ctx: &mut TranslationCtx<'c, 'b, '_>) -> Result<(), Error> {
     // Unconditional failure: assert(0 == 1).
     let zero = ctx.writer.emit_constant(&FieldElement::from(0u128))?;
     let one = ctx.writer.emit_constant(&FieldElement::from(1u128))?;
@@ -389,8 +383,8 @@ pub(super) fn emit_trap<'c, 'b, M: Memory>(
     Ok(())
 }
 
-pub(super) fn emit_bool_assert<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn emit_bool_assert<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     condition: &MemoryAddress,
 ) -> Result<(), Error> {
     let cond_felt = ctx.memory.read(ctx.writer, *condition)?;
@@ -399,8 +393,8 @@ pub(super) fn emit_bool_assert<'c, 'b, M: Memory>(
     Ok(())
 }
 
-pub(super) fn emit_set_flag<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn emit_set_flag<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     slot: &EscapeFlagSlot,
     escape_flag_addrs: &[Value<'c, 'b>],
 ) -> Result<(), Error> {

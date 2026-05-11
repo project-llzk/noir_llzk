@@ -12,7 +12,6 @@ use llzk::prelude::{Block, BlockLike, Value};
 
 use crate::error::Error;
 
-use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::{BrilligHandler, read_pointer_as_index, slot_at_offset};
 use crate::writer::Writer;
@@ -22,10 +21,10 @@ pub(super) struct ForeignCallHandler<'a> {
     pub destination_value_types: &'a [HeapValueType],
 }
 
-impl<'a, M: Memory> BrilligHandler<'a, M> for ForeignCallHandler<'a> {
+impl<'a> BrilligHandler<'a> for ForeignCallHandler<'a> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         for (dest, ty) in self
@@ -39,8 +38,8 @@ impl<'a, M: Memory> BrilligHandler<'a, M> for ForeignCallHandler<'a> {
     }
 }
 
-fn emit_destination<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+fn emit_destination(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     dest: &ValueOrArray,
     ty: &HeapValueType,
 ) -> Result<(), Error> {
@@ -79,15 +78,11 @@ fn emit_destination<M: Memory>(
     Ok(())
 }
 
-/// Lowers a `HeapVector` destination. Branches on whether the size
-/// register holds a tracked compile-time integer:
-/// * Yes → unroll into the same per-element walk as `HeapArray`,
-///   reusing the static-vs-dynamic base dispatch. Any `value_types`
-///   schema `emit_array` accepts — including nested `Array` — works.
-/// * No  → emit an `scf.while` whose body walks `value_types` once
-///   per iteration via [`emit_runtime_size_loop`].
-fn emit_heap_vector<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+/// Lowers a `HeapVector` destination by reading the size and
+/// emitting an `scf.while` that walks `value_types` once per iteration
+/// via [`emit_runtime_size_loop`].
+fn emit_heap_vector(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     pointer: MemoryAddress,
     size_addr: MemoryAddress,
     value_types: &[HeapValueType],
@@ -111,10 +106,10 @@ fn emit_heap_vector<M: Memory>(
 /// value_types.len()` each iteration so position `j` of the schema
 /// lives at slot `base + i + j`. `Simple` positions emit one nondet
 /// felt + raw `ram.store`; nested `Array` positions read the inner
-/// pointer and recurse through [`emit_array_dynamic`]; nested
+/// pointer and recurse through [`emit_array`]; nested
 /// `Vector` is rejected upfront.
-fn emit_runtime_size_loop<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+fn emit_runtime_size_loop<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     base_idx: Value<'c, 'b>,
     size_idx: Value<'c, 'b>,
     value_types: &[HeapValueType],
@@ -172,8 +167,8 @@ fn emit_runtime_size_loop<'c, 'b, M: Memory>(
         .insert_scf_while(&[zero_idx], &[index_ty], before_block, after_block)
 }
 
-fn emit_array<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+fn emit_array<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     base: Value<'c, 'b>,
     semantic_size: usize,
     value_types: &[HeapValueType],
@@ -206,9 +201,7 @@ fn emit_array<'c, 'b, M: Memory>(
 }
 
 /// Emits `llzk.nondet`, returning a raw prover-supplied felt.
-fn emit_leaf_value<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
-) -> Result<Value<'c, 'b>, Error> {
+fn emit_leaf_value<'c, 'b>(ctx: &mut TranslationCtx<'c, 'b, '_>) -> Result<Value<'c, 'b>, Error> {
     let felt_ty = ctx.writer.felt_type();
     ctx.writer.insert_nondet(felt_ty)
 }

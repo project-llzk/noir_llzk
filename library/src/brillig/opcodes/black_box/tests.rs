@@ -279,29 +279,6 @@ fn poseidon2_blackbox_rejects_wrong_arity() {
     ));
 }
 
-/// `ToRadix` requires its `radix` and `num_limbs` operands to be
-/// translation-time constants.
-#[test]
-fn to_radix_with_runtime_radix_errors_cleanly() {
-    let context = LlzkContext::new();
-    let body = vec![
-        BrilligOpcode::BlackBox(BlackBoxOp::ToRadix {
-            input: addr(10),
-            radix: addr(11),
-            output_pointer: addr(12),
-            num_limbs: addr(13),
-            output_bits: addr(14),
-        }),
-        brillig_stop(),
-    ];
-
-    let result = translate_body(&context, body);
-    assert!(matches!(
-        result,
-        Err(crate::Error::UnsupportedBrillig { .. })
-    ));
-}
-
 fn multi_scalar_mul_blackbox(
     points: HeapArray,
     scalars: HeapArray,

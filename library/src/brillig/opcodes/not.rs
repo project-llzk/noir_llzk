@@ -2,7 +2,6 @@ use acir::brillig::{IntegerBitSize, MemoryAddress};
 
 use crate::error::Error;
 
-use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 use crate::writer::Writer;
@@ -13,10 +12,10 @@ pub(super) struct NotHandler {
     pub bit_size: IntegerBitSize,
 }
 
-impl<M: Memory> BrilligHandler<'_, M> for NotHandler {
+impl BrilligHandler<'_> for NotHandler {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         // Brillig `Not` is n-bit complement, not felt-wide complement.

@@ -13,7 +13,7 @@ use crate::blackboxes::{
     hash::blake3::{BLAKE3_DIGEST_BYTES, blake3_num_blocks_for_len},
     registry::BlackboxFunction,
 };
-use crate::brillig::{memory::Memory, translator::TranslationCtx};
+use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array, write_heap_array};
@@ -21,8 +21,8 @@ use crate::writer::Writer;
 
 const BLAKE3_BLOCK_BYTES: usize = 64;
 
-pub(super) fn emit_blake3<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
+pub(super) fn emit_blake3(
+    ctx: &mut TranslationCtx<'_, '_, '_>,
     message: &HeapArray,
     output: &HeapArray,
     opcode_index: usize,

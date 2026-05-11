@@ -237,6 +237,8 @@ pub(super) fn count_brillig_fns(module: &Module) -> usize {
 
 /// Translates a zero-input / zero-output `BrilligCall` with the given body,
 /// returning the emitted module on success.
+/// Adds a copyCallData premable as program translation expects compile time
+/// calldata copying for every brillig program.
 pub(super) fn translate_body(
     context: &LlzkContext,
     ops: Vec<BrilligOpcode<FieldElement>>,
@@ -248,7 +250,7 @@ pub(super) fn translate_body(
         &[],
         vec![brillig_call_opcode(0, vec![], vec![])],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode(ops)]);
+    let program = make_program_with_brillig(vec![circuit], vec![bytecode_no_calldata(ops)]);
     translate_program(context, &program)
 }
 
@@ -289,4 +291,19 @@ pub(super) fn count_loads(module: &Module, id: u32) -> usize {
 /// Counts `ram.store` ops in the body of `@brillig_{id}`.
 pub(super) fn count_stores(module: &Module, id: u32) -> usize {
     count_op(module, id, "ram.store")
+}
+
+/// Appends a call data copying to a test brillig snippet
+pub(super) fn bytecode_no_calldata(
+    ops: Vec<BrilligOpcode<FieldElement>>,
+) -> BrilligBytecode<FieldElement> {
+    let mut prefixed = Vec::with_capacity(ops.len() + 2);
+    prefixed.push(const_int(0, IntegerBitSize::U32, 0));
+    prefixed.push(BrilligOpcode::CalldataCopy {
+        destination_address: addr(0),
+        size_address: addr(0),
+        offset_address: addr(0),
+    });
+    prefixed.extend(ops);
+    bytecode(prefixed)
 }

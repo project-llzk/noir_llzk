@@ -62,10 +62,10 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
     /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
     /// function. Procedures referenced from the walk are emitted lazily via
     /// `emitter`.
-    pub(super) fn translate_main<'b, 'r, M: Memory>(
+    pub(super) fn translate_main<'b, 'r>(
         &mut self,
         structured: &StructuredFunction,
-        mut ctx: TranslationCtx<'c, 'b, 'r, M>,
+        mut ctx: TranslationCtx<'c, 'b, 'r>,
         expected_output_count: usize,
     ) -> Result<Vec<Value<'c, 'b>>, Error> {
         let escape_flag_addrs = init_escape_flags(&mut ctx, structured.main_escape_flag_count)?;
@@ -102,9 +102,9 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         emit_return_data(&mut ctx, expected_output_count, &return_data)
     }
 
-    fn emit_body<'b, M: Memory>(
+    fn emit_body<'b>(
         &mut self,
-        ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+        ctx: &mut TranslationCtx<'c, 'b, '_>,
         escape_flag_addrs: &[Value<'c, 'b>],
         nodes: &[StructureNode],
     ) -> Result<(), Error> {
@@ -114,9 +114,9 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         Ok(())
     }
 
-    fn emit_node<'b, M: Memory>(
+    fn emit_node<'b>(
         &mut self,
-        ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+        ctx: &mut TranslationCtx<'c, 'b, '_>,
         escape_flag_addrs: &[Value<'c, 'b>],
         node: &StructureNode,
     ) -> Result<(), Error> {
@@ -188,7 +188,7 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
 
     /// Emits the procedure whose entry is `target` if it hasn't been
     /// emitted yet.
-    fn ensure_emitted<M: Memory>(&mut self, target: BlockId, memory: &mut M) -> Result<(), Error> {
+    fn ensure_emitted(&mut self, target: BlockId, memory: &mut Memory) -> Result<(), Error> {
         if !self.emitted.insert(target) {
             return Ok(());
         }
@@ -223,16 +223,16 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
     }
 
     /// Emits one [`StructuredProcedure`]'s body. The procedure's
-    /// `function.return` terminator is appended by [`ProcedureEmitter::ensure_emitted`],
+    /// `function.return` terminator is appended by [`Self::ensure_emitted`],
     /// not here — this only walks the body's region nodes against the shared
     /// `Memory`.
-    fn translate_procedure<'b, M: Memory>(
+    fn translate_procedure<'b>(
         &mut self,
         writer: &mut BrilligWriter<'c, 'b>,
-        memory: &mut M,
+        memory: &mut Memory,
         procedure: &StructuredProcedure,
     ) -> Result<(), Error> {
-        let mut ctx = TranslationCtx::new(writer, memory, &[]);
+        let mut ctx = TranslationCtx::new(writer, memory, &[], None);
         let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
         self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)
     }

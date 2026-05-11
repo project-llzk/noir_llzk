@@ -189,10 +189,9 @@ fn brillig_binary_field_op_chained_arithmetic() {
     assert_eq!(add_count, 1, "expected one felt.add");
     assert_eq!(mul_count, 1, "expected one felt.mul");
 
-    // Each Const writes one register slot (1 ram.store), and each binary op
-    // reads its two operand slots (2 ram.load) and writes its result slot
-    // (1 ram.store). 3 consts + 2 binops → 5 ram.store, 4 ram.load.
-    assert_eq!(count_stores(&module, 0), 5, "expected five ram.store ops");
+    // Preamble Const + 3 user Const stores (1 each) + 2 binop result stores
+    // (1 each) → 6 ram.store. Each binop reads 2 operand slots → 4 ram.load.
+    assert_eq!(count_stores(&module, 0), 6, "expected six ram.store ops");
     assert_eq!(count_loads(&module, 0), 4, "expected four ram.load ops");
 
     print_and_verify_module(&module, "brillig_binary_field_op_chained_arithmetic");

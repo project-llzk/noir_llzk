@@ -12,7 +12,6 @@ use llzk::prelude::Value;
 
 use crate::error::Error;
 
-use super::memory::Memory;
 use super::translator::TranslationCtx;
 
 mod binary_field_op;
@@ -49,16 +48,16 @@ use self::store::StoreHandler;
 ///
 /// Handlers receive the shared [`TranslationCtx`] which provides helper
 /// methods for common operations (constant emission, type casts, etc.).
-pub(super) trait BrilligHandler<'a, M: Memory> {
+pub(super) trait BrilligHandler<'a> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         opcode_index: usize,
     ) -> Result<(), Error>;
 }
 
 /// Boxed trait object so the translate loop stays uniform.
-pub(super) type TranslatedBrilligOp<'a, M> = Box<dyn BrilligHandler<'a, M> + 'a>;
+pub(super) type TranslatedBrilligOp<'a> = Box<dyn BrilligHandler<'a> + 'a>;
 
 /// Returns the boxed handler for `op`, or `None` when `op` has no
 /// per-opcode emission. `None` covers terminator opcodes (`Jump`,
@@ -66,17 +65,16 @@ pub(super) type TranslatedBrilligOp<'a, M> = Box<dyn BrilligHandler<'a, M> + 'a>
 /// structured emitter translates those via region nodes — plus any
 /// opcode the translator doesn't yet know how to lower; the caller
 /// (`translate_block_body`) skips both equivalently.
-pub(super) fn build_handler<'a, M: Memory + 'a>(
+pub(super) fn build_handler<'a>(
     op: &'a acir::brillig::Opcode<FieldElement>,
-) -> Option<TranslatedBrilligOp<'a, M>> {
+) -> Option<TranslatedBrilligOp<'a>> {
     match op {
         B::Const {
             destination,
-            bit_size,
+            bit_size: _,
             value,
         } => Some(Box::new(ConstHandler {
             destination: *destination,
-            bit_size,
             value,
         })),
 
@@ -141,14 +139,10 @@ pub(super) fn build_handler<'a, M: Memory + 'a>(
         })),
 
         B::CalldataCopy {
-            destination_address,
-            size_address,
-            offset_address,
-        } => Some(Box::new(CalldataCopyHandler {
-            destination_address: *destination_address,
-            size_address: *size_address,
-            offset_address: *offset_address,
-        })),
+            destination_address: _,
+            size_address: _,
+            offset_address: _,
+        } => Some(Box::new(CalldataCopyHandler)),
 
         B::Not {
             destination,
@@ -196,27 +190,10 @@ pub(super) fn build_handler<'a, M: Memory + 'a>(
     }
 }
 
-pub(super) fn require_const<M: Memory>(
-    ctx: &mut TranslationCtx<'_, '_, '_, M>,
-    addr: MemoryAddress,
-    op_name: &str,
-    field_name: &str,
-) -> Result<usize, Error> {
-    ctx.memory
-        .get_const(addr)?
-        .ok_or_else(|| Error::UnsupportedBrillig {
-            reason: format!(
-                "{op_name}: {field_name} register {} is expected to be a \
-                 known integer constant",
-                addr.to_u32()
-            ),
-        })
-}
-
 /// Returns `base` itself when `offset == 0`; otherwise `base +
 /// arith.constant offset` as an `index`-typed value.
-pub(super) fn slot_at_offset<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn slot_at_offset<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     base: Value<'c, 'b>,
     offset: usize,
 ) -> Result<Value<'c, 'b>, Error> {
@@ -230,8 +207,8 @@ pub(super) fn slot_at_offset<'c, 'b, M: Memory>(
 /// Reads the felt held at `addr` (a register or RAM slot tracked by
 /// `ctx.memory`) and casts it to the `index`-typed SSA value used as a
 /// base address for `ram.load` / `ram.store`.
-pub(super) fn read_pointer_as_index<'c, 'b, M: Memory>(
-    ctx: &mut TranslationCtx<'c, 'b, '_, M>,
+pub(super) fn read_pointer_as_index<'c, 'b>(
+    ctx: &mut TranslationCtx<'c, 'b, '_>,
     addr: MemoryAddress,
 ) -> Result<Value<'c, 'b>, Error> {
     let ptr_felt = ctx.memory.read(ctx.writer, addr)?;

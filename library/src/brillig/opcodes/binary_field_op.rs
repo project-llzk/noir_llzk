@@ -2,7 +2,6 @@ use acir::brillig::{BinaryFieldOp, MemoryAddress};
 
 use crate::error::Error;
 
-use super::super::memory::Memory;
 use super::super::translator::TranslationCtx;
 use super::BrilligHandler;
 
@@ -13,10 +12,10 @@ pub(super) struct BinaryFieldOpHandler<'a> {
     pub rhs: MemoryAddress,
 }
 
-impl<'a, M: Memory> BrilligHandler<'a, M> for BinaryFieldOpHandler<'a> {
+impl<'a> BrilligHandler<'a> for BinaryFieldOpHandler<'a> {
     fn execute(
         &self,
-        ctx: &mut TranslationCtx<'_, '_, '_, M>,
+        ctx: &mut TranslationCtx<'_, '_, '_>,
         _opcode_index: usize,
     ) -> Result<(), Error> {
         let lhs_v = ctx.memory.read(ctx.writer, self.lhs)?;
