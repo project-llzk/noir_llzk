@@ -44,6 +44,8 @@ fn constrain_input_width<'c, 'b>(
 
     let bound = emit_range_upper_bound(writer, num_bits)?;
     let in_range = writer.insert_bool_lt(value, bound)?;
-    writer.insert_bool_assert(in_range)?;
+    let in_range_felt = writer.insert_cast_to_felt(in_range)?;
+    let one = writer.emit_constant(&FieldElement::one())?;
+    writer.insert_constrain_eq(in_range_felt, one);
     Ok(())
 }

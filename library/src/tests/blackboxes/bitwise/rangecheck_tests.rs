@@ -8,7 +8,7 @@ use crate::tests::{
     wrap_struct_in_module,
 };
 
-/// Witness rangecheck emits one comparison and one assertion.
+/// Witness rangecheck emits one comparison, casts it to felt, and constrains it to true.
 #[test]
 fn rangecheck_witness_input_emits_constraint_and_verifies() {
     let context = LlzkContext::new();
@@ -26,14 +26,24 @@ fn rangecheck_witness_input_emits_constraint_and_verifies() {
         "expected 1 bool.cmp op total"
     );
     assert_eq!(
-        count_occurrences(&ir, "bool.assert"),
+        count_occurrences(&ir, "cast.tofelt"),
         1,
-        "expected 1 bool.assert op total"
+        "expected 1 cast.tofelt op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "constrain.eq"),
+        1,
+        "expected 1 constrain.eq op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.assert"),
+        0,
+        "expected no bool.assert ops"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        1,
-        "expected 1 range bound constant"
+        2,
+        "expected range bound and true constants"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
@@ -63,6 +73,16 @@ fn rangecheck_constant_input_that_fits_emits_no_constraints() {
         count_occurrences(&ir, "bool.assert"),
         0,
         "expected no bool.assert ops"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "cast.tofelt"),
+        0,
+        "expected no cast.tofelt ops"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "constrain.eq"),
+        0,
+        "expected no constrain.eq ops"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
