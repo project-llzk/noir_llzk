@@ -139,8 +139,6 @@ pub(crate) fn emit_brillig_functions<'c>(
             *key,
         );
 
-        // One Memory shared by the main body and every procedure of this
-        // Brillig function.
         let calldata_copy_params = precompute_calldata_copy_params(&entry.bytecode.bytecode)?;
         let ctx = TranslationCtx::new(&mut writer, &calldata, Some(calldata_copy_params));
         let returns = emitter.translate(&structured, ctx, key.output_count)?;
