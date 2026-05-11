@@ -1,15 +1,13 @@
 //! Structured translator: walks a [`StructuredFunction`] tree and emits
 //! LLZK IR via the existing per-opcode handlers from [`super::translator`].
 
-use std::collections::HashSet;
-
 use acir::FieldElement;
 use acir::brillig::Opcode as BrilligOpcode;
 use acir::circuit::brillig::BrilligBytecode;
-use llzk::dialect::function::def;
+use llzk::dialect::function::{FuncDefOpLike, def};
 use llzk::prelude::{
-    Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
-    RegionLike, Value, dialect,
+    Block, BlockLike, FunctionType, LlzkContext, Location, Module, OperationLike, RegionLike,
+    Value, dialect,
 };
 
 use crate::brillig::translator::{
@@ -19,7 +17,7 @@ use crate::brillig::translator::{
 use crate::brillig_writer::BrilligWriter;
 use crate::error::Error;
 
-use super::cfg::{Block as CFGBlock, BlockId};
+use super::cfg::Block as CFGBlock;
 use super::memory::Memory;
 use super::registry::{BrilligRegistry, BrilligRegistryKey};
 use super::structurer::{StructureNode, StructuredFunction, StructuredProcedure};
@@ -34,7 +32,6 @@ pub(super) struct BrilligFunctionEmitter<'c, 'p> {
     pub(super) blocks: &'p [CFGBlock],
     pub(super) procedures: &'p [StructuredProcedure],
     pub(super) variant: BrilligRegistryKey,
-    emitted: HashSet<BlockId>,
 }
 
 impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
@@ -55,14 +52,25 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
             blocks,
             procedures,
             variant,
-            emitted: HashSet::new(),
         }
     }
 
+    /// Entry point for structured brillig function translation.
+    ///
+    /// Emits the all procedures iteratively followed by the main function.
+    pub(super) fn translate<'b, 'r>(
+        &mut self,
+        structured: &StructuredFunction,
+        ctx: TranslationCtx<'c, 'b, 'r>,
+        expected_output_count: usize,
+    ) -> Result<Vec<Value<'c, 'b>>, Error> {
+        self.translate_procedures(ctx.memory)?;
+        self.translate_main(structured, ctx, expected_output_count)
+    }
+
     /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
-    /// function. Procedures referenced from the walk are emitted lazily via
-    /// `emitter`.
-    pub(super) fn translate_main<'b, 'r>(
+    /// function.
+    pub fn translate_main<'b, 'r>(
         &mut self,
         structured: &StructuredFunction,
         mut ctx: TranslationCtx<'c, 'b, 'r>,
@@ -147,7 +155,6 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
             }
 
             StructureNode::Call { target } => {
-                self.ensure_emitted(*target, ctx.memory)?;
                 let name = BrilligRegistry::procedure_function_name(self.variant, *target);
                 ctx.writer.insert_function_call(&name)
             }
@@ -186,54 +193,34 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         }
     }
 
-    /// Emits the procedure whose entry is `target` if it hasn't been
-    /// emitted yet.
-    fn ensure_emitted(&mut self, target: BlockId, memory: &mut Memory) -> Result<(), Error> {
-        if !self.emitted.insert(target) {
-            return Ok(());
+    /// Emits all brillig function procedure bodies.
+    fn translate_procedures(&mut self, memory: &mut Memory) -> Result<(), Error> {
+        for procedure in self.procedures {
+            self.translate_procedure(memory, procedure)?;
         }
+        Ok(())
+    }
 
-        // Copy the procedures slice out so the lookup borrows from `'p`,
-        // not from `&mut self`. This lets us hand `&mut self` back to
-        // the recursive procedure walker while `proc` is still live.
-        let procedures: &'p [StructuredProcedure] = self.procedures;
-        let proc = procedures
-            .iter()
-            .find(|p| p.entry == target)
-            .ok_or_else(|| Error::UnsupportedBrillig {
-                reason: format!(
-                    "structured procedure for entry b{} not found in brillig function {}",
-                    target.0, self.variant.id.0
-                ),
-            })?;
-
+    /// Emits one [`StructuredProcedure`]'s body.
+    fn translate_procedure(
+        &mut self,
+        memory: &mut Memory,
+        procedure: &StructuredProcedure,
+    ) -> Result<(), Error> {
         let proc_func_type = FunctionType::new(self.context, &[], &[]);
-        let proc_name = BrilligRegistry::procedure_function_name(self.variant, target);
+        let proc_name = BrilligRegistry::procedure_function_name(self.variant, procedure.entry);
         let proc_func = def(self.location, &proc_name, proc_func_type, &[], None)?;
         proc_func.set_allow_witness_attr(true);
         proc_func.set_allow_non_native_field_ops_attr(true);
 
         let proc_body = Block::new(&[]);
         let mut proc_writer = BrilligWriter::new(self.context, &proc_body);
-        self.translate_procedure(&mut proc_writer, memory, proc)?;
+        let mut ctx = TranslationCtx::new(&mut proc_writer, memory, &[], None);
+        let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
+        self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)?;
         proc_body.append_operation(dialect::function::r#return(self.location, &[]));
         proc_func.region(0)?.append_block(proc_body);
         self.module.body().append_operation(proc_func.into());
         Ok(())
-    }
-
-    /// Emits one [`StructuredProcedure`]'s body. The procedure's
-    /// `function.return` terminator is appended by [`Self::ensure_emitted`],
-    /// not here — this only walks the body's region nodes against the shared
-    /// `Memory`.
-    fn translate_procedure<'b>(
-        &mut self,
-        writer: &mut BrilligWriter<'c, 'b>,
-        memory: &mut Memory,
-        procedure: &StructuredProcedure,
-    ) -> Result<(), Error> {
-        let mut ctx = TranslationCtx::new(writer, memory, &[], None);
-        let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
-        self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)
     }
 }

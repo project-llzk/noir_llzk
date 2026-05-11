@@ -78,8 +78,8 @@ impl<'p> BrilligRegistry<'p> {
         entry: super::cfg::BlockId,
     ) -> String {
         format!(
-            "brillig_{}_proc_b{}_{}x{}",
-            key.id.0, entry.0, key.input_count, key.output_count
+            "brillig_{}_{}x{}_proc_b{}",
+            key.id.0, key.input_count, key.output_count, entry.0
         )
     }
 
@@ -149,7 +149,7 @@ pub(crate) fn emit_brillig_functions<'c>(
             &calldata,
             Some(calldata_copy_params),
         );
-        let returns = emitter.translate_main(&structured, ctx, key.output_count)?;
+        let returns = emitter.translate(&structured, ctx, key.output_count)?;
 
         body_block.append_operation(dialect::function::r#return(location, &returns));
         func.region(0)?.append_block(body_block);
