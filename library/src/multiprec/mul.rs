@@ -110,6 +110,6 @@ fn constrain_carry_range<'c, 'a>(
     )?;
     let shifted = writer.insert_add(c, offset)?;
     let ok = writer.insert_bool_lt(shifted, bound)?;
-    writer.insert_bool_assert(ok)?;
+    writer.insert_constrain_bool_true(ok)?;
     Ok(())
 }

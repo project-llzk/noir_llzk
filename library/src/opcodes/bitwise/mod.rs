@@ -44,6 +44,5 @@ fn constrain_input_width<'c, 'b>(
 
     let bound = emit_range_upper_bound(writer, num_bits)?;
     let in_range = writer.insert_bool_lt(value, bound)?;
-    writer.insert_bool_assert(in_range)?;
-    Ok(())
+    writer.insert_constrain_bool_true(in_range)
 }
