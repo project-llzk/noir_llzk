@@ -25,13 +25,13 @@ use super::translator::{TranslationCtx, translate_block_body};
 
 /// Per-Brillig-function emission state.
 pub(super) struct BrilligFunctionEmitter<'c, 'p> {
-    pub(super) context: &'c LlzkContext,
-    pub(super) module: &'p Module<'c>,
-    pub(super) location: Location<'c>,
-    pub(super) bytecode: &'p BrilligBytecode<FieldElement>,
-    pub(super) blocks: &'p [CFGBlock],
-    pub(super) procedures: &'p [StructuredProcedure],
-    pub(super) variant: BrilligRegistryKey,
+    context: &'c LlzkContext,
+    module: &'p Module<'c>,
+    location: Location<'c>,
+    bytecode: &'p BrilligBytecode<FieldElement>,
+    blocks: &'p [CFGBlock],
+    procedures: &'p [StructuredProcedure],
+    variant: BrilligRegistryKey,
 }
 
 impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
@@ -70,7 +70,7 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
 
     /// Emits the [`StructuredFunction::main`] body for a Brillig sibling
     /// function.
-    pub fn translate_main<'b, 'r>(
+    fn translate_main<'b, 'r>(
         &mut self,
         structured: &StructuredFunction,
         mut ctx: TranslationCtx<'c, 'b, 'r>,
