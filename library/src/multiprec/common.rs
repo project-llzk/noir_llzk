@@ -31,7 +31,7 @@ pub(super) fn witness_result_limbs<'c, 'a>(
     try_init_limbs(|_| {
         let limb = writer.insert_nondet(felt_ty)?;
         let ok = writer.insert_bool_lt(limb, bound)?;
-        writer.insert_bool_assert(ok)?;
+        writer.insert_constrain_bool_true(ok)?;
         Ok(limb)
     })
 }

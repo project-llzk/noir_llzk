@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use acir::FieldElement;
+use acir::{AcirField, FieldElement};
 use llzk::builder::OpBuilder;
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
@@ -157,6 +157,14 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
         self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
+    }
+
+    /// Constrains an i1 condition to be true.
+    pub(crate) fn insert_constrain_bool_true(&mut self, cond: Value<'c, 'a>) -> Result<(), Error> {
+        let cond_felt = self.insert_cast_to_felt(cond)?;
+        let one = self.emit_constant(&FieldElement::one())?;
+        self.insert_constrain_eq(cond_felt, one);
+        Ok(())
     }
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.

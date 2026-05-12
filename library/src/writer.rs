@@ -120,6 +120,14 @@ where
         self.insert_op_with_result(dialect::cast::toindex(self.location(), val))
     }
 
+    fn insert_cast_to_felt(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
+        self.insert_op_with_result(dialect::cast::tofelt(
+            self.location(),
+            val,
+            Some(FeltType::with_field(self.context(), FIELD_NAME)),
+        ))
+    }
+
     /// Calls `@name(args)` (flat symbol reference). For struct-scoped
     /// two-level calls into another struct's `@compute` / `@constrain`,
     /// use [`BlockWriter::call_function`](crate::block_writer::BlockWriter::call_function).

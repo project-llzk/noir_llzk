@@ -27,7 +27,7 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         "should emit equality constraints"
     );
     // Compute: 1 AND.
-    // Constrain: 2 input comparisons + 2 assertions + 1 AND + 1 equality constraint.
+    // Constrain: 2 input comparisons + 2 cast-to-felt range constraints + 1 AND + 1 output eq.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
         2,
@@ -35,8 +35,8 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        3,
+        "expected 3 constrain.eq ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "bool.cmp"),
@@ -44,14 +44,19 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
         "expected 2 bool.cmp ops total"
     );
     assert_eq!(
-        count_occurrences(&ir, "bool.assert"),
+        count_occurrences(&ir, "cast.tofelt"),
         2,
-        "expected 2 bool.assert ops total"
+        "expected 2 cast.tofelt ops total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.assert"),
+        0,
+        "expected no bool.assert ops"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        1,
-        "expected one shared range bound constant"
+        2,
+        "expected shared range bound and true constants"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
@@ -109,7 +114,7 @@ fn and_mixed_witness_and_constant_verifies() {
 
     println!("and_mixed:\n{ir}");
 
-    // Compute: 1 AND. Constrain: 1 input comparison + 1 assertion + 1 AND + 1 equality constraint.
+    // Compute: 1 AND. Constrain: 1 input comparison + 1 cast-to-felt range constraint + 1 AND + 1 output eq.
     assert_eq!(
         count_occurrences(&ir, "felt.bit_and"),
         2,
@@ -117,8 +122,8 @@ fn and_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        2,
+        "expected 2 constrain.eq ops total"
     );
     assert_eq!(
         count_occurrences(&ir, "bool.cmp"),
@@ -126,14 +131,19 @@ fn and_mixed_witness_and_constant_verifies() {
         "expected 1 bool.cmp op total"
     );
     assert_eq!(
-        count_occurrences(&ir, "bool.assert"),
+        count_occurrences(&ir, "cast.tofelt"),
         1,
-        "expected 1 bool.assert op total"
+        "expected 1 cast.tofelt op total"
+    );
+    assert_eq!(
+        count_occurrences(&ir, "bool.assert"),
+        0,
+        "expected no bool.assert ops"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        3,
-        "expected two data constants and one range bound constant"
+        4,
+        "expected two data constants, range bound, and true constant"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
