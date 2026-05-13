@@ -107,3 +107,21 @@ fn predicate_false_ignores_invalid_inputs() {
 fn result_at_infinity_returns_false() {
     run_result_at_infinity_test(&r1());
 }
+
+#[test]
+fn verify_accepts_hash_reduced_mod_n() {
+    let n = secp256r1_n();
+    let d = BigUint::from(7u32);
+    let k = BigUint::from(1234u32);
+    let z = &n + 100u32;
+    run_verify_test(&r1(), d, k, z);
+}
+
+#[test]
+fn verify_accepts_private_key_n_minus_one() {
+    let n = secp256r1_n();
+    let d = &n - 1u32;
+    let k = BigUint::from(1234u32);
+    let z = BigUint::from(100u32);
+    run_verify_test(&r1(), d, k, z);
+}
