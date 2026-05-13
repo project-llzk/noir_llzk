@@ -1,4 +1,4 @@
-.PHONY: help build test lint e2e fmt clean
+.PHONY: help build test lint e2e e2e-release fmt clean
 
 UNAME_S := $(shell uname -s)
 
@@ -7,6 +7,7 @@ help:
 	@echo "  make build  - Build the project"
 	@echo "  make test   - Run tests (no llzk-interpreter e2e group)"
 	@echo "  make e2e    - Run ACIR→LLZK→interpreter e2e tests (--features e2e)"
+	@echo "  make e2e-release - Run ACIR→LLZK→interpreter e2e tests in release mode"
 	@echo "  make lint   - Run clippy (acir_llzk with e2e + llzk-interpreter, then acir2llzk)"
 	@echo "  make fmt    - Run rustfmt"
 	@echo "  make clean  - Remove build artifacts"
@@ -30,6 +31,13 @@ ifeq ($(UNAME_S),Darwin)
 	./scripts/build-macos.sh test -p acir_llzk --features e2e -- tests::e2e
 else
 	cargo test -p acir_llzk --features e2e -- tests::e2e
+endif
+
+e2e-release:
+ifeq ($(UNAME_S),Darwin)
+	./scripts/build-macos.sh test --release -p acir_llzk --features e2e -- tests::e2e
+else
+	cargo test --release -p acir_llzk --features e2e -- tests::e2e
 endif
 
 lint:

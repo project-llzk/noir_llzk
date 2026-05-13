@@ -666,13 +666,13 @@ pub(super) fn run_predicate_false_test(curve: &Curve) {
     nondet.extend(inv_mod_p_nondets(&sig_s, n));
     nondet.extend(mul_mod_p_nondets(&z, &s_inv, n));
     nondet.extend(mul_mod_p_nondets(&sig_r, &s_inv, n));
-    nondet.extend(bit_decompose_256_nondets(&u1_target));
-    nondet.extend(bit_decompose_256_nondets(&u2_target));
+    nondet.extend(limbs_bits_nondets(&u1_target));
+    nondet.extend(limbs_bits_nondets(&u2_target));
     nondet.extend(joint_mul_nondets);
     nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
     nondet.extend(limbs_eq_boolean_nondets(&r_final.0, &sig_r));
 
-    let computed = run_e2e_with_phase_nondets(circuit, &inputs, &[Felt::from_u64(1)], &nondet);
+    let computed = run_e2e_with_phase_nondets(circuit, &inputs, &[], &nondet);
     assert_witness_eq(&computed.members, &format!("w{OUTPUT_W}"), "1");
 }
 
@@ -716,14 +716,18 @@ pub(super) fn run_verify_input_test(
     nondet.extend(inv_mod_p_nondets(sig_s, n));
     nondet.extend(mul_mod_p_nondets(z, &s_inv, n));
     nondet.extend(mul_mod_p_nondets(sig_r, &s_inv, n));
-    nondet.extend(bit_decompose_256_nondets(&u1_target));
-    nondet.extend(bit_decompose_256_nondets(&u2_target));
+    nondet.extend(limbs_bits_nondets(&u1_target));
+    nondet.extend(limbs_bits_nondets(&u2_target));
     nondet.extend(joint_mul_nondets);
     nondet.extend(lt_modulus_boolean_nondets(&r_final.0, n));
     nondet.extend(limbs_eq_boolean_nondets(&r_final.0, sig_r));
 
     let expected = !r_inf && r_final.0 < *n && r_final.0 == *sig_r && sig_s < &half_n_plus_one;
-    let compute_nondet = [Felt::from_u64(if expected { 1 } else { 0 })];
+    let compute_nondet = if sig_s >= &half_n_plus_one {
+        Vec::new()
+    } else {
+        vec![Felt::from_u64(if expected { 1 } else { 0 })]
+    };
     let computed = run_e2e_with_phase_nondets(circuit, &inputs, &compute_nondet, &nondet);
     assert_witness_eq(
         &computed.members,
@@ -869,7 +873,7 @@ fn lt_modulus_boolean_nondets(value: &BigUint, modulus: &BigUint) -> Vec<Felt> {
     nondets
 }
 
-fn bit_decompose_256_nondets(value: &BigUint) -> Vec<Felt> {
+fn limbs_bits_nondets(value: &BigUint) -> Vec<Felt> {
     let limbs = biguint_to_le_64_limbs(value);
     let mut bits = Vec::with_capacity(256);
     for limb in limbs {

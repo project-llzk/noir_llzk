@@ -1,5 +1,6 @@
 pub(crate) mod cipher;
 pub(crate) mod common;
+pub(crate) mod ecdsa;
 pub(crate) mod grumpkin;
 pub(crate) mod hash;
 pub(crate) mod registry;
@@ -9,8 +10,8 @@ use acir::{FieldElement, circuit::Opcode};
 use crate::{
     error::Error,
     opcodes::{
-        TranslatedOpcode, aes128, bitwise, blake2s, blake3, ecdsa, grumpkin as grumpkin_opcodes,
-        keccak, poseidon2, sha256,
+        TranslatedOpcode, aes128, bitwise, blake2s, blake3, ecdsa as ecdsa_opcodes,
+        grumpkin as grumpkin_opcodes, keccak, poseidon2, sha256,
     },
 };
 
@@ -63,12 +64,8 @@ pub(crate) fn build_blackbox_handler<'a>(
         return Ok(Some(Box::new(poseidon2_op)));
     }
 
-    if let Some(ecdsa_k1_op) = ecdsa::secp256k1::from_opcode(opcode) {
-        return Ok(Some(Box::new(ecdsa_k1_op)));
-    }
-
-    if let Some(ecdsa_r1_op) = ecdsa::secp256r1::from_opcode(opcode) {
-        return Ok(Some(Box::new(ecdsa_r1_op)));
+    if let Some(ecdsa_op) = ecdsa_opcodes::from_opcode(opcode) {
+        return Ok(Some(Box::new(ecdsa_op)));
     }
 
     Ok(None)

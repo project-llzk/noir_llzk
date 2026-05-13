@@ -85,6 +85,7 @@ fn run_e2e_program_with_phase_nondets(
         module.as_operation().verify(),
         "translated LLZK module should verify"
     );
+
     let mut interpreter = Interpreter::new(&module);
 
     interpreter.set_nondet_values(compute_nondet.iter().cloned());

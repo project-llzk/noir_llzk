@@ -3,16 +3,13 @@
 use acir::brillig::{HeapArray, MemoryAddress};
 use acir::{AcirField, FieldElement};
 
+use crate::blackboxes::ecdsa::{ECDSA_HASH_BYTES, ECDSA_PK_BYTES, ECDSA_SIG_BYTES};
 use crate::blackboxes::registry::BlackboxFunction;
 use crate::brillig::translator::TranslationCtx;
 use crate::error::Error;
 
 use super::{collect_results, read_heap_array};
 use crate::writer::Writer;
-
-const ECDSA_PUBLIC_KEY_BYTES: usize = 32;
-const ECDSA_SIGNATURE_BYTES: usize = 64;
-const ECDSA_HASH_BYTES: usize = 32;
 
 pub(super) fn emit_ecdsa(
     ctx: &mut TranslationCtx<'_, '_, '_>,
@@ -24,22 +21,15 @@ pub(super) fn emit_ecdsa(
     result: MemoryAddress,
 ) -> Result<(), Error> {
     validate_array("hashed_msg", hashed_msg, ECDSA_HASH_BYTES)?;
-    validate_array("public_key_x", public_key_x, ECDSA_PUBLIC_KEY_BYTES)?;
-    validate_array("public_key_y", public_key_y, ECDSA_PUBLIC_KEY_BYTES)?;
-    validate_array("signature", signature, ECDSA_SIGNATURE_BYTES)?;
+    validate_array("public_key_x", public_key_x, ECDSA_PK_BYTES)?;
+    validate_array("public_key_y", public_key_y, ECDSA_PK_BYTES)?;
+    validate_array("signature", signature, ECDSA_SIG_BYTES)?;
 
-    let mut args = read_heap_array(ctx, public_key_x.pointer, ECDSA_PUBLIC_KEY_BYTES)?;
-    args.extend(read_heap_array(
-        ctx,
-        public_key_y.pointer,
-        ECDSA_PUBLIC_KEY_BYTES,
-    )?);
-    args.extend(read_heap_array(
-        ctx,
-        signature.pointer,
-        ECDSA_SIGNATURE_BYTES,
-    )?);
+    let mut args = read_heap_array(ctx, public_key_x.pointer, ECDSA_PK_BYTES)?;
+    args.extend(read_heap_array(ctx, public_key_y.pointer, ECDSA_PK_BYTES)?);
+    args.extend(read_heap_array(ctx, signature.pointer, ECDSA_SIG_BYTES)?);
     args.extend(read_heap_array(ctx, hashed_msg.pointer, ECDSA_HASH_BYTES)?);
+    // Brillig calls are unconditional; the helper still expects a predicate slot.
     args.push(ctx.writer.emit_constant(&FieldElement::one())?);
 
     let call = ctx.writer.call_blackbox_function(func, &args)?;

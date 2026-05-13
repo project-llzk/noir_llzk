@@ -8,13 +8,21 @@ use acir::{
 use llzk::prelude::{FuncDefOp, LlzkContext, Type};
 
 use crate::error::Error;
-use crate::opcodes::ecdsa::{
-    secp256k1::{ECDSA_SECP256K1_COMPUTE_HELPER_NAME, emit_secp256k1_compute_helper},
-    secp256r1::{ECDSA_SECP256R1_COMPUTE_HELPER_NAME, emit_secp256r1_compute_helper},
-};
 
 use super::cipher::aes128::{aes128_helper_name, emit_aes128_helper};
 use super::common::felt_type;
+use super::ecdsa::{
+    ECDSA_SECP256K1_COMPUTE_HELPER_NAME, ECDSA_SECP256K1_INV_MOD_N_HELPER_NAME,
+    ECDSA_SECP256K1_INV_MOD_P_HELPER_NAME, ECDSA_SECP256K1_MUL_MOD_N_HELPER_NAME,
+    ECDSA_SECP256K1_MUL_MOD_P_HELPER_NAME, ECDSA_SECP256R1_COMPUTE_HELPER_NAME,
+    ECDSA_SECP256R1_INV_MOD_N_HELPER_NAME, ECDSA_SECP256R1_INV_MOD_P_HELPER_NAME,
+    ECDSA_SECP256R1_MUL_MOD_N_HELPER_NAME, ECDSA_SECP256R1_MUL_MOD_P_HELPER_NAME,
+    emit_secp256k1_compute_helper, emit_secp256k1_inv_mod_n_helper,
+    emit_secp256k1_inv_mod_p_helper, emit_secp256k1_mul_mod_n_helper,
+    emit_secp256k1_mul_mod_p_helper, emit_secp256r1_compute_helper,
+    emit_secp256r1_inv_mod_n_helper, emit_secp256r1_inv_mod_p_helper,
+    emit_secp256r1_mul_mod_n_helper, emit_secp256r1_mul_mod_p_helper,
+};
 use super::grumpkin::embedded_curve_add::{
     EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper,
 };
@@ -43,6 +51,14 @@ pub(crate) enum BlackboxFunction {
     Sha256Compression,
     Keccakf1600,
     Aes128Encrypt { num_inputs: usize },
+    EcdsaSecp256k1MulModP,
+    EcdsaSecp256k1MulModN,
+    EcdsaSecp256r1MulModP,
+    EcdsaSecp256r1MulModN,
+    EcdsaSecp256k1InvModP,
+    EcdsaSecp256k1InvModN,
+    EcdsaSecp256r1InvModP,
+    EcdsaSecp256r1InvModN,
     EcdsaSecp256k1Compute,
     EcdsaSecp256r1Compute,
 }
@@ -64,6 +80,14 @@ impl BlackboxFunction {
             Self::Sha256Compression => SHA256_HELPER_NAME.to_string(),
             Self::Keccakf1600 => KECCAK_HELPER_NAME.to_string(),
             Self::Aes128Encrypt { num_inputs } => aes128_helper_name(num_inputs),
+            Self::EcdsaSecp256k1MulModP => ECDSA_SECP256K1_MUL_MOD_P_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256k1MulModN => ECDSA_SECP256K1_MUL_MOD_N_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256r1MulModP => ECDSA_SECP256R1_MUL_MOD_P_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256r1MulModN => ECDSA_SECP256R1_MUL_MOD_N_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256k1InvModP => ECDSA_SECP256K1_INV_MOD_P_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256k1InvModN => ECDSA_SECP256K1_INV_MOD_N_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256r1InvModP => ECDSA_SECP256R1_INV_MOD_P_HELPER_NAME.to_string(),
+            Self::EcdsaSecp256r1InvModN => ECDSA_SECP256R1_INV_MOD_N_HELPER_NAME.to_string(),
             Self::EcdsaSecp256k1Compute => ECDSA_SECP256K1_COMPUTE_HELPER_NAME.to_string(),
             Self::EcdsaSecp256r1Compute => ECDSA_SECP256R1_COMPUTE_HELPER_NAME.to_string(),
         }
@@ -81,6 +105,14 @@ impl BlackboxFunction {
             Self::Sha256Compression => emit_sha256_helper(context),
             Self::Keccakf1600 => emit_keccak_helper(context),
             Self::Aes128Encrypt { num_inputs } => emit_aes128_helper(context, num_inputs),
+            Self::EcdsaSecp256k1MulModP => emit_secp256k1_mul_mod_p_helper(context),
+            Self::EcdsaSecp256k1MulModN => emit_secp256k1_mul_mod_n_helper(context),
+            Self::EcdsaSecp256r1MulModP => emit_secp256r1_mul_mod_p_helper(context),
+            Self::EcdsaSecp256r1MulModN => emit_secp256r1_mul_mod_n_helper(context),
+            Self::EcdsaSecp256k1InvModP => emit_secp256k1_inv_mod_p_helper(context),
+            Self::EcdsaSecp256k1InvModN => emit_secp256k1_inv_mod_n_helper(context),
+            Self::EcdsaSecp256r1InvModP => emit_secp256r1_inv_mod_p_helper(context),
+            Self::EcdsaSecp256r1InvModN => emit_secp256r1_inv_mod_n_helper(context),
             Self::EcdsaSecp256k1Compute => emit_secp256k1_compute_helper(context),
             Self::EcdsaSecp256r1Compute => emit_secp256r1_compute_helper(context),
         }
@@ -96,6 +128,14 @@ impl BlackboxFunction {
             Self::Sha256Compression => vec![felt; SHA256_STATE_WORDS],
             Self::Keccakf1600 => vec![felt; KECCAK_STATE_WORDS],
             Self::Aes128Encrypt { num_inputs } => vec![felt; num_inputs],
+            Self::EcdsaSecp256k1MulModP
+            | Self::EcdsaSecp256k1MulModN
+            | Self::EcdsaSecp256r1MulModP
+            | Self::EcdsaSecp256r1MulModN
+            | Self::EcdsaSecp256k1InvModP
+            | Self::EcdsaSecp256k1InvModN
+            | Self::EcdsaSecp256r1InvModP
+            | Self::EcdsaSecp256r1InvModN => vec![felt; 4],
             Self::EcdsaSecp256k1Compute | Self::EcdsaSecp256r1Compute => vec![felt],
         }
     }
@@ -142,14 +182,35 @@ fn used_fixed_helpers(program: &Program<FieldElement>) -> Vec<BlackboxFunction> 
     {
         helpers.push(BlackboxFunction::Keccakf1600);
     }
-    if uses_brillig_blackbox(program, |op| {
+    if uses_blackbox(program, |op| {
+        matches!(
+            op,
+            Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256k1 { .. })
+        )
+    }) || uses_brillig_blackbox(program, |op| {
         matches!(op, BlackBoxOp::EcdsaSecp256k1 { .. })
     }) {
+        // Emit order matters: each inv helper's body calls into the matching
+        // mul helper, and the compute helper calls into both. Mul → inv →
+        // compute keeps every `function.call` after its callee's definition.
+        helpers.push(BlackboxFunction::EcdsaSecp256k1MulModP);
+        helpers.push(BlackboxFunction::EcdsaSecp256k1MulModN);
+        helpers.push(BlackboxFunction::EcdsaSecp256k1InvModP);
+        helpers.push(BlackboxFunction::EcdsaSecp256k1InvModN);
         helpers.push(BlackboxFunction::EcdsaSecp256k1Compute);
     }
-    if uses_brillig_blackbox(program, |op| {
+    if uses_blackbox(program, |op| {
+        matches!(
+            op,
+            Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256r1 { .. })
+        )
+    }) || uses_brillig_blackbox(program, |op| {
         matches!(op, BlackBoxOp::EcdsaSecp256r1 { .. })
     }) {
+        helpers.push(BlackboxFunction::EcdsaSecp256r1MulModP);
+        helpers.push(BlackboxFunction::EcdsaSecp256r1MulModN);
+        helpers.push(BlackboxFunction::EcdsaSecp256r1InvModP);
+        helpers.push(BlackboxFunction::EcdsaSecp256r1InvModN);
         helpers.push(BlackboxFunction::EcdsaSecp256r1Compute);
     }
     helpers

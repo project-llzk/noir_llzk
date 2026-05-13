@@ -135,6 +135,24 @@ fn verify_accepts_larger_d_k_z() {
 }
 
 #[test]
+fn verify_accepts_hash_reduced_mod_n() {
+    let n = secp256k1_n();
+    let d = BigUint::from(7u32);
+    let k = BigUint::from(1234u32);
+    let z = &n + 100u32;
+    run_verify_test(&k1(), d, k, z);
+}
+
+#[test]
+fn verify_accepts_private_key_n_minus_one() {
+    let n = secp256k1_n();
+    let d = &n - 1u32;
+    let k = BigUint::from(1234u32);
+    let z = BigUint::from(100u32);
+    run_verify_test(&k1(), d, k, z);
+}
+
+#[test]
 fn oracle_double_g_equals_2g() {
     // Cross-check our Rust oracle against the canonical secp256k1 2G vector.
     let p = secp256k1_p();
