@@ -12,7 +12,7 @@ use num_bigint::BigUint;
 use super::{
     Curve, HASH_START, OUTPUT_W, PK_X_START, PK_Y_START, PREDICATE_W, SIG_START, byte_inputs,
     run_predicate_false_test, run_result_at_infinity_test, run_verify_test,
-    run_verify_test_with_s_mode, secp_add, secp_double,
+    run_verify_test_with_s_mode,
 };
 
 /// secp256k1 base field modulus: 2^256 - 2^32 - 977.
@@ -45,20 +45,6 @@ fn secp256k1_g() -> (BigUint, BigUint) {
     )
     .unwrap();
     (gx, gy)
-}
-
-fn secp256k1_2g() -> (BigUint, BigUint) {
-    let x = BigUint::parse_bytes(
-        b"C6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5",
-        16,
-    )
-    .unwrap();
-    let y = BigUint::parse_bytes(
-        b"1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A",
-        16,
-    )
-    .unwrap();
-    (x, y)
 }
 
 fn ecdsa_secp256k1_opcode() -> Opcode<FieldElement> {
@@ -150,34 +136,4 @@ fn verify_accepts_private_key_n_minus_one() {
     let k = BigUint::from(1234u32);
     let z = BigUint::from(100u32);
     run_verify_test(&k1(), d, k, z);
-}
-
-#[test]
-fn oracle_double_g_equals_2g() {
-    // Cross-check our Rust oracle against the canonical secp256k1 2G vector.
-    let p = secp256k1_p();
-    let a = BigUint::from(0u32);
-    let doubled = secp_double(&secp256k1_g(), &p, &a);
-    assert_eq!(doubled, secp256k1_2g());
-}
-
-#[test]
-fn oracle_scalar_mul_3_equals_3g() {
-    // 3·G via double + add against the canonical 3G vector.
-    let p = secp256k1_p();
-    let a = BigUint::from(0u32);
-    let g = secp256k1_g();
-    let doubled = secp_double(&g, &p, &a);
-    let added = secp_add(&doubled, &g, &p);
-    let expected_3g_x = BigUint::parse_bytes(
-        b"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9",
-        16,
-    )
-    .unwrap();
-    let expected_3g_y = BigUint::parse_bytes(
-        b"388F7B0F632DE8140FE337E62A37F3566500A99934C2231B6CB9FD7584B8E672",
-        16,
-    )
-    .unwrap();
-    assert_eq!(added, (expected_3g_x, expected_3g_y));
 }

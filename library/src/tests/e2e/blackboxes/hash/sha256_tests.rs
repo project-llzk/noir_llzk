@@ -2,11 +2,11 @@ use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64, run_e2e};
-use crate::tests::{make_circuit_with_opcodes, make_program};
+use crate::tests::e2e::{
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_u64, run_e2e,
+};
+use crate::tests::make_circuit_with_opcodes;
 
 // SHA-256 initial hash values.
 const IV: [u64; 8] = [
@@ -118,21 +118,6 @@ fn sequential_inputs_match_noir_stdlib() {
 fn constrain_rejects_corrupted_output() {
     let mut msg = [0u64; 16];
     msg[0] = 0x80000000;
-
     let (circuit, inputs) = make_sha256_circuit(msg, IV);
-
-    let program = make_program(vec![circuit]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &inputs)
-        .expect("compute should succeed");
-
-    computed.members.insert("w24".to_string(), felt_u64(0xdead));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &inputs)
-        .expect_err("constrain should reject corrupted output");
-    assert!(err.to_string().contains("!="), "got: {err}");
+    assert_constrain_rejects_corrupted_witness(circuit, &inputs, "w24");
 }

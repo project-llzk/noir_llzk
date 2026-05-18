@@ -5,11 +5,11 @@ use acir::circuit::Circuit;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64, run_e2e};
-use crate::tests::{make_circuit_with_opcodes, make_program};
+use crate::tests::e2e::{
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_u64, run_e2e,
+};
+use crate::tests::make_circuit_with_opcodes;
 
 const POSEIDON2_ZERO_OUT_0: &str =
     "11250791130336988991462250958918728798886439319225016858543557054782819955502";
@@ -79,24 +79,5 @@ fn input_0123_matches_noir_stdlib_vector() {
 #[test]
 fn constrain_rejects_corrupted_output() {
     let inputs = vec![felt_u64(0), felt_u64(0), felt_u64(0), felt_u64(0)];
-
-    let program = make_program(vec![make_poseidon2_circuit()]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &inputs)
-        .expect("compute should succeed");
-
-    computed
-        .members
-        .insert("w4".to_string(), felt_u64(0xdead_beef));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &inputs)
-        .expect_err("constrain should reject corrupted output");
-    assert!(
-        err.to_string().contains("!="),
-        "expected constraint mismatch, got: {err}"
-    );
+    assert_constrain_rejects_corrupted_witness(make_poseidon2_circuit(), &inputs, "w4");
 }

@@ -4,12 +4,12 @@ use acir::FieldElement;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::{Circuit, Opcode};
 use acir::native_types::Witness;
-use llzk::prelude::LlzkContext;
 use llzk_interpreter::Value;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64, run_e2e};
-use crate::tests::{make_circuit_with_opcodes, make_program};
+use crate::tests::e2e::{
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_u64, run_e2e,
+};
+use crate::tests::make_circuit_with_opcodes;
 
 const AES_KEY: [u64; 16] = [
     0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
@@ -117,21 +117,5 @@ fn constrain_rejects_corrupted_output() {
     let key = plaintext;
     let (circuit, outputs) = make_aes_circuit(plaintext.len());
     let inputs = aes_inputs(&plaintext, &iv, &key);
-
-    let program = make_program(vec![circuit]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &inputs)
-        .expect("compute should succeed");
-
-    computed
-        .members
-        .insert(format!("w{}", outputs[0]), felt_u64(0xdead));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &inputs)
-        .expect_err("constrain should reject corrupted output");
-    assert!(err.to_string().contains("!="), "got: {err}");
+    assert_constrain_rejects_corrupted_witness(circuit, &inputs, &format!("w{}", outputs[0]));
 }

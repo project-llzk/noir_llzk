@@ -2,11 +2,11 @@ use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64, run_e2e};
-use crate::tests::{make_circuit_with_opcodes, make_program};
+use crate::tests::e2e::{
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_u64, run_e2e,
+};
+use crate::tests::make_circuit_with_opcodes;
 
 // XKCP reference: KeccakF-1600-IntermediateValues.txt, also used by
 // ACVM at acvm-repo/blackbox_solver/src/hash.rs.
@@ -117,19 +117,5 @@ fn double_application_matches_known_vector() {
 #[test]
 fn constrain_rejects_corrupted_output() {
     let input_values: Vec<_> = (0..25).map(|_| felt_u64(0)).collect();
-
-    let program = make_program(vec![make_keccak_circuit()]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &input_values)
-        .expect("compute should succeed");
-
-    computed.members.insert("w25".to_string(), felt_u64(0xdead));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &input_values)
-        .expect_err("constrain should reject corrupted output");
-    assert!(err.to_string().contains("!="), "got: {err}");
+    assert_constrain_rejects_corrupted_witness(make_keccak_circuit(), &input_values, "w25");
 }

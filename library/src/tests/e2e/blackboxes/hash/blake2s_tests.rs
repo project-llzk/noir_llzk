@@ -2,11 +2,11 @@ use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64, run_e2e};
-use crate::tests::{make_circuit_with_opcodes, make_program};
+use crate::tests::e2e::{
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_u64, run_e2e,
+};
+use crate::tests::make_circuit_with_opcodes;
 
 // Verified with Python hashlib.new('blake2s', ..., digest_size=32).
 const BLAKE2S_EMPTY: [u64; 32] = [
@@ -115,19 +115,5 @@ fn constrain_rejects_corrupted_output() {
         vec![blake2s_blackbox(&[0, 1, 2], outputs)],
     );
     let inputs = vec![felt_u64(97), felt_u64(98), felt_u64(99)];
-
-    let program = make_program(vec![circuit]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &inputs)
-        .expect("compute should succeed");
-
-    computed.members.insert("w3".to_string(), felt_u64(0xdead));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &inputs)
-        .expect_err("constrain should reject corrupted output");
-    assert!(err.to_string().contains("!="), "got: {err}");
+    assert_constrain_rejects_corrupted_witness(circuit, &inputs, "w3");
 }
