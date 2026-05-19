@@ -100,6 +100,31 @@ fn run_e2e_program_with_phase_nondets(
     computed
 }
 
+/// Runs `@compute`, replaces witness `corrupted_key` with `0xdead`, and asserts
+/// that `@constrain` rejects the corrupted struct with a `!=` error.
+pub(super) fn assert_constrain_rejects_corrupted_witness(
+    circuit: Circuit<FieldElement>,
+    inputs: &[Value],
+    corrupted_key: &str,
+) {
+    let program = make_program(vec![circuit]);
+    let context = LlzkContext::new();
+    let module = translate_program(&context, &program).expect("translation should succeed");
+    let mut interpreter = Interpreter::new(&module);
+    let mut computed = interpreter
+        .run_compute("Circuit0", inputs)
+        .expect("compute should succeed");
+
+    computed
+        .members
+        .insert(corrupted_key.to_string(), felt_u64(0xdead));
+
+    let err = interpreter
+        .run_constrain("Circuit0", computed, inputs)
+        .expect_err("constrain should reject corrupted output");
+    assert!(err.to_string().contains("!="), "got: {err}");
+}
+
 pub(super) fn assert_witness_eq(
     members: &BTreeMap<String, Value>,
     key: &str,

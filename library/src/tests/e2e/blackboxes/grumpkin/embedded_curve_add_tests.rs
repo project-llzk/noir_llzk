@@ -2,14 +2,12 @@
 
 use acir::circuit::Circuit;
 use acir::{AcirField, FieldElement};
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
 use crate::tests::e2e::{
-    Interpreter, assert_witness_eq, felt_from_decimal, felt_from_field_element, felt_from_hex,
-    felt_u64, run_e2e,
+    assert_constrain_rejects_corrupted_witness, assert_witness_eq, felt_from_decimal,
+    felt_from_field_element, felt_from_hex, felt_u64, run_e2e,
 };
-use crate::tests::{embedded_curve_add_blackbox, make_circuit_with_opcodes, make_program};
+use crate::tests::{embedded_curve_add_blackbox, make_circuit_with_opcodes};
 
 use super::test_vectors::{
     NEG_TEST_POINT_Y_DECIMAL, TEST_POINT_X, TEST_POINT_Y_HEX, THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL,
@@ -125,27 +123,8 @@ fn constrain_rejects_corrupted_output() {
         felt_u64(0),
         felt_u64(1),
     ];
-
-    let program = make_program(vec![make_curve_add_circuit()]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
-    let mut interpreter = Interpreter::new(&module);
-    let mut computed = interpreter
-        .run_compute("Circuit0", &inputs)
-        .expect("compute should succeed");
-
-    // Corrupt the x-coordinate of the output.
-    computed
-        .members
-        .insert("w7".to_string(), felt_u64(0xdead_beef));
-
-    let err = interpreter
-        .run_constrain("Circuit0", computed, &inputs)
-        .expect_err("constrain should reject corrupted output");
-    assert!(
-        err.to_string().contains("!="),
-        "expected constraint mismatch, got: {err}"
-    );
+    // w7 is the x-coordinate of the output.
+    assert_constrain_rejects_corrupted_witness(make_curve_add_circuit(), &inputs, "w7");
 }
 
 #[test]
