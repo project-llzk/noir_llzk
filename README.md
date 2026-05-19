@@ -99,3 +99,36 @@ The following environment variables must be set before building:
 ```sh
 cargo build
 ```
+
+## Tests
+
+The test suite is split by what each layer is meant to validate:
+
+- `library/src/tests/blackboxes/` contains lowering and shape tests for ACIR
+  blackbox opcodes. These check things like witness collection, input
+  validation, helper emission, helper sharing, compute/constrain wiring, and
+  LLZK module verification. They do not execute the generated LLZK.
+- `library/src/tests/integration_tests.rs` compiles real Noir fixture programs
+  with `nargo`, translates the resulting ACIR to LLZK, and verifies the module.
+  These tests exercise the full compile/translate pipeline, but still do not
+  execute the generated LLZK.
+- `library/src/tests/e2e/blackboxes/` contains semantic blackbox tests. These
+  translate ACIR to LLZK and execute the result with
+  [`llzk_interpreter`](https://github.com/reilabs/llzk-interpreter).
+- `library/src/blackboxes/` contains the module-level LLZK helper
+  implementations used by both ACIR and Brillig lowering. Tests there build
+  small helper modules and execute them directly with
+  [`llzk_interpreter`](https://github.com/reilabs/llzk-interpreter).
+
+Use the regular test target for unit, lowering/shape, and Noir fixture
+integration coverage:
+
+```sh
+make test
+```
+
+Use the e2e target when you need to check emitted LLZK behavior:
+
+```sh
+make e2e
+```
