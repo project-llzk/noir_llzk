@@ -14,6 +14,7 @@ use crate::program::translate_program;
 
 mod blackboxes;
 mod brillig;
+mod review_e2e;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
