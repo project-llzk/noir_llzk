@@ -25,6 +25,19 @@ pub enum Error {
         /// The opcode index where the error occurred.
         opcode_index: usize,
     },
+    /// A gate has exactly one unknown witness but the gate is not linear in
+    /// it.
+    NonLinearUnknown {
+        /// The unknown witness index.
+        witness: u32,
+    },
+    /// A gate has exactly one unknown witness, but every term involving it
+    /// has a zero overall coefficient — the gate does not constrain the
+    /// unknown.
+    UnconstrainedUnknown {
+        /// The unknown witness index.
+        witness: u32,
+    },
     /// A `Call` opcode references a circuit index that does not exist in the program.
     OutOfRangeCallTarget {
         /// The out-of-range circuit index that was requested.
@@ -58,6 +71,16 @@ impl fmt::Display for Error {
                 f,
                 "cannot solve witness w{witness} in opcode {opcode_index}: \
                  {num_unknowns} unknowns (expected at most 1)"
+            ),
+            Error::NonLinearUnknown { witness } => write!(
+                f,
+                "cannot solve witness w{witness}: gate is non-linear \
+                     in the unknown"
+            ),
+            Error::UnconstrainedUnknown { witness } => write!(
+                f,
+                "cannot solve witness w{witness}: \
+                 gate does not constrain the unknown (zero coefficient)"
             ),
             Error::OutOfRangeCallTarget { id, num_circuits } => write!(
                 f,
