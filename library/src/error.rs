@@ -45,6 +45,16 @@ pub enum Error {
         /// Total number of circuits in the program.
         num_circuits: usize,
     },
+    /// A `Call` opcode binds a different number of caller output witnesses than
+    /// the callee circuit returns.
+    CallOutputsMismatch {
+        /// The callee circuit index.
+        id: u32,
+        /// Number of return values declared by the callee circuit.
+        callee_returns: usize,
+        /// Number of output witnesses bound by the caller's `Call` opcode.
+        caller_outputs: usize,
+    },
     /// A constant input does not fit in the declared bit width.
     ConstantOutOfRange {
         /// The constant value that exceeds the bit width.
@@ -85,6 +95,15 @@ impl fmt::Display for Error {
             Error::OutOfRangeCallTarget { id, num_circuits } => write!(
                 f,
                 "call targets circuit {id}, but the program only has {num_circuits} circuit(s)"
+            ),
+            Error::CallOutputsMismatch {
+                id,
+                callee_returns,
+                caller_outputs,
+            } => write!(
+                f,
+                "call to circuit {id} binds {caller_outputs} output witness(es), but the \
+                 callee returns {callee_returns} value(s)"
             ),
             Error::ConstantOutOfRange { value, num_bits } => {
                 write!(f, "constant {value} does not fit in {num_bits} bits")
