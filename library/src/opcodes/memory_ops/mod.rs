@@ -5,6 +5,7 @@ use crate::{Error, opcodes::TranslatedOpcode};
 mod memory_init;
 mod memory_read;
 mod memory_write;
+mod selectors;
 
 pub(crate) use memory_init::MemoryInit;
 pub(crate) use memory_read::MemoryRead;

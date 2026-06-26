@@ -43,41 +43,84 @@ fn memory_write(block_id: u32, index_witness: u32, value_witness: u32) -> Opcode
     }
 }
 
+/// Expected IR-op counts for memory ops emitted by the selector-mux gadget
+/// (see [`select.rs`]). Each access on a size-`N` block unrolls to `N`
+/// constant-indexed array ops per phase plus, in `@constrain` only, `N`
+/// nondet selectors and `2N + 1` soundness constraints (reads add `+1` more).
+#[derive(Default)]
+struct ExpectedCounts {
+    array_write: usize,
+    array_read: usize,
+    constrain_eq: usize,
+    nondet: usize,
+}
+
+impl ExpectedCounts {
+    fn init(mut self, n: usize) -> Self {
+        self.array_write += 2 * n;
+        self
+    }
+
+    fn read(mut self, n: usize) -> Self {
+        self.array_read += 2 * n;
+        self.constrain_eq += 2 * n + 2;
+        self.nondet += n;
+        self
+    }
+
+    fn write(mut self, n: usize) -> Self {
+        self.array_write += 2 * n;
+        self.array_read += 2 * n;
+        self.constrain_eq += 2 * n + 1;
+        self.nondet += n;
+        self
+    }
+
+    fn assert_matches(&self, ir: &str) {
+        assert_eq!(
+            count_occurrences(ir, "array.write"),
+            self.array_write,
+            "array.write count"
+        );
+        assert_eq!(
+            count_occurrences(ir, "array.read"),
+            self.array_read,
+            "array.read count"
+        );
+        assert_eq!(
+            count_occurrences(ir, "constrain.eq"),
+            self.constrain_eq,
+            "constrain.eq count"
+        );
+        assert_eq!(
+            count_occurrences(ir, "llzk.nondet"),
+            self.nondet,
+            "llzk.nondet count"
+        );
+    }
+}
+
+fn translate_and_verify(opcodes: Vec<Opcode<FieldElement>>, witness_count: u32, inputs: &[u32]) -> String {
+    let context = LlzkContext::new();
+    let circuit = make_circuit_with_opcodes(witness_count, inputs, &[], &[], opcodes);
+    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let module = wrap_struct_in_module(&context, struct_def);
+    let ir = format!("{}", module.as_operation());
+    assert!(module.as_operation().verify(), "module should verify");
+    ir
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-/// MemoryInit + single read → value witness solved in compute, one `constrain.eq` in constrain.
+/// MemoryInit + single read → constant-indexed mux over the 3 slots, plus
+/// the selector witness/constraint gadget that pins `s_i = 1` iff `idx = i`.
 ///
 /// block[0..3] = [w2, w3, w4]; read at index w0 → w5
 #[test]
 fn single_read_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![memory_init(0, &[2, 3, 4]), memory_read(0, 0, 5)];
-    // w0: private index input; w2,w3,w4: private array inputs; w5: solved by read
-    let circuit = make_circuit_with_opcodes(5, &[0, 2, 3, 4], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    // Init(3): 3 writes in compute + 3 in constrain = 6
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        6,
-        "expected 6 array.write ops (3 init × 2)"
-    );
-    // Read(1): 1 read in compute + 1 in constrain = 2
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        2,
-        "expected 2 array.read ops (1 read × 2)"
-    );
-    // Read emits 1 constrain.eq in constrain
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq from the read"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 5, &[0, 2, 3, 4]);
+    ExpectedCounts::default().init(3).read(3).assert_matches(&ir);
 }
 
 /// Two reads from the same block both see the initial version.
@@ -85,39 +128,17 @@ fn single_read_verifies() {
 /// block[0..3] = [w2, w3, w4]; read at w0 → w5; read at w1 → w6
 #[test]
 fn two_reads_same_block_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![
         memory_init(0, &[2, 3, 4]),
         memory_read(0, 0, 5),
         memory_read(0, 1, 6),
     ];
-    let circuit = make_circuit_with_opcodes(6, &[0, 1, 2, 3, 4], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("two_reads_same_block:\n{ir}");
-
-    // Init(3): 6 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        6,
-        "expected 6 array.write ops (3 init × 2)"
-    );
-    // Read(2): 4 reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        4,
-        "expected 4 array.read ops (2 reads × 2)"
-    );
-    // 2 reads → 2 constrain.eq
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq from 2 reads"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 6, &[0, 1, 2, 3, 4]);
+    ExpectedCounts::default()
+        .init(3)
+        .read(3)
+        .read(3)
+        .assert_matches(&ir);
 }
 
 /// Write then read from the same block.
@@ -127,76 +148,28 @@ fn two_reads_same_block_verifies() {
 /// The read sees the post-write state in both compute and constrain.
 #[test]
 fn write_then_read_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![
         memory_init(0, &[3, 4, 5]),
         memory_write(0, 0, 1),
         memory_read(0, 0, 6),
     ];
-    // w0,w1: index/value inputs; w3,w4,w5: array inputs; w6: solved by read
-    let circuit = make_circuit_with_opcodes(6, &[0, 1, 3, 4, 5], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("write_then_read:\n{ir}");
-
-    // Init(3) + Write(1): (3+1) × 2 = 8 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        8,
-        "expected 8 array.write ops (3 init + 1 write) × 2"
-    );
-    // Read(1): 2 reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        2,
-        "expected 2 array.read ops (1 read × 2)"
-    );
-    // Only the read emits a constraint; writes are constraint-free.
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq from the read"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 6, &[0, 1, 3, 4, 5]);
+    ExpectedCounts::default()
+        .init(3)
+        .write(3)
+        .read(3)
+        .assert_matches(&ir);
 }
 
-/// Writes emit no constraints themselves.
+/// A bare write still emits selector-soundness constraints (the gadget always
+/// pins the witness index), but no `stored == result` equality.
 ///
 /// block[0..2] = [w2, w3]; write arr[w0] = w1  — no reads.
 #[test]
-fn write_only_no_constrain_eq() {
-    let context = LlzkContext::new();
+fn write_only_emits_selector_constraints() {
     let opcodes = vec![memory_init(0, &[2, 3]), memory_write(0, 0, 1)];
-    let circuit = make_circuit_with_opcodes(3, &[0, 1, 2, 3], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("write_only:\n{ir}");
-
-    // Init(2) + Write(1): (2+1) × 2 = 6 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        6,
-        "expected 6 array.write ops (2 init + 1 write) × 2"
-    );
-    // No reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        0,
-        "expected 0 array.read ops"
-    );
-    // No constraints
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        0,
-        "expected 0 constrain.eq ops"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 3, &[0, 1, 2, 3]);
+    ExpectedCounts::default().init(2).write(2).assert_matches(&ir);
 }
 
 /// Multiple writes chain: v0 → v1 → v2; read from v2.
@@ -204,40 +177,19 @@ fn write_only_no_constrain_eq() {
 /// block[0..3] = [w4, w5, w6]; write arr[w0]=w1; write arr[w1]=w2; read arr[w0] → w7
 #[test]
 fn multiple_writes_then_read_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![
         memory_init(0, &[4, 5, 6]),
         memory_write(0, 0, 1),
         memory_write(0, 1, 2),
         memory_read(0, 0, 7),
     ];
-    let circuit = make_circuit_with_opcodes(7, &[0, 1, 2, 4, 5, 6], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("multiple_writes_then_read:\n{ir}");
-
-    // Init(3) + Write(2): (3+2) × 2 = 10 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        10,
-        "expected 10 array.write ops (3 init + 2 writes) × 2"
-    );
-    // Read(1): 2 reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        2,
-        "expected 2 array.read ops (1 read × 2)"
-    );
-    // 1 read → 1 constrain.eq
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq from the read"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 7, &[0, 1, 2, 4, 5, 6]);
+    ExpectedCounts::default()
+        .init(3)
+        .write(3)
+        .write(3)
+        .read(3)
+        .assert_matches(&ir);
 }
 
 /// Two separate memory blocks, one read each.
@@ -245,40 +197,19 @@ fn multiple_writes_then_read_verifies() {
 /// block0[0..2]=[w2,w3]; block1[0..2]=[w4,w5]; read block0[w0]→w6; read block1[w1]→w7
 #[test]
 fn two_blocks_independent_reads_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![
         memory_init(0, &[2, 3]),
         memory_init(1, &[4, 5]),
         memory_read(0, 0, 6),
         memory_read(1, 1, 7),
     ];
-    let circuit = make_circuit_with_opcodes(7, &[0, 1, 2, 3, 4, 5], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
-
-    println!("two_blocks_independent_reads:\n{ir}");
-
-    // Init(2) + Init(2): (2+2) × 2 = 8 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        8,
-        "expected 8 array.write ops (2+2 init) × 2"
-    );
-    // Read(2): 4 reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        4,
-        "expected 4 array.read ops (2 reads × 2)"
-    );
-    // 2 reads → 2 constrain.eq
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq from 2 reads"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    let ir = translate_and_verify(opcodes, 7, &[0, 1, 2, 3, 4, 5]);
+    ExpectedCounts::default()
+        .init(2)
+        .init(2)
+        .read(2)
+        .read(2)
+        .assert_matches(&ir);
 }
 
 /// MemoryOp on a block that was never initialised → `UnsupportedOpcode` error.
@@ -300,7 +231,6 @@ fn memory_op_before_init_is_error() {
 /// write block0[w0]=w1; read block1[w1]→w8; write block1[w0]=w2; read block0[w0]→w9
 #[test]
 fn interleaved_two_blocks_verifies() {
-    let context = LlzkContext::new();
     let opcodes = vec![
         memory_init(0, &[4, 5]),
         memory_init(1, &[6, 7]),
@@ -309,31 +239,29 @@ fn interleaved_two_blocks_verifies() {
         memory_write(1, 0, 2),
         memory_read(0, 0, 9),
     ];
-    let circuit = make_circuit_with_opcodes(9, &[0, 1, 2, 4, 5, 6, 7], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
-    let ir = format!("{}", module.as_operation());
+    let ir = translate_and_verify(opcodes, 9, &[0, 1, 2, 4, 5, 6, 7]);
+    ExpectedCounts::default()
+        .init(2)
+        .init(2)
+        .write(2)
+        .read(2)
+        .write(2)
+        .read(2)
+        .assert_matches(&ir);
+}
 
-    println!("interleaved_two_blocks:\n{ir}");
+/// Sanity check the gadget structure: a single read over an N=4 block must
+/// produce N=4 `llzk.nondet` selectors and 2N=8 constant-indexed `array.read`s.
+/// This pins the field-native soundness gadget against accidental regressions
+/// to a dynamic-index `array.read`.
+#[test]
+fn read_gadget_uses_constant_indexed_array_reads() {
+    let opcodes = vec![memory_init(0, &[2, 3, 4, 5]), memory_read(0, 0, 6)];
+    let ir = translate_and_verify(opcodes, 6, &[0, 2, 3, 4, 5]);
 
-    // Init(2+2) + Write(2): (2+2+2) × 2 = 12 writes
-    assert_eq!(
-        count_occurrences(&ir, "array.write"),
-        12,
-        "expected 12 array.write ops (2+2 init + 2 writes) × 2"
-    );
-    // Read(2): 4 reads
-    assert_eq!(
-        count_occurrences(&ir, "array.read"),
-        4,
-        "expected 4 array.read ops (2 reads × 2)"
-    );
-    // 2 reads → 2 constrain.eq
-    assert_eq!(
-        count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq from 2 reads"
-    );
-
-    assert!(module.as_operation().verify(), "module should verify");
+    // 4 selector witnesses (only in @constrain).
+    assert_eq!(count_occurrences(&ir, "llzk.nondet"), 4);
+    // No dynamic-index access survives: every array.read uses an arith.constant
+    // index (`%c0..%c3`), never a felt-cast.
+    assert_eq!(count_occurrences(&ir, "cast.toindex"), 0);
 }
