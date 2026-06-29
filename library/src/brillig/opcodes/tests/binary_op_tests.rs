@@ -142,6 +142,46 @@ fn brillig_binary_int_op_emits_expected_op() {
     }
 }
 
+/// Each `Sub` should emit one extra `felt.add` (the
+/// pre-shift) on top of the existing `felt.sub` + `felt.bit_and`.
+#[test]
+fn brillig_binary_int_sub_op_pre_shifts() {
+    use IntegerBitSize::*;
+    for &bs in &[U8, U32, U64, U128] {
+        let context = LlzkContext::new();
+        let module = translate_body(
+            &context,
+            vec![
+                const_int(0, bs, 1),
+                const_int(1, bs, 1),
+                binary_int_op(2, BinaryIntOp::Sub, bs, 0, 1),
+                brillig_stop(),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("Sub at {bs:?} failed: {e}"));
+
+        assert_eq!(
+            count_op(&module, 0, "felt.add"),
+            1,
+            "Sub at {bs:?}: expected one pre-shift felt.add"
+        );
+        assert_eq!(
+            count_op(&module, 0, "felt.sub"),
+            1,
+            "Sub at {bs:?}: expected one felt.sub"
+        );
+        assert_eq!(
+            count_op(&module, 0, "felt.bit_and"),
+            1,
+            "Sub at {bs:?}: expected one trailing felt.bit_and mask"
+        );
+        assert!(
+            module.as_operation().verify(),
+            "Sub at {bs:?}: module should verify"
+        );
+    }
+}
+
 /// `BinaryIntOp::Shl` and a `U1` bit size are degenerate (shift-by-1-bit) but
 /// still type-check; ensure the translator does not special-case them.
 #[test]
