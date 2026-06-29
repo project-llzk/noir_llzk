@@ -169,6 +169,14 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                         num_circuits: self.program.functions.len(),
                     },
                 )?;
+                // Check for output-arity mismatch
+                if callee.return_values.0.len() != outputs.len() {
+                    return Err(Error::CallOutputsMismatch {
+                        id: id.0,
+                        callee_returns: callee.return_values.0.len(),
+                        caller_outputs: outputs.len(),
+                    });
+                }
                 Ok(Box::new(Call::new(
                     index, id.0, inputs, outputs, callee, predicate,
                 )))

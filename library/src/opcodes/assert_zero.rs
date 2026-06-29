@@ -29,10 +29,7 @@ impl OpcodeEmitter for AssertZero<'_> {
             .collect();
         match unknowns.len() {
             0 => Ok(()),
-            1 => {
-                solve_witness(writer, self.expr, unknowns[0])?;
-                Ok(())
-            }
+            1 => solve_witness(writer, self.expr, unknowns[0]),
             n => Err(Error::UnsolvableWitness {
                 witness: unknowns[0],
                 num_unknowns: n,
@@ -58,42 +55,32 @@ impl OpcodeEmitter for AssertZero<'_> {
 
 /// Solves for the unknown witness `w_u` in the expression `expr = 0`.
 ///
-/// The unknown witness only appears as a linear term, so the expression
-/// has the form:
+/// The unknown witness appears at most linearly , so the expression has the form:
 /// ```text
 /// w_u * coeff + B = 0
-/// ```
-/// where `coeff` is the linear coefficient of `w_u` and `B` is the sum of
-/// all other terms (mul_terms with known witnesses, other linear terms, q_c).
-/// So `w_u = -B / coeff`.
+/// ```.
 fn solve_witness<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     w_u: u32,
 ) -> Result<(), Error> {
-    let (b_val, coeff_of_unknown) = emit_expression_excluding(writer, expr, Some(w_u))?;
-    let coeff = coeff_of_unknown.expect("unknown witness should have a linear term");
+    let (b_val, skipped) = emit_expression_excluding(writer, expr, Some(w_u))?;
+    if skipped.is_zero() {
+        return Err(Error::UnconstrainedUnknown { witness: w_u });
+    }
 
-    // Solve w_u = -B / coeff, with optimizations:
-    //   B = 0         → w_u = 0
-    //   coeff =  1    → w_u = -B
-    //   coeff = -1    → w_u =  B
-    //   otherwise     → w_u = -B / coeff
-    let result = match b_val {
+    let result = match (b_val, skipped.as_scalar()) {
         // B = 0 → w_u = 0
-        None => writer.emit_constant(&FieldElement::zero())?,
+        (None, _) => writer.emit_constant(&FieldElement::zero())?,
         // coeff = -1 → w_u = B
-        Some(b) if coeff == -FieldElement::one() => b,
-        // coeff = 1 → w_u = -B  /  general → w_u = -B / coeff
-        Some(b) => {
+        (Some(b), Some(c)) if c == -FieldElement::one() => b,
+        // coeff = 1 → w_u = -B
+        (Some(b), Some(c)) if c.is_one() => writer.insert_neg(b)?,
+        // General: w_u = -B / coeff
+        (Some(b), _) => {
+            let coeff_val = skipped.to_value(writer)?;
             let neg_b = writer.insert_neg(b)?;
-
-            if coeff.is_one() {
-                neg_b
-            } else {
-                let coeff_val = writer.emit_constant(&coeff)?;
-                writer.insert_div(neg_b, coeff_val)?
-            }
+            writer.insert_div(neg_b, coeff_val)?
         }
     };
 

@@ -2,11 +2,11 @@
 
 use std::ops::Range;
 
-use acir::FieldElement;
 use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
+use acir::{AcirField, FieldElement};
 use brillig_vm::FREE_MEMORY_POINTER_ADDRESS;
 use llzk::prelude::{Block, Value};
 
@@ -102,6 +102,13 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
             .emit_constant(&FieldElement::from(mask_for(int_size)))
     }
 
+    /// Emits `2^n` as a felt constant.
+    fn emit_pow2_constant(&mut self, int_size: IntegerBitSize) -> Result<Value<'c, 'b>, Error> {
+        let n = u32::from(int_size);
+        let pow2n = FieldElement::from(2u128).pow(&FieldElement::from(n as u128));
+        self.writer.emit_constant(&pow2n)
+    }
+
     /// Emits the LLZK op for a `BinaryFieldOp`, returning a felt result.
     pub(super) fn emit_binary_field_op(
         &self,
@@ -143,7 +150,12 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
     ) -> Result<Value<'c, 'b>, Error> {
         let raw = match op {
             BinaryIntOp::Add => self.writer.insert_add(lhs, rhs)?,
-            BinaryIntOp::Sub => self.writer.insert_sub(lhs, rhs)?,
+            BinaryIntOp::Sub => {
+                // Preshift lhs to prevent underflow
+                let pow2n = self.emit_pow2_constant(bit_size)?;
+                let shifted = self.writer.insert_add(lhs, pow2n)?;
+                self.writer.insert_sub(shifted, rhs)?
+            }
             BinaryIntOp::Mul => self.writer.insert_mul(lhs, rhs)?,
             BinaryIntOp::Div => return self.writer.insert_uintdiv(lhs, rhs),
             BinaryIntOp::Equals => {

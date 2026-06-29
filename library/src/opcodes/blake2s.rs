@@ -15,8 +15,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, emit_padded_byte_inputs,
-        validate_byte_input, write_digest_outputs,
+        OpcodeEmitter, collect_io_witnesses, constrain_digest_outputs, constrain_inputs_width,
+        emit_padded_byte_inputs, validate_byte_input, write_digest_outputs,
     },
     writer::Writer,
 };
@@ -37,6 +37,7 @@ impl OpcodeEmitter for Blake2s<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        constrain_inputs_width(writer, self.inputs, 8)?;
         let result = self.call_helper(writer)?;
         constrain_digest_outputs(writer, self.outputs, result)
     }

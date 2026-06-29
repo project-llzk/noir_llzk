@@ -7,7 +7,7 @@ use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
     BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
     OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttribute, Type, Value, dialect,
+    SymbolRefAttribute, Type, Value, ValueLike, dialect,
 };
 
 use crate::FIELD_NAME;
@@ -247,6 +247,16 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Returns the current live array for `block_id`, or `None` if not yet initialised.
     pub(crate) fn get_memory(&self, block_id: u32) -> Option<Value<'c, 'a>> {
         self.memories.get(&block_id).copied()
+    }
+
+    /// Returns the static length of an `!array.type<!felt.type, N>` value.
+    pub(crate) fn array_len(&self, arr: Value<'c, 'a>) -> Result<usize, Error> {
+        let arr_ty = ArrayType::try_from(arr.r#type())
+            .map_err(|_| Error::UnsupportedOpcode("expected array-typed value".into()))?;
+        let dim = IntegerAttribute::try_from(arr_ty.dim(0))
+            .map_err(|_| Error::UnsupportedOpcode("array has non-integer dimension".into()))?
+            .value();
+        Ok(dim as usize)
     }
 
     /// Calls `@parent::@func(args)` returning `result_types` before the return terminator.

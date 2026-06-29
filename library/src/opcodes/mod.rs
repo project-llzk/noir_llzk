@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput, native_types::Witness};
 use llzk::prelude::{LlzkContext, OperationRef, StructDefOp, Value};
 
+use crate::writer::Writer;
 use crate::{block_writer::BlockWriter, error::Error};
 
 /// Trait implemented by each ACIR opcode's translator.
@@ -100,6 +101,62 @@ pub(crate) fn validate_u32_input(input: &FunctionInput<FieldElement>) -> Result<
 
 pub(crate) fn validate_u64_input(input: &FunctionInput<FieldElement>) -> Result<(), Error> {
     validate_constant_fits(input, 64)
+}
+
+/// Returns whether `input` needs a runtime range check for `num_bits`.
+pub(crate) fn input_needs_range_check(
+    input: &FunctionInput<FieldElement>,
+    num_bits: u32,
+) -> Result<bool, Error> {
+    match input {
+        FunctionInput::Witness(_) => Ok(num_bits < FieldElement::max_num_bits()),
+        FunctionInput::Constant(c) if c.num_bits() <= num_bits => Ok(false),
+        FunctionInput::Constant(c) => Err(Error::ConstantOutOfRange {
+            value: *c,
+            num_bits,
+        }),
+    }
+}
+
+/// Emits a felt constant equal to `2^num_bits`
+pub(crate) fn emit_range_upper_bound<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    num_bits: u32,
+) -> Result<Value<'c, 'b>, Error> {
+    let bound = FieldElement::from(2u128).pow(&FieldElement::from(num_bits as u128));
+    writer.emit_constant(&bound)
+}
+
+/// Constrains `value` to fit within `num_bits` when the ACIR input requires it.
+pub(crate) fn constrain_input_width<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    input: &FunctionInput<FieldElement>,
+    value: Value<'c, 'b>,
+    num_bits: u32,
+) -> Result<(), Error> {
+    if !input_needs_range_check(input, num_bits)? {
+        return Ok(());
+    }
+
+    let bound = emit_range_upper_bound(writer, num_bits)?;
+    let in_range = writer.insert_bool_lt(value, bound)?;
+    writer.insert_constrain_bool_true(in_range)
+}
+
+/// Reads and range-constrains each input in `inputs` to `num_bits`.
+pub(crate) fn constrain_inputs_width<'c, 'b, 'a, I>(
+    writer: &mut BlockWriter<'c, 'b>,
+    inputs: I,
+    num_bits: u32,
+) -> Result<(), Error>
+where
+    I: IntoIterator<Item = &'a FunctionInput<FieldElement>>,
+{
+    for input in inputs {
+        let value = emit_blackbox_input(writer, input)?;
+        constrain_input_width(writer, input, value, num_bits)?;
+    }
+    Ok(())
 }
 
 /// Collects witness indices from an ACIR [`FunctionInput`].

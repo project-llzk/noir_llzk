@@ -98,9 +98,27 @@ fn collect_call_info<'c, 'a>(
 /// Returns `func.call` operations from a function.
 fn func_call_ops<'c, 'a>(func: FuncDefOpRef<'c, 'a>) -> Vec<OperationRef<'c, 'a>> {
     let block = func.region(0).unwrap().first_block().unwrap();
-    super::iter_block_ops(block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
-        .collect()
+    let mut calls = Vec::new();
+    collect_calls_recursive(block, &mut calls);
+    calls
+}
+
+fn collect_calls_recursive<'c, 'a>(
+    block: llzk::prelude::BlockRef<'c, 'a>,
+    calls: &mut Vec<OperationRef<'c, 'a>>,
+) {
+    for op in super::iter_block_ops(block) {
+        if llzk::prelude::dialect::function::is_func_call(&op) {
+            calls.push(op);
+        }
+        for region in op.regions() {
+            let mut nested = region.first_block();
+            while let Some(b) = nested {
+                collect_calls_recursive(b, calls);
+                nested = b.next_in_region();
+            }
+        }
+    }
 }
 
 /// Extracts the callee symbol from a `func.call` operation.
@@ -469,10 +487,10 @@ fn call_only_circuit_verifies() {
 }
 
 /// A non-trivial predicate (here `w0`) gates call constraints:
-///   - `@constrain` emits `predicate * (stored - callee_ret) == 0` instead of a
-///     direct equality, so the predicate witness must appear as an operand of a
-///     `felt.mul` in `@constrain`.
-///   - `@compute` does *not* gate outputs — the verifier handles that.
+///   - `@constrain` wraps the callee's `@constrain` call in `scf.if(pred == 1)`
+///     and emits `predicate * (stored - callee_ret) == 0` for output equality.
+///   - `@compute` multiplies each output value by the predicate so a false
+///     predicate zeroes the witness.
 #[test]
 fn call_with_nontrivial_predicate() {
     let context = LlzkContext::new();
@@ -507,8 +525,8 @@ fn call_with_nontrivial_predicate() {
     info.calls[0].assert_shape(&context, 0, "Circuit1", "Circuit0");
 
     // The predicate witness (w0 = %arg1) must appear in @constrain as the first
-    // operand of a `felt.mul` — this is the gating multiplication in
-    // `predicate * (stored - callee_ret) == 0`.
+    // operand of two `felt.mul`s: the booleanity check `p * (1 - p) == 0`
+    // and the output gating `p * (stored - callee_ret) == 0`.
     let constrain_fn = struct0
         .get_constrain_func()
         .expect("should have @constrain");
@@ -518,20 +536,126 @@ fn call_with_nontrivial_predicate() {
         .collect();
     assert_eq!(
         felt_muls.len(),
-        1,
-        "@constrain should have exactly one felt.mul (the predicate gating)"
+        2,
+        "@constrain should have two felt.muls: predicate booleanity and predicate gating"
     );
-    // The first operand of that mul should be the predicate — a block argument,
-    // not an SSA result from another op.
-    let pred_operand: Value = felt_muls[0]
-        .operand(0)
-        .expect("felt.mul should have operand 0");
-    assert!(
-        pred_operand.is_block_argument(),
-        "predicate operand of gating felt.mul should be a block argument (the predicate witness)"
-    );
+    for (i, mul) in felt_muls.iter().enumerate() {
+        let pred_operand: Value = mul.operand(0).expect("felt.mul should have operand 0");
+        assert!(
+            pred_operand.is_block_argument(),
+            "felt.mul #{i}: operand 0 should be the predicate (block argument)"
+        );
+    }
 
     print_and_verify_module(&module, "nontrivial_predicate");
+}
+
+/// Asserts fixed structure of predicated function calls:
+/// the `@constrain` entry block has no top-level `function.call`,
+/// but contains an `scf.if` whose then-region holds that call.
+#[test]
+fn predicated_call_gates_callee_constrain() {
+    let context = LlzkContext::new();
+
+    let circuit1 = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![mul_constraint(0, 1, 2)]);
+
+    let predicate = Expression {
+        mul_terms: vec![],
+        linear_combinations: vec![(FieldElement::one(), Witness(0))],
+        q_c: FieldElement::zero(),
+    };
+    let circuit0 = make_circuit_with_opcodes(
+        2,
+        &[0, 1],
+        &[],
+        &[],
+        vec![Opcode::Call {
+            id: AcirFunctionId(1),
+            inputs: vec![Witness(0), Witness(1)],
+            outputs: vec![Witness(2)],
+            predicate,
+        }],
+    );
+
+    let program = make_program(vec![circuit0, circuit1]);
+    let module = translate_program(&context, &program).expect("translation should succeed");
+    let struct0 = first_struct_def(&module);
+
+    let constrain_fn = struct0.get_constrain_func().expect("@constrain");
+    let constrain_block = constrain_fn.region(0).unwrap().first_block().unwrap();
+
+    // No top-level function.call — it must be nested inside the gating scf.if.
+    let top_level_calls = super::iter_block_ops(constrain_block)
+        .filter(llzk::prelude::dialect::function::is_func_call)
+        .count();
+    assert_eq!(
+        top_level_calls, 0,
+        "callee @constrain call must be predicate-gated, not at @constrain top level"
+    );
+
+    // Exactly one scf.if at top level, holding the gated callee call.
+    let scf_ifs: Vec<OperationRef> = super::iter_block_ops(constrain_block)
+        .filter(|op| op.name().as_string_ref().as_str() == Ok("scf.if"))
+        .collect();
+    assert_eq!(
+        scf_ifs.len(),
+        1,
+        "expected one scf.if gating the callee @constrain call"
+    );
+
+    let then_block = scf_ifs[0]
+        .region(0)
+        .unwrap()
+        .first_block()
+        .expect("scf.if then-region should have a block");
+    let then_calls = super::iter_block_ops(then_block)
+        .filter(llzk::prelude::dialect::function::is_func_call)
+        .count();
+    assert_eq!(
+        then_calls, 1,
+        "scf.if then-region should contain the callee @constrain call"
+    );
+
+    print_and_verify_module(&module, "predicated_call_gates_callee_constrain");
+}
+
+/// `Call` opcode binding a different
+/// number of caller outputs than the callee returns must fail rather
+/// than silently truncating via `.zip`
+#[test]
+fn call_with_output_arity_mismatch_returns_error() {
+    let context = LlzkContext::new();
+
+    // Callee returns two values (w2, w3) but the caller only binds one output.
+    let circuit1 = make_circuit_with_opcodes(
+        3,
+        &[0, 1],
+        &[],
+        &[2, 3],
+        vec![mul_constraint(0, 1, 2), mul_constraint(0, 2, 3)],
+    );
+    let circuit0 = make_circuit_with_opcodes(
+        2,
+        &[0, 1],
+        &[],
+        &[],
+        vec![call_opcode(1, vec![0, 1], vec![2])],
+    );
+
+    let program = make_program(vec![circuit0, circuit1]);
+    let result = translate_program(&context, &program);
+    assert!(
+        matches!(
+            result,
+            Err(crate::Error::CallOutputsMismatch {
+                id: 1,
+                callee_returns: 2,
+                caller_outputs: 1,
+            })
+        ),
+        "expected CallOutputsMismatch error, got: {:?}",
+        result
+    );
 }
 
 /// A Call opcode referencing a circuit index that does not exist in the program

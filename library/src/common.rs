@@ -42,25 +42,38 @@ pub(crate) fn emit_expression<'c, 'b>(
 }
 
 /// Evaluates an ACIR `Expression` into an LLZK SSA `Value`, optionally
-/// excluding one linear witness term.
-///
-/// When `skip_witness` is `Some(w_u)`, the linear term for `w_u` is omitted
-/// from the sum and its coefficient is returned as the second element. This
-/// is used by the witness solver to isolate `B` from `w_u * coeff + B = 0`.
-///
-/// Returns `(None, _)` when all (non-skipped) terms sum to zero.
+/// excluding terms that reference one witness.
 pub(crate) fn emit_expression_excluding<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     expr: &Expression<FieldElement>,
     skip_witness: Option<u32>,
-) -> Result<(Option<Value<'c, 'b>>, Option<FieldElement>), Error> {
+) -> Result<(Option<Value<'c, 'b>>, SkippedCoeff<'c, 'b>), Error> {
     let mut terms: Vec<Value<'c, 'b>> = Vec::new();
-    let mut skipped_coeff = None;
+    let mut skipped = SkippedCoeff::new();
 
     // Multiplication terms: coeff * w_i * w_j
     for (coeff, w_i, w_j) in &expr.mul_terms {
         if coeff.is_zero() {
             continue;
+        }
+        // If the unknown appears here, fold the term into the skipped coefficient
+        if let Some(w_u) = skip_witness {
+            let i_is_unknown = w_i.0 == w_u;
+            let j_is_unknown = w_j.0 == w_u;
+            if i_is_unknown && j_is_unknown {
+                return Err(Error::NonLinearUnknown { witness: w_u });
+            }
+            if i_is_unknown || j_is_unknown {
+                let other = if i_is_unknown { w_j.0 } else { w_i.0 };
+                let other_val = writer.read_witness(other)?;
+                let contribution = apply_coefficient(writer, other_val, coeff)?
+                    .expect("zero coefficient already filtered above");
+                skipped.mul = Some(match skipped.mul {
+                    None => contribution,
+                    Some(prev) => writer.insert_add(prev, contribution)?,
+                });
+                continue;
+            }
         }
         let vi = writer.read_witness(w_i.0)?;
         let vj = writer.read_witness(w_j.0)?;
@@ -76,7 +89,7 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
             continue;
         }
         if skip_witness == Some(w_k.0) {
-            skipped_coeff = Some(*coeff);
+            skipped.linear += *coeff;
             continue;
         }
         let vk = writer.read_witness(w_k.0)?;
@@ -92,15 +105,56 @@ pub(crate) fn emit_expression_excluding<'c, 'b>(
 
     // Sum all terms.
     if terms.is_empty() {
-        return Ok((None, skipped_coeff));
+        return Ok((None, skipped));
     }
     let mut acc = terms[0];
     for &term in &terms[1..] {
         acc = writer.insert_add(acc, term)?;
     }
-    Ok((Some(acc), skipped_coeff))
+    Ok((Some(acc), skipped))
 }
 
+/// The linear coefficient of the skipped witness, accumulated by
+/// [`emit_expression_excluding`].
+#[derive(Clone, Copy)]
+pub(crate) struct SkippedCoeff<'c, 'b> {
+    /// Sum of `linear_combinations` coefficients on the skipped witness.
+    pub(crate) linear: FieldElement,
+    /// Sum of `coeff * other_value` runtime products from `mul_terms` that
+    /// involve the skipped witness exactly once.
+    pub(crate) mul: Option<Value<'c, 'b>>,
+}
+
+impl<'c, 'b> SkippedCoeff<'c, 'b> {
+    fn new() -> Self {
+        Self {
+            linear: FieldElement::zero(),
+            mul: None,
+        }
+    }
+
+    /// True when no term referenced the skipped witness with a non-zero coefficient.
+    pub(crate) fn is_zero(&self) -> bool {
+        self.linear.is_zero() && self.mul.is_none()
+    }
+
+    /// The compile-time coefficient, if no mul terms contributed.
+    pub(crate) fn as_scalar(&self) -> Option<FieldElement> {
+        self.mul.is_none().then_some(self.linear)
+    }
+
+    /// Materializes the coefficient as a single SSA value.
+    pub(crate) fn to_value(self, writer: &mut BlockWriter<'c, 'b>) -> Result<Value<'c, 'b>, Error> {
+        match self.mul {
+            None => writer.emit_constant(&self.linear),
+            Some(m) if self.linear.is_zero() => Ok(m),
+            Some(m) => {
+                let lv = writer.emit_constant(&self.linear)?;
+                writer.insert_add(m, lv)
+            }
+        }
+    }
+}
 /// Multiplies a value by a coefficient, with optimizations for 0, 1, and -1.
 ///
 /// Returns `None` if the coefficient is zero (term should be skipped).
@@ -137,6 +191,20 @@ pub(crate) fn emit_gated_eq<'c, 'b>(
     let gated = writer.insert_mul(predicate, diff)?;
     let zero = writer.emit_constant(&FieldElement::zero())?;
     writer.insert_constrain_eq(gated, zero);
+    Ok(())
+}
+
+/// Constrains `value` to be in `{0, 1}` via `value · (1 − value) == 0`.
+pub(crate) fn constrain_bool<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    value: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let one = writer.emit_constant(&FieldElement::one())?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    let neg_value = writer.insert_neg(value)?;
+    let one_minus_value = writer.insert_add(one, neg_value)?;
+    let product = writer.insert_mul(value, one_minus_value)?;
+    writer.insert_constrain_eq(product, zero);
     Ok(())
 }
 

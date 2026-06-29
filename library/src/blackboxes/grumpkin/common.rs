@@ -7,7 +7,8 @@ use crate::{
     blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
     block_writer::BlockWriter,
     common::{
-        append_if_with_results, build_yielding_region, emit_gated_eq, insert_if_with_results,
+        append_if_with_results, build_yielding_region, constrain_bool, emit_gated_eq,
+        insert_if_with_results,
     },
     error::Error,
     writer::Writer,
@@ -40,10 +41,26 @@ pub(crate) fn emit_is_one<'c, 'b>(
     writer.insert_op_with_result(dialect::bool::eq(writer.location(), value, one)?)
 }
 
+/// Constrains `value` to be in `{0, 1}` when `gate` is `1`.
+pub(crate) fn emit_gated_boolean<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    gate: Value<'c, 'b>,
+    value: Value<'c, 'b>,
+    one: Value<'c, 'b>,
+    zero: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let neg_value = writer.insert_neg(value)?;
+    let one_minus_value = writer.insert_add(one, neg_value)?;
+    let product = writer.insert_mul(value, one_minus_value)?;
+    emit_gated_eq(writer, gate, product, zero)
+}
+
 pub(crate) fn emit_predicate_gate<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     predicate: Value<'c, 'b>,
 ) -> Result<(Value<'c, 'b>, Value<'c, 'b>), Error> {
+    // Constrain predicate to have boolean evaluation
+    constrain_bool(writer, predicate)?;
     let predicate_is_true = emit_is_one(writer, predicate)?;
     let context = writer.context();
     let location = writer.location();
