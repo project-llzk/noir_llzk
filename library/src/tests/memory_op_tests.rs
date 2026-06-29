@@ -100,7 +100,11 @@ impl ExpectedCounts {
     }
 }
 
-fn translate_and_verify(opcodes: Vec<Opcode<FieldElement>>, witness_count: u32, inputs: &[u32]) -> String {
+fn translate_and_verify(
+    opcodes: Vec<Opcode<FieldElement>>,
+    witness_count: u32,
+    inputs: &[u32],
+) -> String {
     let context = LlzkContext::new();
     let circuit = make_circuit_with_opcodes(witness_count, inputs, &[], &[], opcodes);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
@@ -120,7 +124,10 @@ fn translate_and_verify(opcodes: Vec<Opcode<FieldElement>>, witness_count: u32, 
 fn single_read_verifies() {
     let opcodes = vec![memory_init(0, &[2, 3, 4]), memory_read(0, 0, 5)];
     let ir = translate_and_verify(opcodes, 5, &[0, 2, 3, 4]);
-    ExpectedCounts::default().init(3).read(3).assert_matches(&ir);
+    ExpectedCounts::default()
+        .init(3)
+        .read(3)
+        .assert_matches(&ir);
 }
 
 /// Two reads from the same block both see the initial version.
@@ -169,7 +176,10 @@ fn write_then_read_verifies() {
 fn write_only_emits_selector_constraints() {
     let opcodes = vec![memory_init(0, &[2, 3]), memory_write(0, 0, 1)];
     let ir = translate_and_verify(opcodes, 3, &[0, 1, 2, 3]);
-    ExpectedCounts::default().init(2).write(2).assert_matches(&ir);
+    ExpectedCounts::default()
+        .init(2)
+        .write(2)
+        .assert_matches(&ir);
 }
 
 /// Multiple writes chain: v0 → v1 → v2; read from v2.

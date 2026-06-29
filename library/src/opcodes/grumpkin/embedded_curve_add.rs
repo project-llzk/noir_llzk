@@ -8,9 +8,7 @@ use acir::{
 };
 
 use crate::{
-    blackboxes::grumpkin::common::{
-        emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate,
-    },
+    blackboxes::grumpkin::common::{emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate},
     blackboxes::registry::BlackboxFunction,
     block_writer::BlockWriter,
     error::Error,
