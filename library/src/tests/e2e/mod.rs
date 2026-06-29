@@ -3,7 +3,10 @@
 use std::collections::BTreeMap;
 
 use acir::circuit::{Circuit, Program};
+use acir::native_types::{Witness, WitnessMap};
 use acir::{AcirField, FieldElement};
+use acvm::pwg::{ACVM, ACVMStatus};
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use llzk::prelude::{LlzkContext, OperationLike};
 pub(super) use llzk_interpreter::Interpreter;
 use llzk_interpreter::{Felt, StructInstance, Value};
@@ -14,7 +17,6 @@ use crate::program::translate_program;
 
 mod blackboxes;
 mod brillig;
-mod review_e2e;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
@@ -27,6 +29,13 @@ pub(super) fn felt_from_hex(s: &str) -> Value {
     let big =
         BigUint::parse_bytes(hex.as_bytes(), 16).unwrap_or_else(|| panic!("invalid hex: {s}"));
     Value::Felt(Felt::new(big))
+}
+
+fn field_element_from_value(v: &Value) -> FieldElement {
+    let Value::Felt(f) = v else {
+        panic!("non-felt input value: {v:?}");
+    };
+    FieldElement::from_be_bytes_reduce(&f.as_biguint().to_bytes_be())
 }
 
 pub(super) fn felt_from_field_element(fe: FieldElement) -> Value {
@@ -42,7 +51,10 @@ pub(super) fn felt_u64(v: u64) -> Value {
 
 /// Runs the full pipeline: translate, compute, constrain. Returns the computed struct.
 pub(super) fn run_e2e(circuit: Circuit<FieldElement>, inputs: &[Value]) -> StructInstance {
-    run_e2e_with_nondet(circuit, inputs, &[])
+    let program = make_program(vec![circuit.clone()]);
+    let instance = run_e2e_with_nondet(circuit, inputs, &[]);
+    compare_acvm(&program, inputs, &instance);
+    instance
 }
 
 /// Like [`run_e2e`], but supplies pre-computed values for `llzk.nondet` ops.
@@ -53,7 +65,9 @@ pub(super) fn run_e2e_with_nondet(
     nondet: &[Felt],
 ) -> StructInstance {
     let program = make_program(vec![circuit]);
-    run_e2e_program(&program, inputs, nondet)
+    let instance = run_e2e_program(&program, inputs, nondet);
+    compare_acvm(&program, inputs, &instance);
+    instance
 }
 
 pub(super) fn run_e2e_with_phase_nondets(
@@ -137,4 +151,64 @@ pub(super) fn assert_witness_eq(
     let expected = Felt::from_decimal(expected_decimal)
         .unwrap_or_else(|e| panic!("bad decimal {expected_decimal}: {e}"));
     assert_eq!(got, &expected, "witness {key}");
+}
+
+/// computed witnesses must agree with ACVM's reference witness on every shared index.
+fn compare_acvm(program: &Program<FieldElement>, inputs: &[Value], instance: &StructInstance) {
+    let reference = acvm_execute(program, inputs);
+    let mut compared = 0usize;
+    for (witness, ref_val) in reference.into_iter() {
+        let key = format!("w{}", witness.0);
+        if let Some(ours) = instance.members.get(&key) {
+            assert_eq!(
+                ours,
+                &felt_from_field_element(ref_val),
+                "differential mismatch at {key}: our @compute disagrees with ACVM"
+            );
+            compared += 1;
+        }
+    }
+    assert!(
+        compared >= 1,
+        "expected to differentially compare at least one internal witness; compared {compared}"
+    );
+    println!("differential: {compared} internal witness(es) matched ACVM reference (0 mismatches)");
+}
+
+/// Runs the entry circuit of `program` through ACVM with `inputs` mapped to
+/// the circuit's input witnesses in sorted-index order. Returns the solved
+/// witness map — the independent reference oracle for differential tests.
+fn acvm_execute(program: &Program<FieldElement>, inputs: &[Value]) -> WitnessMap<FieldElement> {
+    let circuit = program
+        .functions
+        .first()
+        .expect("program must have at least one circuit");
+
+    let mut sorted_args: Vec<Witness> = circuit.circuit_arguments().into_iter().collect();
+    sorted_args.sort_by_key(|w| w.0);
+    assert_eq!(
+        sorted_args.len(),
+        inputs.len(),
+        "inputs length must match circuit argument count"
+    );
+
+    let mut initial_witness = WitnessMap::new();
+    for (witness, value) in sorted_args.iter().zip(inputs) {
+        initial_witness.insert(*witness, field_element_from_value(value));
+    }
+
+    let solver = Bn254BlackBoxSolver;
+    let mut acvm = ACVM::new(
+        &solver,
+        &circuit.opcodes,
+        initial_witness,
+        &program.unconstrained_functions,
+        &[],
+    );
+    let status = acvm.solve();
+    assert!(
+        matches!(status, ACVMStatus::Solved),
+        "ACVM did not solve: {status:?}"
+    );
+    acvm.finalize()
 }

@@ -51,35 +51,6 @@ pub(crate) fn nargo_compile(project_dir: &Path) -> PathBuf {
     project_dir.join("target").join(format!("{name}.json"))
 }
 
-/// Runs `nargo execute` (ACVM + Brillig) and returns the **reference** witness
-/// map for the entry circuit. This is the independent oracle the differential
-/// gate (TEST_PLAN.md §G1) needs — the prior suite had no equivalent.
-pub(crate) fn nargo_execute(
-    project_dir: &Path,
-) -> acir::native_types::WitnessMap<acir::FieldElement> {
-    let status = Command::new("nargo")
-        .arg("execute")
-        .current_dir(project_dir)
-        .status()
-        .expect("failed to run nargo execute");
-    assert!(
-        status.success(),
-        "nargo execute failed for {}",
-        project_dir.display()
-    );
-
-    let name = package_name(project_dir);
-    let gz = project_dir.join("target").join(format!("{name}.gz"));
-    let bytes = std::fs::read(&gz).unwrap_or_else(|e| panic!("failed to read witness {gz:?}: {e}"));
-    let stack = acir::native_types::WitnessStack::<acir::FieldElement>::deserialize(&bytes)
-        .unwrap_or_else(|e| panic!("failed to deserialize witness stack: {e}"));
-    stack
-        .peek()
-        .expect("witness stack should be non-empty")
-        .witness
-        .clone()
-}
-
 pub(crate) fn load_program_from_file(
     artifact_path: &Path,
 ) -> acir::circuit::Program<acir::FieldElement> {
