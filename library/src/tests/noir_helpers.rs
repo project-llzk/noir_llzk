@@ -22,6 +22,19 @@ pub(crate) fn nargo_available() -> bool {
         .unwrap_or(false)
 }
 
+fn package_name(project_dir: &Path) -> String {
+    let nargo_toml = project_dir.join("Nargo.toml");
+    let toml_str = read_to_string(&nargo_toml)
+        .unwrap_or_else(|e| panic!("failed to read {:?}: {e}", nargo_toml));
+    let toml: toml::Value = toml_str
+        .parse()
+        .unwrap_or_else(|e| panic!("failed to parse {:?}: {e}", nargo_toml));
+    toml["package"]["name"]
+        .as_str()
+        .expect("missing package.name in Nargo.toml")
+        .to_string()
+}
+
 pub(crate) fn nargo_compile(project_dir: &Path) -> PathBuf {
     let status = Command::new("nargo")
         .arg("compile")
@@ -34,16 +47,7 @@ pub(crate) fn nargo_compile(project_dir: &Path) -> PathBuf {
         project_dir.display()
     );
 
-    let nargo_toml = project_dir.join("Nargo.toml");
-    let toml_str = read_to_string(&nargo_toml)
-        .unwrap_or_else(|e| panic!("failed to read {:?}: {e}", nargo_toml));
-    let toml: toml::Value = toml_str
-        .parse()
-        .unwrap_or_else(|e| panic!("failed to parse {:?}: {e}", nargo_toml));
-    let name = toml["package"]["name"]
-        .as_str()
-        .expect("missing package.name in Nargo.toml");
-
+    let name = package_name(project_dir);
     project_dir.join("target").join(format!("{name}.json"))
 }
 
