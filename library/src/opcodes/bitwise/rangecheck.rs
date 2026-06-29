@@ -6,8 +6,14 @@ use acir::{
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
 };
 
-use super::{collect_input_witness, constrain_input_width, emit_blackbox_input, input_needs_mask};
-use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
+use crate::{
+    block_writer::BlockWriter,
+    error::Error,
+    opcodes::{
+        OpcodeEmitter, collect_input_witness, constrain_input_width, emit_blackbox_input,
+        input_needs_range_check,
+    },
+};
 
 pub(crate) struct Rangecheck<'a> {
     input: &'a FunctionInput<FieldElement>,
@@ -22,7 +28,7 @@ impl OpcodeEmitter for Rangecheck<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        if !input_needs_mask(self.input, self.num_bits)? {
+        if !input_needs_range_check(self.input, self.num_bits)? {
             return Ok(());
         }
         let val = emit_blackbox_input(writer, self.input)?;

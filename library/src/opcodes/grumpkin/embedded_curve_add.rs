@@ -8,10 +8,11 @@ use acir::{
 };
 
 use crate::{
-    blackboxes::grumpkin::common::{emit_gated_on_curve, emit_predicate_gate},
+    blackboxes::grumpkin::common::{
+        emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate,
+    },
     blackboxes::registry::BlackboxFunction,
     block_writer::BlockWriter,
-    common::emit_gated_eq,
     error::Error,
     opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
     writer::Writer,
@@ -68,24 +69,20 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         let output_y = writer.read_witness(self.outputs.1.0)?;
         let output_infinite = writer.read_witness(self.outputs.2.0)?;
 
+        let one = writer.emit_constant(&FieldElement::one())?;
         let zero = writer.emit_constant(&FieldElement::zero())?;
-        let (_, predicate_is_true_felt) = emit_predicate_gate(writer, inputs.predicate)?;
+        let (_, predicate_gate) = emit_predicate_gate(writer, inputs.predicate)?;
 
-        emit_gated_eq(writer, predicate_is_true_felt, inputs.input1_infinite, zero)?;
-        emit_gated_eq(writer, predicate_is_true_felt, inputs.input2_infinite, zero)?;
-
-        emit_gated_on_curve(
-            writer,
-            predicate_is_true_felt,
-            inputs.input1_x,
-            inputs.input1_y,
-        )?;
-        emit_gated_on_curve(
-            writer,
-            predicate_is_true_felt,
-            inputs.input2_x,
-            inputs.input2_y,
-        )?;
+        for (is_infinite, x, y) in [
+            (inputs.input1_infinite, inputs.input1_x, inputs.input1_y),
+            (inputs.input2_infinite, inputs.input2_x, inputs.input2_y),
+        ] {
+            emit_gated_boolean(writer, predicate_gate, is_infinite, one, zero)?;
+            let finite_gate = writer.insert_neg(is_infinite)?;
+            let finite_gate = writer.insert_add(one, finite_gate)?;
+            let finite_gate = writer.insert_mul(predicate_gate, finite_gate)?;
+            emit_gated_on_curve(writer, finite_gate, x, y)?;
+        }
 
         let helper_call = self.call_helper(writer, &inputs)?;
         let expected_x = helper_call.result(0)?.into();

@@ -12,8 +12,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, emit_blackbox_input,
-        validate_u64_input, write_digest_outputs,
+        OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
+        emit_blackbox_input, validate_u64_input, write_digest_outputs,
     },
     writer::Writer,
 };
@@ -34,6 +34,7 @@ impl OpcodeEmitter for Keccakf1600<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        constrain_inputs_width(writer, self.inputs.iter(), 64)?;
         let result = self.call_helper(writer)?;
         constrain_digest_outputs(writer, self.outputs, result)
     }

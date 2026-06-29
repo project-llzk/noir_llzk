@@ -64,7 +64,7 @@ pub(crate) fn build_blackbox_handler<'a>(
         return Ok(Some(Box::new(poseidon2_op)));
     }
 
-    if let Some(ecdsa_op) = ecdsa_opcodes::from_opcode(opcode) {
+    if let Some(ecdsa_op) = ecdsa_opcodes::from_opcode(opcode)? {
         return Ok(Some(Box::new(ecdsa_op)));
     }
 

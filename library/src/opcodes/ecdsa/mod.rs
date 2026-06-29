@@ -13,7 +13,10 @@ use crate::{
     blackboxes::{ecdsa::ECDSA_HELPER_INPUTS, registry::BlackboxFunction},
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    opcodes::{
+        OpcodeEmitter, collect_input_witness, constrain_inputs_width, emit_blackbox_input,
+        validate_byte_input,
+    },
     writer::Writer,
 };
 
@@ -73,6 +76,13 @@ impl OpcodeEmitter for Ecdsa<'_> {
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let all_inputs = self
+            .public_key_x
+            .iter()
+            .chain(self.public_key_y.iter())
+            .chain(self.signature.iter())
+            .chain(self.hashed_message.iter());
+        constrain_inputs_width(writer, all_inputs, 8)?;
         let args = self.helper_args(writer)?;
         let call = writer.call_blackbox_function(self.helper, &args)?;
         let expected = call.result(0)?.into();
@@ -82,7 +92,9 @@ impl OpcodeEmitter for Ecdsa<'_> {
     }
 }
 
-pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Ecdsa<'a>> {
+pub(crate) fn from_opcode<'a>(
+    opcode: &'a Opcode<FieldElement>,
+) -> Result<Option<Ecdsa<'a>>, Error> {
     let (helper, public_key_x, public_key_y, signature, hashed_message, predicate, output) =
         match opcode {
             Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256k1 {
@@ -117,9 +129,19 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Ecdsa<
                 predicate,
                 output,
             ),
-            _ => return None,
+            _ => return Ok(None),
         };
-    Some(Ecdsa {
+
+    // Reject oversized byte constants at parse time.
+    for input in public_key_x
+        .iter()
+        .chain(public_key_y.iter())
+        .chain(signature.iter())
+        .chain(hashed_message.iter())
+    {
+        validate_byte_input(input)?;
+    }
+    Ok(Some(Ecdsa {
         public_key_x,
         public_key_y,
         signature,
@@ -127,5 +149,5 @@ pub(crate) fn from_opcode<'a>(opcode: &'a Opcode<FieldElement>) -> Option<Ecdsa<
         predicate,
         output: *output,
         helper,
-    })
+    }))
 }

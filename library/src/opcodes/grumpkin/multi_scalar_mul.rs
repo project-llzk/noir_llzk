@@ -11,7 +11,9 @@ use llzk::prelude::Value;
 use crate::{
     blackboxes::{
         grumpkin::{
-            common::{EmbeddedPointValue, emit_gated_on_curve, emit_predicate_gate},
+            common::{
+                EmbeddedPointValue, emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate,
+            },
             multi_scalar_mul::{SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS},
         },
         registry::BlackboxFunction,
@@ -264,19 +266,6 @@ fn reconstruct_scalar_limb<'c, 'b>(
         acc = writer.insert_add(acc, term)?;
     }
     Ok(acc)
-}
-
-fn emit_gated_boolean<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
-    gate: Value<'c, 'b>,
-    value: Value<'c, 'b>,
-    one: Value<'c, 'b>,
-    zero: Value<'c, 'b>,
-) -> Result<(), Error> {
-    let neg_value = writer.insert_neg(value)?;
-    let one_minus_value = writer.insert_add(one, neg_value)?;
-    let product = writer.insert_mul(value, one_minus_value)?;
-    emit_gated_eq(writer, gate, product, zero)
 }
 
 fn validate_multi_scalar_mul_inputs(

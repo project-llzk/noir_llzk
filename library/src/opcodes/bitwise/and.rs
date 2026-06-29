@@ -7,8 +7,12 @@ use acir::{
     native_types::Witness,
 };
 
-use super::{collect_input_witness, constrain_input_width, emit_blackbox_input};
-use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, writer::Writer};
+use crate::{
+    block_writer::BlockWriter,
+    error::Error,
+    opcodes::{OpcodeEmitter, collect_input_witness, constrain_input_width, emit_blackbox_input},
+    writer::Writer,
+};
 
 pub(crate) struct And<'a> {
     lhs: &'a FunctionInput<FieldElement>,
