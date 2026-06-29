@@ -208,3 +208,57 @@ fn ecdsa_compute_uses_module_level_multiprec_helpers() {
         "ECDSA compute should call the shared base-field multiplication helper"
     );
 }
+
+#[test]
+fn ecdsa_witness_inputs_emit_byte_range_constraints() {
+    fn count_casts(all_witnesses: bool) -> usize {
+        let context = LlzkContext::new();
+        let zero = FunctionInput::Constant(FieldElement::from(0u128));
+        let pk_x: [FunctionInput<FieldElement>; 32] = if all_witnesses {
+            byte_inputs(PK_X_START, 32).try_into().unwrap()
+        } else {
+            [zero; 32]
+        };
+        let pk_y: [FunctionInput<FieldElement>; 32] = if all_witnesses {
+            byte_inputs(PK_Y_START, 32).try_into().unwrap()
+        } else {
+            [zero; 32]
+        };
+        let sig: [FunctionInput<FieldElement>; 64] = if all_witnesses {
+            byte_inputs(SIG_START, 64).try_into().unwrap()
+        } else {
+            [zero; 64]
+        };
+        let hash: [FunctionInput<FieldElement>; 32] = if all_witnesses {
+            byte_inputs(HASH_START, 32).try_into().unwrap()
+        } else {
+            [zero; 32]
+        };
+        let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::EcdsaSecp256k1 {
+            public_key_x: Box::new(pk_x),
+            public_key_y: Box::new(pk_y),
+            signature: Box::new(sig),
+            hashed_message: Box::new(hash),
+            predicate: FunctionInput::Witness(Witness(PREDICATE_W)),
+            output: Witness(OUTPUT_W),
+        });
+        let private: Vec<u32> = if all_witnesses {
+            (PK_X_START..=PREDICATE_W).collect()
+        } else {
+            vec![PREDICATE_W]
+        };
+        let circuit = make_circuit_with_opcodes(OUTPUT_W, &private, &[], &[OUTPUT_W], vec![opcode]);
+        let module =
+            translate_single_circuit_module(&context, circuit).expect("translation should pass");
+        assert_module_verifies(&module);
+        count_occurrences(&format!("{}", module.as_operation()), "cast.tofelt")
+    }
+
+    let baseline = count_casts(false);
+    let with_ranges = count_casts(true);
+    assert_eq!(
+        with_ranges - baseline,
+        (PREDICATE_W - PK_X_START) as usize,
+        "each byte witness should add one range-check cast"
+    );
+}

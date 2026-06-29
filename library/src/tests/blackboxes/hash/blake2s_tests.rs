@@ -171,3 +171,61 @@ fn blake2s_with_constant_inputs_translates() {
         translate_single_circuit_module(&context, circuit).expect("translation should pass");
     assert!(module.as_operation().verify(), "Module should verify");
 }
+
+#[test]
+fn blake2s_witness_inputs_emit_byte_range_constraints() {
+    let context = LlzkContext::new();
+    let inputs = [0u32, 1, 2];
+    let outputs: [u32; 32] = std::array::from_fn(|i| 3 + i as u32);
+    let circuit = make_circuit_with_opcodes(
+        34,
+        &inputs,
+        &[],
+        &outputs,
+        vec![blake2s_blackbox(&inputs, outputs)],
+    );
+
+    let module =
+        translate_single_circuit_module(&context, circuit).expect("translation should pass");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "cast.tofelt"),
+        inputs.len(),
+        "each witness byte input should emit one range-check cast"
+    );
+}
+
+/// Constant inputs that already fit get no range constraint (the wrapper
+/// short-circuits in [`input_needs_range_check`]).
+#[test]
+fn blake2s_constant_inputs_emit_no_range_constraints() {
+    let context = LlzkContext::new();
+    let outputs: [u32; 32] = std::array::from_fn(|i| i as u32);
+    let circuit = make_circuit_with_opcodes(
+        31,
+        &[],
+        &[],
+        &outputs,
+        vec![Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake2s {
+            inputs: vec![
+                FunctionInput::Constant(FieldElement::from('a' as u128)),
+                FunctionInput::Constant(FieldElement::from('b' as u128)),
+                FunctionInput::Constant(FieldElement::from('c' as u128)),
+            ],
+            outputs: Box::new(outputs.map(Witness)),
+        })],
+    );
+
+    let module =
+        translate_single_circuit_module(&context, circuit).expect("translation should pass");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "cast.tofelt"),
+        0,
+        "constants that fit need no range-check cast"
+    );
+}

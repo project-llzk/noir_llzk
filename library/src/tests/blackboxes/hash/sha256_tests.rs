@@ -201,3 +201,31 @@ fn sha256_two_calls_share_one_helper() {
         4
     );
 }
+
+/// Each witness input and hash_value gets a `< 2^32` range constraint in
+/// `@constrain`. Each `cast.tofelt` is one range-check.
+#[test]
+fn sha256_witness_inputs_emit_u32_range_constraints() {
+    let context = LlzkContext::new();
+    let inputs: [u32; 16] = std::array::from_fn(|i| i as u32);
+    let hash_values: [u32; 8] = std::array::from_fn(|i| 16 + i as u32);
+    let outputs: [u32; 8] = std::array::from_fn(|i| 24 + i as u32);
+    let circuit = make_circuit_with_opcodes(
+        31,
+        &(0..24).collect::<Vec<_>>(),
+        &[],
+        &outputs,
+        vec![sha256_blackbox(inputs, hash_values, outputs)],
+    );
+
+    let module =
+        translate_single_circuit_module(&context, circuit).expect("translation should pass");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "cast.tofelt"),
+        inputs.len() + hash_values.len(),
+        "every input and hash_value witness should emit one range-check cast"
+    );
+}

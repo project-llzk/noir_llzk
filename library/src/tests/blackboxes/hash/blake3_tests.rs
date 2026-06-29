@@ -171,3 +171,28 @@ fn blake3_with_constant_inputs_translates() {
         translate_single_circuit_module(&context, circuit).expect("translation should pass");
     assert!(module.as_operation().verify(), "Module should verify");
 }
+
+#[test]
+fn blake3_witness_inputs_emit_byte_range_constraints() {
+    let context = LlzkContext::new();
+    let inputs = [0u32, 1, 2];
+    let outputs: [u32; 32] = std::array::from_fn(|i| 3 + i as u32);
+    let circuit = make_circuit_with_opcodes(
+        34,
+        &inputs,
+        &[],
+        &outputs,
+        vec![blake3_blackbox(&inputs, outputs)],
+    );
+
+    let module =
+        translate_single_circuit_module(&context, circuit).expect("translation should pass");
+    let ir = format!("{}", module.as_operation());
+
+    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(
+        count_occurrences(&ir, "cast.tofelt"),
+        inputs.len(),
+        "each witness byte input should emit one range-check cast"
+    );
+}
