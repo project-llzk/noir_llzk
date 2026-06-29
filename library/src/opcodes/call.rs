@@ -11,7 +11,9 @@ use llzk::prelude::{
 
 use crate::{
     block_writer::BlockWriter,
-    common::{collect_witnesses, emit_expression, emit_gated_eq, is_trivial_predicate},
+    common::{
+        collect_witnesses, constrain_bool, emit_expression, emit_gated_eq, is_trivial_predicate,
+    },
     error::Error,
     opcodes::OpcodeEmitter,
     writer::Writer,
@@ -148,7 +150,9 @@ impl<'p> OpcodeEmitter for Call<'p> {
         let pred_val = if trivial {
             None
         } else {
-            Some(emit_expression(writer, self.predicate)?)
+            let p = emit_expression(writer, self.predicate)?;
+            constrain_bool(writer, p)?;
+            Some(p)
         };
 
         // Read the stored subcomponent from %self.

@@ -7,7 +7,8 @@ use crate::{
     blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
     block_writer::BlockWriter,
     common::{
-        append_if_with_results, build_yielding_region, emit_gated_eq, insert_if_with_results,
+        append_if_with_results, build_yielding_region, constrain_bool, emit_gated_eq,
+        insert_if_with_results,
     },
     error::Error,
     writer::Writer,
@@ -58,6 +59,8 @@ pub(crate) fn emit_predicate_gate<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
     predicate: Value<'c, 'b>,
 ) -> Result<(Value<'c, 'b>, Value<'c, 'b>), Error> {
+    // Constrain predicate to have boolean evaluation
+    constrain_bool(writer, predicate)?;
     let predicate_is_true = emit_is_one(writer, predicate)?;
     let context = writer.context();
     let location = writer.location();

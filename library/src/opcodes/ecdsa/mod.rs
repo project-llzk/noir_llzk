@@ -12,10 +12,11 @@ use acir::{
 use crate::{
     blackboxes::{ecdsa::ECDSA_HELPER_INPUTS, registry::BlackboxFunction},
     block_writer::BlockWriter,
+    common::constrain_bool,
     error::Error,
     opcodes::{
         OpcodeEmitter, collect_input_witness, constrain_inputs_width, emit_blackbox_input,
-        validate_byte_input,
+        validate_byte_input, validate_constant_fits,
     },
     writer::Writer,
 };
@@ -83,6 +84,8 @@ impl OpcodeEmitter for Ecdsa<'_> {
             .chain(self.signature.iter())
             .chain(self.hashed_message.iter());
         constrain_inputs_width(writer, all_inputs, 8)?;
+        let predicate_val = emit_blackbox_input(writer, self.predicate)?;
+        constrain_bool(writer, predicate_val)?;
         let args = self.helper_args(writer)?;
         let call = writer.call_blackbox_function(self.helper, &args)?;
         let expected = call.result(0)?.into();
@@ -141,6 +144,7 @@ pub(crate) fn from_opcode<'a>(
     {
         validate_byte_input(input)?;
     }
+    validate_constant_fits(predicate, 1)?;
     Ok(Some(Ecdsa {
         public_key_x,
         public_key_y,

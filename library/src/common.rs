@@ -194,6 +194,20 @@ pub(crate) fn emit_gated_eq<'c, 'b>(
     Ok(())
 }
 
+/// Constrains `value` to be in `{0, 1}` via `value · (1 − value) == 0`.
+pub(crate) fn constrain_bool<'c, 'b>(
+    writer: &mut BlockWriter<'c, 'b>,
+    value: Value<'c, 'b>,
+) -> Result<(), Error> {
+    let one = writer.emit_constant(&FieldElement::one())?;
+    let zero = writer.emit_constant(&FieldElement::zero())?;
+    let neg_value = writer.insert_neg(value)?;
+    let one_minus_value = writer.insert_add(one, neg_value)?;
+    let product = writer.insert_mul(value, one_minus_value)?;
+    writer.insert_constrain_eq(product, zero);
+    Ok(())
+}
+
 pub(crate) fn build_yielding_region<'c, const N: usize, F>(
     location: Location<'c>,
     build: F,

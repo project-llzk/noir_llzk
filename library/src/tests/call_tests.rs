@@ -525,8 +525,8 @@ fn call_with_nontrivial_predicate() {
     info.calls[0].assert_shape(&context, 0, "Circuit1", "Circuit0");
 
     // The predicate witness (w0 = %arg1) must appear in @constrain as the first
-    // operand of a `felt.mul` — this is the gating multiplication in
-    // `predicate * (stored - callee_ret) == 0`.
+    // operand of two `felt.mul`s: the booleanity check `p * (1 - p) == 0`
+    // and the output gating `p * (stored - callee_ret) == 0`.
     let constrain_fn = struct0
         .get_constrain_func()
         .expect("should have @constrain");
@@ -536,18 +536,16 @@ fn call_with_nontrivial_predicate() {
         .collect();
     assert_eq!(
         felt_muls.len(),
-        1,
-        "@constrain should have exactly one felt.mul (the predicate gating)"
+        2,
+        "@constrain should have two felt.muls: predicate booleanity and predicate gating"
     );
-    // The first operand of that mul should be the predicate — a block argument,
-    // not an SSA result from another op.
-    let pred_operand: Value = felt_muls[0]
-        .operand(0)
-        .expect("felt.mul should have operand 0");
-    assert!(
-        pred_operand.is_block_argument(),
-        "predicate operand of gating felt.mul should be a block argument (the predicate witness)"
-    );
+    for (i, mul) in felt_muls.iter().enumerate() {
+        let pred_operand: Value = mul.operand(0).expect("felt.mul should have operand 0");
+        assert!(
+            pred_operand.is_block_argument(),
+            "felt.mul #{i}: operand 0 should be the predicate (block argument)"
+        );
+    }
 
     print_and_verify_module(&module, "nontrivial_predicate");
 }
