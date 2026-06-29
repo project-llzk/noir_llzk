@@ -4,9 +4,11 @@ use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    BlockLike, BlockRef, LlzkContext, Location, Module, OperationLike, OperationRef, StructDefOp,
-    StructDefOpRef, llzk_module,
+    BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationLike,
+    OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType, TypeAttribute,
+    llzk_module,
 };
+use llzk_sys::MAIN_ATTR_NAME;
 
 use crate::brillig::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
@@ -118,10 +120,16 @@ fn verify_struct_in_module(context: &LlzkContext, struct_def: StructDefOp, label
     print_and_verify_module(&module, label);
 }
 
-/// Wraps a `StructDefOp` in a new LLZK module.
 fn wrap_struct_in_module<'c>(context: &'c LlzkContext, struct_def: StructDefOp<'c>) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let mut module = llzk_module(location);
+    module.as_operation_mut().set_attribute(
+        MAIN_ATTR_NAME.as_ref(),
+        TypeAttribute::new(
+            StructType::new(FlatSymbolRefAttribute::new(context, "Circuit0"), &[]).into(),
+        )
+        .into(),
+    );
     module.body().append_operation(struct_def.into());
     module
 }
@@ -220,9 +228,71 @@ pub(super) fn iter_block_ops<'c, 'a>(
     std::iter::successors(block.first_operation(), |op| op.next_in_block())
 }
 
-/// Prints the module IR and asserts it verifies successfully.
+/// Prints the module IR, asserts MLIR-structural verification,
+/// asserts modules lower successfuly to PCL.
 pub(crate) fn print_and_verify_module(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
     println!("{label}:\n{ir}");
     assert!(module.as_operation().verify(), "Module should verify");
+    assert_module_lowers_to_pcl(module, label);
+}
+
+/// Asserts the module lowers to the PCL backend.
+fn assert_module_lowers_to_pcl(module: &Module, label: &str) {
+    let ir = format!("{}", module.as_operation());
+    let opt = find_llzk_opt().expect("llzk-opt not found — set $LLZK_OPT or $LLZK_SYS_10_PREFIX");
+    assert_ir_lowers_with_passes(
+        &opt,
+        &ir,
+        label,
+        &["--llzk-full-struct-inlining", "--llzk-to-pcl"],
+    );
+}
+
+/// Locates the `llzk-opt` binary
+fn find_llzk_opt() -> Option<std::path::PathBuf> {
+    if let Some(prefix) = std::env::var_os("LLZK_SYS_10_PREFIX") {
+        let path = std::path::PathBuf::from(prefix).join("bin/llzk-opt");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Pipes `ir` through `llzk-opt <passes...>` and asserts the conversion
+/// succeeds, returning the lowered IR for further inspection by the caller.
+fn assert_ir_lowers_with_passes(
+    opt: &std::path::Path,
+    ir: &str,
+    label: &str,
+    passes: &[&str],
+) -> String {
+    use std::io::Write;
+
+    let mut child = std::process::Command::new(opt)
+        .args(passes)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("[{label}] failed to spawn llzk-opt: {e}"));
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(ir.as_bytes())
+        .unwrap_or_else(|e| panic!("[{label}] failed to write IR to llzk-opt stdin: {e}"));
+    let out = child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("[{label}] llzk-opt wait failed: {e}"));
+    assert!(
+        out.status.success(),
+        "[{label}] llzk-opt {} failed (exit={:?}):\n--- stderr ---\n{}\n--- input ---\n{ir}",
+        passes.join(" "),
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    String::from_utf8(out.stdout)
+        .unwrap_or_else(|e| panic!("[{label}] llzk-opt produced non-UTF8 stdout: {e}"))
 }

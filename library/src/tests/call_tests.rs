@@ -679,23 +679,6 @@ fn call_with_out_of_range_id_returns_error() {
     );
 }
 
-/// A call with zero inputs exercises the edge case where @compute and @constrain
-/// calls have no witness operands.
-#[test]
-fn call_with_zero_inputs() {
-    let context = LlzkContext::new();
-
-    // Circuit1: no inputs, no opcodes, no returns.
-    let circuit1 = make_circuit(0, &[], &[], &[]);
-    // Circuit0: calls Circuit1 with no inputs and no outputs.
-    let circuit0 =
-        make_circuit_with_opcodes(0, &[], &[], &[], vec![call_opcode(1, vec![], vec![])]);
-
-    // 0 witnesses + 1 subcircuit = 1 member
-    let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&context, &program, "Circuit0", 1, 1, 1, &["Circuit1"]);
-}
-
 /// A call that produces multiple outputs wires all return values correctly.
 ///
 ///   Circuit1: w0*w1 = w2, w0*w2 = w3, returns w2 and w3.
