@@ -88,10 +88,15 @@ fn brillig_binary_int_op_emits_expected_op() {
         )
         .unwrap_or_else(|e| panic!("{op:?} at {bs:?} failed: {e}"));
 
+        // U128 Mul lowers to 4 mul64 multiplications
+        let expected_count = match (op, bs, expected) {
+            (BinaryIntOp::Mul, IntegerBitSize::U128, "felt.mul") => 4,
+            _ => 1,
+        };
         let count = count_op(&module, 0, expected);
         assert_eq!(
-            count, 1,
-            "{op:?} at {bs:?} should emit exactly one {expected} (got {count})"
+            count, expected_count,
+            "{op:?} at {bs:?} should emit exactly {expected_count} {expected} (got {count})"
         );
         if let Some(mnemonic) = expected_mnemonic {
             let emitted =
