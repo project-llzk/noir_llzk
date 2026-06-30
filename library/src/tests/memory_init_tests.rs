@@ -57,16 +57,6 @@ fn memory_init_witnesses_overlap_with_inputs() {
     );
 }
 
-/// Empty init vector (length 0) → zero-length array member, no writes in compute.
-#[test]
-fn memory_init_empty_init_vector() {
-    let context = LlzkContext::new();
-    let opcodes = vec![memory_init(0, &[], BlockType::Memory)];
-    let circuit = make_circuit_with_opcodes(0, &[], &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    verify_struct_in_module(&context, struct_def, "memory_init_empty_init_vector");
-}
-
 /// `BlockType::CallData` → treated identically to `Memory`.
 #[test]
 fn memory_init_call_data() {

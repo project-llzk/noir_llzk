@@ -11,7 +11,7 @@ use crate::program::translate_program;
 
 /// Count `struct.writem` operations in the compute function.
 fn count_writem_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
-    let compute = struct_def.get_compute_func().expect("Should have @compute");
+    let compute = struct_def.compute_func().expect("Should have @compute");
     let block = compute.region(0).unwrap().first_block().unwrap();
     super::iter_block_ops(block)
         .filter(llzk::prelude::dialect::r#struct::is_struct_writem)

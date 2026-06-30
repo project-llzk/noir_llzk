@@ -1,5 +1,5 @@
 use llzk::{
-    builder::OpBuilder,
+    builder::{BlockInsertPointLike, OpBuilder},
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
         Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike,
@@ -95,7 +95,7 @@ const RCON: [u32; 10] = [
 fn emit_sbox_array<'c, 'a>(cache: &mut ConstantCache<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
     let felt = felt_type(cache.context);
     let array_type = ArrayType::new_with_dims(felt, &[SBOX_SIZE as i64]);
-    let builder = OpBuilder::new(cache.context);
+    let builder = OpBuilder::new(cache.context, cache.block.at_end());
     let values = SBOX
         .iter()
         .map(|&byte| cache.u32(u32::from(byte)))

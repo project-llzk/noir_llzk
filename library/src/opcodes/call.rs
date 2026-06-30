@@ -168,7 +168,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
         // Define constrain function for inner circuit.
         // Call it conditionally based on predicate value.
         let call_op: Operation<'c> = dialect::function::call(
-            &OpBuilder::new(context),
+            &OpBuilder::new(context, writer.insertion_point()),
             location,
             SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
             &arg_vals,

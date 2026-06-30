@@ -12,11 +12,11 @@ num-bigint = "0.4"
 keccak = "=0.2.0-rc.1"
 
 # LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
-llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint"], rev = "cb836a8"}
-llzk-sys = { git = "https://github.com/Veridise/llzk-rs", rev = "cb836a8"}
+llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint", "pcl-backend"], rev = "d354ea8"}
+llzk-sys = { git = "https://github.com/Veridise/llzk-rs", features = ["pcl-backend"], rev = "d354ea8"}
 base64 = "0.22"
 serde_json = "1"
-llzk_interpreter = { git = "https://github.com/project-llzk/llzk-interpreter.git", rev = "5f0bae6e4c81ecba5e1977ccc059c82c17520114", optional = true }
+llzk_interpreter = { git = "https://github.com/project-llzk/llzk-interpreter.git", rev = "054dd86076d043fecb7de91a9b38eb53de79956b", optional = true }
 
 [features]
 default = []

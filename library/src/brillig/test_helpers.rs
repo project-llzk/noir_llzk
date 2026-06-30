@@ -167,7 +167,7 @@ pub(super) fn store(ptr: u32, src: u32) -> BrilligOpcode<FieldElement> {
 pub(super) fn get_compute_block<'c, 'a>(module: &'a Module<'c>) -> BlockRef<'c, 'a> {
     let struct_def = first_struct_def(module);
     let compute_fn = struct_def
-        .get_compute_func()
+        .compute_func()
         .expect("Circuit0 should have @compute");
     compute_fn.region(0).unwrap().first_block().unwrap()
 }

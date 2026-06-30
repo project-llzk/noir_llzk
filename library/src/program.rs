@@ -27,7 +27,7 @@ pub fn translate_program<'c>(
     program: &Program<FieldElement>,
 ) -> Result<Module<'c>, Error> {
     let location = Location::unknown(context);
-    let mut module = llzk_module(location);
+    let mut module = llzk_module(location, Some("Noir"));
     module.as_operation_mut().set_attribute(
         MAIN_ATTR_NAME.as_ref(),
         TypeAttribute::new(

@@ -47,10 +47,8 @@ fn compute_constrain_parameter_counts() {
     let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
-    let compute = struct_def.get_compute_func().expect("Should have @compute");
-    let constrain = struct_def
-        .get_constrain_func()
-        .expect("Should have @constrain");
+    let compute = struct_def.compute_func().expect("Should have @compute");
+    let constrain = struct_def.constrain_func().expect("Should have @constrain");
 
     // Compute: 3 params (2 private + 1 public), returns struct type
     let compute_block = compute.region(0).unwrap().first_block().unwrap();
@@ -82,7 +80,7 @@ fn skipped_witness_indices_no_phantom_members() {
     let circuit = make_circuit_with_opcodes(5, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 5)]);
     let struct_def = translate_single_circuit(&context, circuit).unwrap();
 
-    let members = struct_def.get_member_defs();
+    let members = struct_def.member_defs();
     assert_eq!(
         members.len(),
         1,

@@ -1,5 +1,5 @@
 use acir::{AcirField, FieldElement};
-use llzk::builder::OpBuilder;
+use llzk::builder::{BlockInsertPointLike, OpBuilder};
 use llzk::prelude::{
     Block, BlockLike, FeltType, FlatSymbolRefAttribute, FuncDefOp, FuncDefOpLike, FunctionType,
     LlzkContext, Location, OperationLike, RegionLike, Value, dialect,
@@ -239,7 +239,7 @@ fn append_call_mul_mod_helper<'c, 'a>(
     ];
     let call = block.append_operation(
         dialect::function::call(
-            &OpBuilder::new(context),
+            &OpBuilder::new(context, block.at_end()),
             location,
             FlatSymbolRefAttribute::new(context, helper_name),
             &args,
@@ -433,7 +433,7 @@ fn append_call_inv_mod_helper<'c, 'a>(
     let args = [a[0], a[1], a[2], a[3]];
     let call = block.append_operation(
         dialect::function::call(
-            &OpBuilder::new(context),
+            &OpBuilder::new(context, block.at_end()),
             location,
             FlatSymbolRefAttribute::new(context, helper_name),
             &args,

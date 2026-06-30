@@ -7,9 +7,7 @@ use super::{make_circuit_with_opcodes, translate_single_circuit, verify_struct_i
 
 /// Count the number of `constrain.eq` operations in the constrain function.
 fn count_constrain_eq_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
-    let constrain = struct_def
-        .get_constrain_func()
-        .expect("Should have @constrain");
+    let constrain = struct_def.constrain_func().expect("Should have @constrain");
     let block = constrain.region(0).unwrap().first_block().unwrap();
     super::iter_block_ops(block)
         .filter(llzk::prelude::dialect::constrain::is_constrain_eq)
