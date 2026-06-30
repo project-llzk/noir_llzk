@@ -7,7 +7,7 @@
 //! trait supplies thin wrappers for `felt`, `bool`, `cast`, and
 //! `function.call` ops so each writer doesn't redefine them.
 
-use llzk::builder::OpBuilder;
+use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::prelude::{
     FeltType, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef, Type, Value,
     dialect,
@@ -28,6 +28,10 @@ where
     /// Polymorphic insertion: BlockWriter inserts before its return
     /// terminator; BrilligWriter appends to the end of its current block.
     fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a>;
+
+    /// Insertion point matching [`Self::insert_op`]'s placement, used to
+    /// construct [`OpBuilder`]s.
+    fn insertion_point(&self) -> EntryPoint<'c, 'a>;
 
     fn insert_op_with_result(&self, op: Operation<'c>) -> Result<Value<'c, 'a>, Error> {
         Ok(self.insert_op(op).result(0)?.into())
@@ -138,7 +142,7 @@ where
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
         let call_op = dialect::function::call(
-            &OpBuilder::new(self.context()),
+            &OpBuilder::new(self.context(), self.insertion_point()),
             self.location(),
             FlatSymbolRefAttribute::new(self.context(), name),
             args,

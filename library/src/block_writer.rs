@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use acir::{AcirField, FieldElement};
-use llzk::builder::OpBuilder;
+use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
@@ -50,6 +50,10 @@ impl<'c, 'a> Writer<'c, 'a> for BlockWriter<'c, 'a> {
     /// Inserts `op` into the block immediately before the return terminator.
     fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
         self.block.insert_operation_before(self.ret_op, op)
+    }
+
+    fn insertion_point(&self) -> EntryPoint<'c, 'a> {
+        EntryPoint::Before(self.ret_op)
     }
 }
 
@@ -111,7 +115,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
         let compute = struct_def
-            .get_compute_func()
+            .compute_func()
             .expect("Struct should have @compute");
         let block = compute.region(0)?.first_block().unwrap();
 
@@ -130,7 +134,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
         let constrain = struct_def
-            .get_constrain_func()
+            .constrain_func()
             .expect("Struct should have @constrain");
         let block = constrain.region(0)?.first_block().unwrap();
 
@@ -188,7 +192,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Creates a new empty `!array.type<!felt.type, len>`.
     pub(crate) fn insert_new_array(&self, len: usize) -> Result<Value<'c, 'a>, Error> {
         let array_type = ArrayType::new_with_dims(self.felt_type(), &[len as i64]);
-        let builder = OpBuilder::new(self.context);
+        let builder = OpBuilder::new(self.context, self.insertion_point());
         self.insert_op_with_result(dialect::array::new(
             &builder,
             self.location,
@@ -268,7 +272,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
         let call_op = dialect::function::call(
-            &OpBuilder::new(self.context),
+            &OpBuilder::new(self.context, self.insertion_point()),
             self.location,
             SymbolRefAttribute::new_from_str(self.context, parent, &[func]),
             args,
@@ -298,7 +302,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         name: &str,
     ) -> Result<Value<'c, 'a>, Error> {
         self.insert_op_with_result(dialect::r#struct::readm(
-            &OpBuilder::new(self.context),
+            &OpBuilder::new(self.context, self.insertion_point()),
             self.location,
             ty,
             from,

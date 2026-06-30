@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
+use llzk::builder::{BlockInsertPointLike, EntryPoint};
 use llzk::prelude::melior_dialects::{arith, scf};
 use llzk::prelude::{
     Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
@@ -59,6 +60,10 @@ impl<'c, 'a> Writer<'c, 'a> for BrilligWriter<'c, 'a> {
     /// Appends `op` to the end of `current_block`.
     fn insert_op(&self, op: Operation<'c>) -> OperationRef<'c, 'a> {
         self.current_block.append_operation(op)
+    }
+
+    fn insertion_point(&self) -> EntryPoint<'c, 'a> {
+        self.current_block.at_end()
     }
 }
 

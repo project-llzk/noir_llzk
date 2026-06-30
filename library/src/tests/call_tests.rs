@@ -47,10 +47,8 @@ struct SymbolInfo {
 fn collect_call_info<'c, 'a>(
     struct_def: &'a llzk::prelude::StructDefOp<'c>,
 ) -> StructCallInfo<'c, 'a> {
-    let compute = struct_def.get_compute_func().expect("should have @compute");
-    let constrain = struct_def
-        .get_constrain_func()
-        .expect("should have @constrain");
+    let compute = struct_def.compute_func().expect("should have @compute");
+    let constrain = struct_def.constrain_func().expect("should have @constrain");
 
     let compute_ops = func_call_ops(compute);
     let constrain_ops = func_call_ops(constrain);
@@ -67,7 +65,7 @@ fn collect_call_info<'c, 'a>(
         .map(|(i, (c_op, s_op))| {
             let member_name = format!("subcircuit_{i}");
             let subcircuit_type = struct_def
-                .get_member_def(&member_name)
+                .find_member_def(&member_name)
                 .map(|m| m.member_type());
 
             CallInfo {
@@ -84,7 +82,7 @@ fn collect_call_info<'c, 'a>(
     let constrain_block = constrain.region(0).unwrap().first_block().unwrap();
 
     StructCallInfo {
-        member_count: struct_def.get_member_defs().len(),
+        member_count: struct_def.member_defs().len(),
         compute_writem_count: super::iter_block_ops(compute_block)
             .filter(llzk::prelude::dialect::r#struct::is_struct_writem)
             .count(),
@@ -527,9 +525,7 @@ fn call_with_nontrivial_predicate() {
     // The predicate witness (w0 = %arg1) must appear in @constrain as the first
     // operand of two `felt.mul`s: the booleanity check `p * (1 - p) == 0`
     // and the output gating `p * (stored - callee_ret) == 0`.
-    let constrain_fn = struct0
-        .get_constrain_func()
-        .expect("should have @constrain");
+    let constrain_fn = struct0.constrain_func().expect("should have @constrain");
     let constrain_block = constrain_fn.region(0).unwrap().first_block().unwrap();
     let felt_muls: Vec<OperationRef> = super::iter_block_ops(constrain_block)
         .filter(llzk::prelude::dialect::felt::is_felt_mul)
@@ -581,7 +577,7 @@ fn predicated_call_gates_callee_constrain() {
     let module = translate_program(&context, &program).expect("translation should succeed");
     let struct0 = first_struct_def(&module);
 
-    let constrain_fn = struct0.get_constrain_func().expect("@constrain");
+    let constrain_fn = struct0.constrain_func().expect("@constrain");
     let constrain_block = constrain_fn.region(0).unwrap().first_block().unwrap();
 
     // No top-level function.call — it must be nested inside the gating scf.if.

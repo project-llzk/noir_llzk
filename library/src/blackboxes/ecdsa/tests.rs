@@ -22,7 +22,7 @@ use num_bigint::BigUint;
 
 fn build_test_module<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     let felt_ty = felt_type(context);
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
@@ -149,7 +149,7 @@ fn limbs_from_big(value: &BigUint) -> [u64; LIMBS] {
 
 fn build_test_module_barrett<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     let felt_ty = felt_type(context);
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
@@ -246,7 +246,7 @@ fn barrett_large_values_n_k1() {
 
 fn build_test_module_inverse<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     // The inverse body dispatches its inner multiplications through the
     // mul-mod-n helper. Emit the matching mul helper (k1 or r1) so the
     // module verifies as a self-contained unit.
@@ -377,7 +377,7 @@ fn jacobian_to_affine(x: &BigUint, y: &BigUint, z: &BigUint, p: &BigUint) -> (Bi
 
 fn build_test_module_jacobian_double<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     module.body().append_operation(
         emit_secp256k1_mul_mod_p_helper(context)
             .expect("mul_mod_p helper")
@@ -470,7 +470,7 @@ fn triple_generator_k1() -> (BigUint, BigUint) {
 
 fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     module.body().append_operation(
         emit_secp256k1_mul_mod_p_helper(context)
             .expect("mul_mod_p helper")
@@ -578,7 +578,7 @@ fn jacobian_2g_plus_g_matches_3g_k1() {
 
 fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location);
+    let module = llzk_module(location, Some("Noir"));
     // Joint scalar mul calls mul-mod-p (per iteration) and inv-mod-p
     // (final jacobian-to-affine conversion). The inv body in turn calls
     // mul-mod-p, so we emit both helpers.
