@@ -137,6 +137,33 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
         }
     }
 
+    /// U128 multiplication via 64-bit-half decomposition.
+    fn emit_u128_mul(
+        &mut self,
+        lhs: Value<'c, 'b>,
+        rhs: Value<'c, 'b>,
+    ) -> Result<Value<'c, 'b>, Error> {
+        let mask64 = self
+            .writer
+            .emit_constant(&FieldElement::from(mask_for(IntegerBitSize::U64)))?;
+        let shift64 = self.writer.emit_constant(&FieldElement::from(64u128))?;
+        let pow64 = self.emit_pow2_constant(IntegerBitSize::U64)?;
+
+        let a_lo = self.writer.insert_felt_bit_and(lhs, mask64)?;
+        let a_hi = self.writer.insert_felt_shr(lhs, shift64)?;
+        let b_lo = self.writer.insert_felt_bit_and(rhs, mask64)?;
+        let b_hi = self.writer.insert_felt_shr(rhs, shift64)?;
+
+        let lo = self.writer.insert_mul(a_lo, b_lo)?;
+        let cross_a = self.writer.insert_mul(a_hi, b_lo)?;
+        let cross_b = self.writer.insert_mul(a_lo, b_hi)?;
+        let cross = self.writer.insert_add(cross_a, cross_b)?;
+        let cross_shifted = self.writer.insert_mul(cross, pow64)?;
+
+        let raw = self.writer.insert_add(lo, cross_shifted)?;
+        self.emit_mask(raw, IntegerBitSize::U128)
+    }
+
     /// Emits the LLZK op for a `BinaryIntOp`, producing a felt result.
     ///
     /// Operations that can exceed the bit width (`Add`, `Sub`, `Mul`,
@@ -156,7 +183,12 @@ impl<'c, 'b, 'r> TranslationCtx<'c, 'b, 'r> {
                 let shifted = self.writer.insert_add(lhs, pow2n)?;
                 self.writer.insert_sub(shifted, rhs)?
             }
-            BinaryIntOp::Mul => self.writer.insert_mul(lhs, rhs)?,
+            BinaryIntOp::Mul => {
+                if bit_size == IntegerBitSize::U128 {
+                    return self.emit_u128_mul(lhs, rhs);
+                }
+                self.writer.insert_mul(lhs, rhs)?
+            }
             BinaryIntOp::Div => return self.writer.insert_uintdiv(lhs, rhs),
             BinaryIntOp::Equals => {
                 let i1 = self.writer.insert_bool_eq(lhs, rhs)?;
