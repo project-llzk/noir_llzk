@@ -32,13 +32,16 @@ runs:
       if: steps.cache-llzk.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        : "${LLZK_PCL_PREFIX:?must be set by Install PCL MLIR step before Install LLZK}"
         cmake -B $_ROOT/build \
           -S $_ROOT \
           -DCMAKE_INSTALL_PREFIX=$_ROOT/build/install \
-          -DCMAKE_PREFIX_PATH=$_MLIR_DIR \
+          -DCMAKE_PREFIX_PATH="$_MLIR_DIR;$LLZK_PCL_PREFIX" \
           -DCMAKE_BUILD_TYPE=$_BUILD_TYPE \
           -DLLZK_VERSION_OVERRIDE=1.0.0 \
-          -DBUILD_TESTING=OFF
+          -DBUILD_TESTING=OFF \
+          -DLLZK_BUILD_DEVTOOLS=ON \
+          -DLLZK_WITH_PCL=ON
       env:
         _ROOT: ${{ inputs.root }}
         _MLIR_DIR: ${{ inputs.mlir-dir }}
