@@ -7,6 +7,23 @@ A tool to compile Noir to LLZK via ACIR.
 The recommended way to build this project is with the nix flake, which includes
 pinned versions of the dependencies and builds them automatically.
 
+### Prerequisites
+
+- Nix (currently tested with versions 2.24 and 2.31)
+
+#### Nix installation
+
+Install Nix with the official installer:
+
+```sh
+curl -L https://nixos.org/nix/install | sh
+```
+
+After installation, restart your shell or source the Nix profile script so
+`nix` is on your `PATH`.
+
+### Nix operations
+
 Build the default package:
 
 ```sh
