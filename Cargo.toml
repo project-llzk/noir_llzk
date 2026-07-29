@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "library",
-    "binary",
+    "acir2llzk",
 ]
 resolver = "2"
