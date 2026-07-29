@@ -4,7 +4,6 @@
 //!  coerced to `index`via `cast.toindex` before being handed to the memory ops.
 
 use acir::brillig::IntegerBitSize;
-use llzk::prelude::LlzkContext;
 
 use crate::brillig::test_helpers::{
     brillig_stop, const_field, const_int, count_loads, count_op, count_stores, load, store,

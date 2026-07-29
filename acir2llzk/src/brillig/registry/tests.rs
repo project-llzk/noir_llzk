@@ -10,7 +10,7 @@ use acir::circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use llzk::prelude::{
-    BlockLike, FuncDefOpLike, FuncDefOpRef, LlzkContext, OperationLike, RegionLike,
+    BlockLike, FuncDefOpLike, FuncDefOpRef, OperationLike, RegionLike,
 };
 
 use crate::brillig::test_helpers::{
@@ -18,7 +18,6 @@ use crate::brillig::test_helpers::{
     count_brillig_fns, count_compute_calls, count_compute_op, find_brillig_fn, first_compute_call,
     single_witness, store, witness_predicate,
 };
-use crate::program::translate_program;
 use crate::tests::{
     make_circuit_with_opcodes, make_program_with_brillig, print_and_verify_module, TestConfig,
 };

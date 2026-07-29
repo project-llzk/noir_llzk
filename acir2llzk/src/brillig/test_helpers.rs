@@ -13,11 +13,10 @@ use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::dialect::function::is_func_call;
 use llzk::prelude::{
-    BlockRef, FuncDefOpRef, LlzkContext, Module, OperationLike, OperationRef, RegionLike,
+    BlockRef, FuncDefOpRef, Module, OperationLike, OperationRef, RegionLike,
     StructDefOpLike,
 };
 
-use crate::program::translate_program;
 use crate::tests::{
     first_struct_def, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
 };

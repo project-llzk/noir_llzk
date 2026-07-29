@@ -1,7 +1,7 @@
 //! Brillig binary ops (`BinaryFieldOp` and `BinaryIntOp`).
 
 use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, IntegerBitSize};
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::OperationLike;
 
 use crate::brillig::test_helpers::{
     binary_field_op, binary_int_op, brillig_stop, cast, const_field, const_int, count_loads,

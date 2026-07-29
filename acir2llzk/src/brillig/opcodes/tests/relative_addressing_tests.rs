@@ -1,6 +1,6 @@
 //! Tests for `MemoryAddress::Relative` resolution in the Brillig translator.
 use acir::brillig::{IntegerBitSize, Opcode as BrilligOpcode};
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::OperationLike;
 
 use crate::{
     brillig::test_helpers::{addr, brillig_stop, const_field, const_int, rel, translate_body},

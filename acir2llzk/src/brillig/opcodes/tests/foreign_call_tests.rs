@@ -9,7 +9,6 @@ use acir::brillig::{
     BitSize, HeapArray, HeapValueType, HeapVector, IntegerBitSize, Opcode as BrilligOpcode,
     ValueOrArray,
 };
-use llzk::prelude::LlzkContext;
 
 use crate::brillig::test_helpers::{
     addr, brillig_stop, const_int, count_loads, count_op, count_stores, store, translate_body,

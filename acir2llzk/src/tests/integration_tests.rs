@@ -2,16 +2,11 @@
 //! deserialize the ACIR output, run the translation pipeline, and verify the
 //! resulting LLZK module.
 
-use std::{
-    fs::File,
-    io::{self, Read},
-    path::PathBuf,
-};
 
 use llzk::prelude::OperationLike;
 
 use super::noir_helpers::{circuits_dir, nargo_available, nargo_compile};
-use crate::{config::Config, tests::noir_helpers::NargoConfig, Driver, FIELD_NAME};
+use crate::{tests::noir_helpers::NargoConfig, Driver};
 
 /// Core test logic: compile, load, translate, verify.
 fn run_noir_test(name: &str) {

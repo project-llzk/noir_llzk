@@ -7,9 +7,8 @@ use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::FieldElement;
-use llzk::prelude::{LlzkContext, Module};
+use llzk::prelude::Module;
 
-use crate::program::translate_program;
 use crate::tests::{
     count_occurrences, make_circuit_with_opcodes, make_program_with_brillig,
     translate_single_circuit_module, TestConfig,

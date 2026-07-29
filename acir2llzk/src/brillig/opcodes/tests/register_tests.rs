@@ -1,6 +1,6 @@
 //! Register-machine opcodes (Const / Mov / Cast / CMov).
 use acir::brillig::{BitSize, IntegerBitSize};
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::OperationLike;
 
 use crate::brillig::test_helpers::{
     brillig_stop, cast, conditional_mov, const_field, const_int, count_loads, count_op,

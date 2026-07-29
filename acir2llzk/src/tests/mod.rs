@@ -15,7 +15,6 @@ use crate::circuit::CircuitTranslator;
 use crate::Driver;
 
 use crate::config::Config;
-use crate::program::translate_program;
 
 mod blackboxes;
 mod call_tests;

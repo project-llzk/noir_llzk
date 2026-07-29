@@ -3,7 +3,7 @@ use acir::circuit::Opcode;
 use acir::native_types::Witness;
 use acir::FieldElement;
 
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::OperationLike;
 
 use crate::opcodes::{blake3, OpcodeEmitter};
 use crate::tests::{
