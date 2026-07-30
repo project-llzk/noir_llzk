@@ -9,9 +9,9 @@
 //! path: break before the final iteration, break exactly on `i = 255`,
 //! and no break at all (loop runs to completion through the diamond).
 
-use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 const RESULT_WITNESS: &str = "w257";
 

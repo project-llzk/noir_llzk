@@ -4,9 +4,9 @@
 //! converging on the post-loop block. Each case picks a different exit
 //! path so the structurer's multi-exit handling is covered end-to-end.
 
-use crate::tests::e2e::{felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 fn run_multi_exit_loop(xs: [u64; 8], expected: u64) {
     assert!(nargo_available(), "nargo not found on PATH");

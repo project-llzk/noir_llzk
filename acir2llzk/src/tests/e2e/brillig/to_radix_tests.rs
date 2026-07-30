@@ -1,9 +1,9 @@
 //! End-to-end test for the `to_radix` Noir fixture
 
-use crate::tests::e2e::{assert_witness_eq, felt_u64, Interpreter};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
-use crate::tests::print_and_verify_module;
 use crate::Driver;
+use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
+use crate::tests::print_and_verify_module;
 
 /// Runs the `to_radix` Noir fixture against multiple `u32` inputs while
 /// compiling and translating the circuit only once.

@@ -1,9 +1,9 @@
 //! End-to-end tests for the `recursive_unconstrained` Noir fixture: an
 //! unconstrained `count_down(n)` that recurses on `n - 1` until `n == 0`.
 
-use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 const RESULT_WITNESS: &str = "w2";
 

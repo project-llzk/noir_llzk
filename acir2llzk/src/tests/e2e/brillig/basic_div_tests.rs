@@ -4,9 +4,9 @@
 //! constrain side (the multiplicative check) alongside a minimal
 //! brillig program on the compute side.
 
-use crate::tests::e2e::{felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 #[test]
 fn basic_div_satisfying_witness_verifies() {

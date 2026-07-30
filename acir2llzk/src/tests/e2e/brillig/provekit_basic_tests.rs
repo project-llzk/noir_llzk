@@ -3,9 +3,9 @@
 //! output. Exercises ACIR + Brillig translation against real nargo
 //! output and verifies the satisfying witness from `Prover.toml`.
 
-use crate::tests::e2e::{felt_from_hex, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{felt_from_hex, felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 /// Witness from `noir_examples/provekit_basic/Prover.toml`:
 ///

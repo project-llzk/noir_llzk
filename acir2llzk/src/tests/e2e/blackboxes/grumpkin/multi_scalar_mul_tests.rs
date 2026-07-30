@@ -1,21 +1,21 @@
-use acir::circuit::Circuit;
 use acir::FieldElement;
+use acir::circuit::Circuit;
 use llzk_interpreter::Felt;
 
+use crate::Driver;
 use crate::blackboxes::grumpkin::multi_scalar_mul::{
     SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS,
 };
-use crate::tests::e2e::{
-    assert_witness_eq, felt_from_hex, felt_u64, run_e2e_with_nondet, Interpreter,
-};
 use crate::tests::TestConfig;
+use crate::tests::e2e::{
+    Interpreter, assert_witness_eq, felt_from_hex, felt_u64, run_e2e_with_nondet,
+};
 use crate::tests::{make_circuit_with_opcodes, make_program, multi_scalar_mul_blackbox};
-use crate::Driver;
 
 use super::test_vectors::{
     FIVE_P_X_DECIMAL, FIVE_P_Y_DECIMAL, TEST_POINT_X, TEST_POINT_Y_DECIMAL, TEST_POINT_Y_HEX,
-    THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL, TWO_POW_128_P_X_DECIMAL, TWO_POW_128_P_Y_DECIMAL,
-    TWO_P_X_DECIMAL, TWO_P_Y_DECIMAL,
+    THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL, TWO_P_X_DECIMAL, TWO_P_Y_DECIMAL,
+    TWO_POW_128_P_X_DECIMAL, TWO_POW_128_P_Y_DECIMAL,
 };
 
 fn scalar_bits(lo: u128, hi: u128) -> Vec<Felt> {

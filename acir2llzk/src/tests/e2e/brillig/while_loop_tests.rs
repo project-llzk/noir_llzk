@@ -8,9 +8,9 @@
 //! `Memory` cache state from the body walk must not bleed into the
 //! post-loop assertion.
 
-use crate::tests::e2e::{felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 fn run_while_loop(target: u64, expected: u64) {
     assert!(nargo_available(), "nargo not found on PATH");

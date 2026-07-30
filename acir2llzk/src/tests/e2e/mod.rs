@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use acir::circuit::{Circuit, Program};
 use acir::native_types::{Witness, WitnessMap};
 use acir::{AcirField, FieldElement};
-use acvm::pwg::{ACVMStatus, ACVM};
+use acvm::pwg::{ACVM, ACVMStatus};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use llzk::prelude::OperationLike;
 pub(super) use llzk_interpreter::Interpreter;
@@ -13,8 +13,8 @@ use llzk_interpreter::{Felt, StructInstance, Value};
 use num_bigint::BigUint;
 
 use super::make_program;
-use crate::tests::TestConfig;
 use crate::Driver;
+use crate::tests::TestConfig;
 
 mod blackboxes;
 mod brillig;

@@ -5,9 +5,9 @@
 //! not leak the then-arm's tracked value into the else-arm walk, and
 //! must not leak the else-arm's value into post-branch code.
 
-use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::Driver;
+use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 #[test]
 fn const_in_branch_then_arm() {
