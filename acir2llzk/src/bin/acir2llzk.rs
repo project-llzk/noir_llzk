@@ -9,8 +9,8 @@ use std::{
 };
 
 use acir2llzk::{
-    config::{Config, OutputFormat},
     Driver, Error, FIELD_NAME,
+    config::{Config, OutputFormat},
 };
 use clap::Parser;
 
