@@ -12,9 +12,9 @@ mod opcodes;
 mod program;
 mod writer;
 
-use acir::{circuit::Program, FieldElement};
-use base64::engine::general_purpose::STANDARD;
+use acir::{FieldElement, circuit::Program};
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 pub use error::Error;
 use llzk::prelude::{LlzkContext, Module, ModuleExt as _};
 use program::translate_program;

@@ -1,15 +1,15 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::Opcode;
-use acir::native_types::Witness;
 use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::native_types::Witness;
 
 use llzk::prelude::OperationLike;
 
-use crate::opcodes::{blake2s, OpcodeEmitter};
-use crate::tests::{
-    count_occurrences, make_circuit_with_opcodes, translate_single_circuit_module, TestConfig,
-};
 use crate::Driver;
+use crate::opcodes::{OpcodeEmitter, blake2s};
+use crate::tests::{
+    TestConfig, count_occurrences, make_circuit_with_opcodes, translate_single_circuit_module,
+};
 
 fn blake2s_blackbox(inputs: &[u32], outputs: [u32; 32]) -> Opcode<FieldElement> {
     Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Blake2s {

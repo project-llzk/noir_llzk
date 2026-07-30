@@ -9,11 +9,11 @@ use acir::brillig::lengths::SemiFlattenedLength;
 use acir::brillig::{BlackBoxOp, HeapArray, IntegerBitSize, Opcode as BrilligOpcode};
 use llzk::prelude::OperationLike;
 
+use crate::Driver;
 use crate::brillig::test_helpers::{
     addr, brillig_stop, const_int, count_op, count_stores, translate_body,
 };
-use crate::tests::{count_occurrences, print_and_verify_module, TestConfig};
-use crate::Driver;
+use crate::tests::{TestConfig, count_occurrences, print_and_verify_module};
 
 fn poseidon2_blackbox(message: HeapArray, output: HeapArray) -> BrilligOpcode<acir::FieldElement> {
     BrilligOpcode::BlackBox(BlackBoxOp::Poseidon2Permutation { message, output })

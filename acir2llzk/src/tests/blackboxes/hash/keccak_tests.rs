@@ -1,15 +1,15 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::Opcode;
-use acir::native_types::Witness;
 use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::native_types::Witness;
 
 use llzk::prelude::OperationLike;
 
+use crate::Driver;
 use crate::opcodes::keccak;
 use crate::tests::{
-    count_occurrences, make_circuit_with_opcodes, translate_single_circuit_module, TestConfig,
+    TestConfig, count_occurrences, make_circuit_with_opcodes, translate_single_circuit_module,
 };
-use crate::Driver;
 
 const STATE_WORDS: usize = 25;
 

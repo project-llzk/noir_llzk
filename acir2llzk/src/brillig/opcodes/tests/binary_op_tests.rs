@@ -3,12 +3,12 @@
 use acir::brillig::{BinaryFieldOp, BinaryIntOp, BitSize, IntegerBitSize};
 use llzk::prelude::OperationLike;
 
+use crate::Driver;
 use crate::brillig::test_helpers::{
     binary_field_op, binary_int_op, brillig_stop, cast, const_field, const_int, count_loads,
     count_op, count_stores, find_op, translate_body,
 };
-use crate::tests::{print_and_verify_module, TestConfig};
-use crate::Driver;
+use crate::tests::{TestConfig, print_and_verify_module};
 /// Each `BinaryFieldOp` variant emits the expected LLZK op on felt operands.
 /// Comparison variants additionally carry the expected predicate mnemonic in
 /// the `bool.cmp` op.

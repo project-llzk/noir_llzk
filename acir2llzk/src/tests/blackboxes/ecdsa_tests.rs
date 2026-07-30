@@ -1,19 +1,19 @@
+use acir::FieldElement;
 use acir::brillig::{
     BitSize, BlackBoxOp, HeapArray, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
+use acir::circuit::Opcode;
 use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
-use acir::FieldElement;
 use llzk::prelude::Module;
 
-use crate::tests::{
-    count_occurrences, make_circuit_with_opcodes, make_program_with_brillig,
-    translate_single_circuit_module, TestConfig,
-};
 use crate::Driver;
+use crate::tests::{
+    TestConfig, count_occurrences, make_circuit_with_opcodes, make_program_with_brillig,
+    translate_single_circuit_module,
+};
 
 const PK_X_START: u32 = 0;
 const PK_Y_START: u32 = 32;

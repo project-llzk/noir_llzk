@@ -1,17 +1,17 @@
 //! Compile the outer level `Program` to LLZK `Module`
 
-use acir::{circuit::Program, FieldElement};
+use acir::{FieldElement, circuit::Program};
 use llzk::prelude::{
-    llzk_module, BlockLike, LlzkContext, Location, Module, OperationMutLike, StructType,
-    TypeAttribute,
+    BlockLike, LlzkContext, Location, Module, OperationMutLike, StructType, TypeAttribute,
+    llzk_module,
 };
 use llzk_sys::MAIN_ATTR_NAME;
 
 use crate::{
-    blackboxes::registry::BlackboxFunction,
-    brillig::{emit_brillig_functions, BrilligRegistry},
-    circuit::CircuitTranslator,
     Error,
+    blackboxes::registry::BlackboxFunction,
+    brillig::{BrilligRegistry, emit_brillig_functions},
+    circuit::CircuitTranslator,
 };
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";

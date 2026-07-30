@@ -7,14 +7,13 @@ use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
-use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::circuit::Opcode;
+use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::dialect::function::is_func_call;
 use llzk::prelude::{
-    BlockRef, FuncDefOpRef, Module, OperationLike, OperationRef, RegionLike,
-    StructDefOpLike,
+    BlockRef, FuncDefOpRef, Module, OperationLike, OperationRef, RegionLike, StructDefOpLike,
 };
 
 use crate::tests::{

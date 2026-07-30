@@ -2,11 +2,10 @@
 //! deserialize the ACIR output, run the translation pipeline, and verify the
 //! resulting LLZK module.
 
-
 use llzk::prelude::OperationLike;
 
 use super::noir_helpers::{circuits_dir, nargo_available, nargo_compile};
-use crate::{tests::noir_helpers::NargoConfig, Driver};
+use crate::{Driver, tests::noir_helpers::NargoConfig};
 
 /// Core test logic: compile, load, translate, verify.
 fn run_noir_test(name: &str) {

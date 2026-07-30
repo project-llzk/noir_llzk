@@ -6,12 +6,10 @@
 //! marshalling shapes) returns an actionable `UnsupportedBrillig` error.
 
 use acir::brillig::{IntegerBitSize, Opcode as BrilligOpcode};
-use acir::circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::circuit::Opcode;
+use acir::circuit::brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs};
 use acir::native_types::{Expression, Witness};
-use llzk::prelude::{
-    BlockLike, FuncDefOpLike, FuncDefOpRef, OperationLike, RegionLike,
-};
+use llzk::prelude::{BlockLike, FuncDefOpLike, FuncDefOpRef, OperationLike, RegionLike};
 
 use crate::brillig::test_helpers::{
     brillig_call_opcode, brillig_stop, bytecode_no_calldata, const_field, const_int,
@@ -19,7 +17,7 @@ use crate::brillig::test_helpers::{
     single_witness, store, witness_predicate,
 };
 use crate::tests::{
-    make_circuit_with_opcodes, make_program_with_brillig, print_and_verify_module, TestConfig,
+    TestConfig, make_circuit_with_opcodes, make_program_with_brillig, print_and_verify_module,
 };
 use crate::{Driver, Error};
 

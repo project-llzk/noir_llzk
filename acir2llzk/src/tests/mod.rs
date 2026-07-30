@@ -1,18 +1,18 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    llzk_module, BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module,
-    OperationLike, OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType,
-    TypeAttribute,
+    BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationLike,
+    OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType, TypeAttribute,
+    llzk_module,
 };
 use llzk_sys::MAIN_ATTR_NAME;
 
+use crate::Driver;
 use crate::brillig::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
-use crate::Driver;
 
 use crate::config::Config;
 

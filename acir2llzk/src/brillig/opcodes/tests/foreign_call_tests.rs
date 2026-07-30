@@ -10,11 +10,11 @@ use acir::brillig::{
     ValueOrArray,
 };
 
+use crate::Driver;
 use crate::brillig::test_helpers::{
     addr, brillig_stop, const_int, count_loads, count_op, count_stores, store, translate_body,
 };
-use crate::tests::{print_and_verify_module, TestConfig};
-use crate::Driver;
+use crate::tests::{TestConfig, print_and_verify_module};
 
 fn foreign_call_empty(name: &str) -> BrilligOpcode<acir::FieldElement> {
     BrilligOpcode::ForeignCall {

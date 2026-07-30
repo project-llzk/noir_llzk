@@ -1,16 +1,16 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
 use acir::{AcirField, FieldElement};
 
 use llzk::prelude::OperationLike;
 
-use crate::opcodes::{poseidon2, OpcodeEmitter};
-use crate::tests::{
-    count_occurrences, make_circuit_with_opcodes, mul_constraint, translate_single_circuit_module,
-    TestConfig,
-};
 use crate::Driver;
+use crate::opcodes::{OpcodeEmitter, poseidon2};
+use crate::tests::{
+    TestConfig, count_occurrences, make_circuit_with_opcodes, mul_constraint,
+    translate_single_circuit_module,
+};
 
 fn poseidon2_blackbox(inputs: [u32; 4], outputs: [u32; 4]) -> Opcode<FieldElement> {
     Opcode::BlackBoxFuncCall(BlackBoxFuncCall::Poseidon2Permutation {

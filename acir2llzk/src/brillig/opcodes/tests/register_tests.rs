@@ -2,12 +2,12 @@
 use acir::brillig::{BitSize, IntegerBitSize};
 use llzk::prelude::OperationLike;
 
+use crate::Driver;
 use crate::brillig::test_helpers::{
     brillig_stop, cast, conditional_mov, const_field, const_int, count_loads, count_op,
     count_stores, mov, translate_body,
 };
-use crate::tests::{print_and_verify_module, TestConfig};
-use crate::Driver;
+use crate::tests::{TestConfig, print_and_verify_module};
 
 /// `Const` with `BitSize::Field` emits `felt.const` in the brillig body.
 #[test]

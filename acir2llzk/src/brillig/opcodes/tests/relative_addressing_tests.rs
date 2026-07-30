@@ -3,9 +3,9 @@ use acir::brillig::{IntegerBitSize, Opcode as BrilligOpcode};
 use llzk::prelude::OperationLike;
 
 use crate::{
+    Driver,
     brillig::test_helpers::{addr, brillig_stop, const_field, const_int, rel, translate_body},
     tests::TestConfig,
-    Driver,
 };
 
 #[test]

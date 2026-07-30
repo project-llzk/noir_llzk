@@ -4,17 +4,17 @@
 //! catch in [`super::walker`] and[`super::loop_shape`];
 //!  the rest assert structure on distinct shapes.
 
-use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 use acir::FieldElement;
+use acir::brillig::{HeapVector, Label, MemoryAddress, Opcode as BrilligOpcode};
 
+use crate::Driver;
 use crate::brillig::cfg::{BlockId, Cfg};
 use crate::brillig::test_helpers::{brillig_stop, mov};
-use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
-use crate::Driver;
+use crate::tests::noir_helpers::{NargoConfig, circuits_dir, nargo_available, nargo_compile};
 
 use super::{
-    structure_function, CondPolarity, EscapeFlagSlot, LoopCondition, StructureNode,
-    StructuredFunction,
+    CondPolarity, EscapeFlagSlot, LoopCondition, StructureNode, StructuredFunction,
+    structure_function,
 };
 
 // ── Fixture constructors ────────────────────────────────────────────────

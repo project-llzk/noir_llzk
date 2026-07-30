@@ -1,13 +1,13 @@
 //! Shared helpers for tests that compile real Noir programs via `nargo`
 //! and consume the resulting ACIR/Brillig artifacts.
 
-use std::fs::{read_to_string, File};
+use std::fs::{File, read_to_string};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{Config, OutputFormat};
 use crate::FIELD_NAME;
+use crate::config::{Config, OutputFormat};
 
 pub(crate) struct NargoConfig {
     pub(crate) artifact: PathBuf,
