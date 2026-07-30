@@ -6,9 +6,8 @@
 //! must not leak the else-arm's value into post-branch code.
 
 use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
+use crate::Driver;
 
 #[test]
 fn const_in_branch_then_arm() {
@@ -22,7 +21,9 @@ fn const_in_branch_then_arm() {
     );
 
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     // x = 11 takes the `x > 10` arm: result is 11 + 42 = 53.
     let inputs = [felt_u64(11)];
@@ -37,7 +38,9 @@ fn const_in_branch_else_arm() {
 
     let project_dir = circuits_dir().join("const_in_branch");
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     // x = 1 takes the `else` arm: result is 1 + 7 = 8.
     let inputs = [felt_u64(1)];

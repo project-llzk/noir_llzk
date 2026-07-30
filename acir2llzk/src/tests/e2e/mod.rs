@@ -5,15 +5,16 @@ use std::collections::BTreeMap;
 use acir::circuit::{Circuit, Program};
 use acir::native_types::{Witness, WitnessMap};
 use acir::{AcirField, FieldElement};
-use acvm::pwg::{ACVM, ACVMStatus};
+use acvm::pwg::{ACVMStatus, ACVM};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::OperationLike;
 pub(super) use llzk_interpreter::Interpreter;
 use llzk_interpreter::{Felt, StructInstance, Value};
 use num_bigint::BigUint;
 
 use super::make_program;
-use crate::program::translate_program;
+use crate::tests::TestConfig;
+use crate::Driver;
 
 mod blackboxes;
 mod brillig;
@@ -94,8 +95,10 @@ fn run_e2e_program_with_phase_nondets(
     compute_nondet: &[Felt],
     constrain_nondet: &[Felt],
 ) -> StructInstance {
-    let context = LlzkContext::new();
-    let module = translate_program(&context, program).expect("translation should succeed");
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(program)
+        .expect("translation should succeed");
     assert!(
         module.as_operation().verify(),
         "translated LLZK module should verify"
@@ -123,8 +126,10 @@ pub(super) fn assert_constrain_rejects_corrupted_witness(
     corrupted_key: &str,
 ) {
     let program = make_program(vec![circuit]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
     let mut interpreter = Interpreter::new(&module);
     let mut computed = interpreter
         .run_compute("Circuit0", inputs)

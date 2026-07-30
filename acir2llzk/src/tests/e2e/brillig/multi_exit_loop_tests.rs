@@ -5,9 +5,8 @@
 //! path so the structurer's multi-exit handling is covered end-to-end.
 
 use crate::tests::e2e::{felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
+use crate::Driver;
 
 fn run_multi_exit_loop(xs: [u64; 8], expected: u64) {
     assert!(nargo_available(), "nargo not found on PATH");
@@ -18,7 +17,9 @@ fn run_multi_exit_loop(xs: [u64; 8], expected: u64) {
         project_dir.display()
     );
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     // Witness-index order matches `main`: xs[0..8], expected.
     let mut inputs = Vec::with_capacity(9);

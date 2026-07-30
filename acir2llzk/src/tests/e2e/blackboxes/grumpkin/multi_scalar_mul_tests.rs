@@ -1,21 +1,21 @@
-use acir::FieldElement;
 use acir::circuit::Circuit;
-use llzk::prelude::LlzkContext;
+use acir::FieldElement;
 use llzk_interpreter::Felt;
 
 use crate::blackboxes::grumpkin::multi_scalar_mul::{
     SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS,
 };
-use crate::program::translate_program;
 use crate::tests::e2e::{
-    Interpreter, assert_witness_eq, felt_from_hex, felt_u64, run_e2e_with_nondet,
+    assert_witness_eq, felt_from_hex, felt_u64, run_e2e_with_nondet, Interpreter,
 };
+use crate::tests::TestConfig;
 use crate::tests::{make_circuit_with_opcodes, make_program, multi_scalar_mul_blackbox};
+use crate::Driver;
 
 use super::test_vectors::{
     FIVE_P_X_DECIMAL, FIVE_P_Y_DECIMAL, TEST_POINT_X, TEST_POINT_Y_DECIMAL, TEST_POINT_Y_HEX,
-    THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL, TWO_P_X_DECIMAL, TWO_P_Y_DECIMAL,
-    TWO_POW_128_P_X_DECIMAL, TWO_POW_128_P_Y_DECIMAL,
+    THREE_P_X_DECIMAL, THREE_P_Y_DECIMAL, TWO_POW_128_P_X_DECIMAL, TWO_POW_128_P_Y_DECIMAL,
+    TWO_P_X_DECIMAL, TWO_P_Y_DECIMAL,
 };
 
 fn scalar_bits(lo: u128, hi: u128) -> Vec<Felt> {
@@ -215,8 +215,10 @@ fn constrain_rejects_corrupted_output() {
     let nondet = nondet_for_scalars(&[(2, 0)]);
 
     let program = make_program(vec![make_single_msm_circuit()]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
     let mut interpreter = Interpreter::new(&module);
 
     interpreter.set_nondet_values(nondet.iter().cloned());
@@ -240,8 +242,10 @@ fn constrain_rejects_corrupted_output() {
 
 fn expect_constrain_failure(inputs: Vec<crate::tests::e2e::Value>, nondet: Vec<Felt>) -> String {
     let program = make_program(vec![make_single_msm_circuit()]);
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
     let mut interpreter = Interpreter::new(&module);
 
     interpreter.set_nondet_values(nondet.iter().cloned());

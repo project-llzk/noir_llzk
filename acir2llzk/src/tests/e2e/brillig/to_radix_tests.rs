@@ -1,12 +1,9 @@
 //! End-to-end test for the `to_radix` Noir fixture
-use llzk::prelude::LlzkContext;
 
-use crate::program::translate_program;
-use crate::tests::e2e::{Interpreter, assert_witness_eq, felt_u64};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::e2e::{assert_witness_eq, felt_u64, Interpreter};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
 use crate::tests::print_and_verify_module;
+use crate::Driver;
 
 /// Runs the `to_radix` Noir fixture against multiple `u32` inputs while
 /// compiling and translating the circuit only once.
@@ -19,10 +16,12 @@ fn run_to_radix_cases(inputs: &[u32]) {
         project_dir.display()
     );
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
-
-    let context = LlzkContext::new();
-    let module = translate_program(&context, &program).expect("translation should succeed");
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
 
     print_and_verify_module(&module, "to_radix");
     for &input in inputs {

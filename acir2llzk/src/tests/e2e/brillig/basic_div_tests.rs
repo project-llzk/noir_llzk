@@ -5,9 +5,8 @@
 //! brillig program on the compute side.
 
 use crate::tests::e2e::{felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
+use crate::Driver;
 
 #[test]
 fn basic_div_satisfying_witness_verifies() {
@@ -21,7 +20,9 @@ fn basic_div_satisfying_witness_verifies() {
     );
 
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     // Witness-index order matches `main`'s parameter list: a, b, c.
     // 6 / 2 == 3.

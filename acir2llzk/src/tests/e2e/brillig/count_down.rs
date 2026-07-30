@@ -2,9 +2,8 @@
 //! unconstrained `count_down(n)` that recurses on `n - 1` until `n == 0`.
 
 use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
+use crate::Driver;
 
 const RESULT_WITNESS: &str = "w2";
 
@@ -17,7 +16,9 @@ fn run_count_down(n: u64) {
         project_dir.display()
     );
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     let inputs = [felt_u64(n), felt_u64(n)];
     let computed = run_e2e_program(&program, &inputs, &[]);

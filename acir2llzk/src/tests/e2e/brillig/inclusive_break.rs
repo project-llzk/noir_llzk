@@ -10,9 +10,8 @@
 //! and no break at all (loop runs to completion through the diamond).
 
 use crate::tests::e2e::{assert_witness_eq, felt_u64, run_e2e_program};
-use crate::tests::noir_helpers::{
-    circuits_dir, load_program_from_file, nargo_available, nargo_compile,
-};
+use crate::tests::noir_helpers::{circuits_dir, nargo_available, nargo_compile, NargoConfig};
+use crate::Driver;
 
 const RESULT_WITNESS: &str = "w257";
 
@@ -25,7 +24,9 @@ fn run_inclusive_break(xs: [u8; 256], expected: u32) {
         project_dir.display()
     );
     let artifact = nargo_compile(&project_dir);
-    let program = load_program_from_file(&artifact);
+    let cfg = NargoConfig { artifact };
+    let driver = Driver::new(&cfg);
+    let program = driver.load_program().unwrap();
 
     // Witness-index order matches `main`: xs[0..256], expected.
     let mut inputs = Vec::with_capacity(257);
