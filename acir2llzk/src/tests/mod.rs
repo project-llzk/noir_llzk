@@ -10,9 +10,9 @@ use llzk::prelude::{
 };
 use llzk_sys::MAIN_ATTR_NAME;
 
-use crate::Driver;
 use crate::brillig::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
+use crate::{Driver, FIELD_NAME};
 
 use crate::config::Config;
 
@@ -40,7 +40,7 @@ impl Config for TestConfig {
     }
 
     fn field_name(&self) -> &str {
-        todo!()
+        FIELD_NAME
     }
 
     fn output_format(&self) -> crate::config::OutputFormat {
