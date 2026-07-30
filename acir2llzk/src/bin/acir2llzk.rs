@@ -9,8 +9,8 @@ use std::{
 };
 
 use acir2llzk::{
-    Driver, Error, FIELD_NAME,
     config::{Config, OutputFormat},
+    Driver, Error, FIELD_NAME,
 };
 use clap::Parser;
 
@@ -105,7 +105,7 @@ impl Config for Cli {
     fn input_reader(&self) -> io::Result<Box<dyn Read>> {
         match &self.args.input {
             Input::Stdin => Ok(Box::new(io::stdin())),
-            Input::File(path) => Ok(Box::new(File::open(&path)?)),
+            Input::File(path) => Ok(Box::new(File::open(path)?)),
         }
     }
 
@@ -113,7 +113,7 @@ impl Config for Cli {
     fn output_writer(&self) -> io::Result<Box<dyn Write>> {
         match &self.args.output {
             Output::Stdout => Ok(Box::new(io::stdout())),
-            Output::File(path) => Ok(Box::new(File::create(&path)?)),
+            Output::File(path) => Ok(Box::new(File::create(path)?)),
         }
     }
 
