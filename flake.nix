@@ -75,9 +75,9 @@
         '';
 
         setupWritableNoirHome = ''
-          #export HOME="$TMPDIR/home"
-          #export XDG_CACHE_HOME="$TMPDIR/xdg-cache"
-          #mkdir -p "$HOME" "$HOME/nargo" "$XDG_CACHE_HOME"
+          export HOME="$TMPDIR/home"
+          export XDG_CACHE_HOME="$TMPDIR/xdg-cache"
+          mkdir -p "$HOME" "$HOME/nargo" "$XDG_CACHE_HOME"
         '';
 
         noirCli = pkgs.rustPlatform.buildRustPackage {
@@ -154,7 +154,7 @@
                 ## Bail out of pipes where any command fails
                 set -uo pipefail
                 ${createFileCheckSymlink}
-                ${setupWritableNoirHome}
+                # ${setupWritableNoirHome}
                 export PATH="${noirCli}/bin:$PATH"
                 echo "Welcome to the noir-to-llzk devshell!"
                 echo "Using $(command -v nargo)"
