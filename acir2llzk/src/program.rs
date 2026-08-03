@@ -1,17 +1,17 @@
 //! Compile the outer level `Program` to LLZK `Module`
 
-use acir::{FieldElement, circuit::Program};
+use acir::{circuit::Program, FieldElement};
 use llzk::prelude::{
-    BlockLike, LlzkContext, Location, Module, OperationMutLike, StructType, TypeAttribute,
-    llzk_module,
+    llzk_module, BlockLike, LlzkContext, Location, Module, OperationMutLike, StructType,
+    TypeAttribute,
 };
 use llzk_sys::MAIN_ATTR_NAME;
 
 use crate::{
-    Error,
     blackboxes::registry::BlackboxFunction,
-    brillig::{BrilligRegistry, emit_brillig_functions},
+    brillig::{emit_brillig_functions, BrilligRegistry},
     circuit::CircuitTranslator,
+    Error,
 };
 
 const MAIN_STRUCT_NAME: &str = "Circuit0";
@@ -36,13 +36,15 @@ pub(crate) fn translate_program<'c>(
 
     let mut brillig_registry = BrilligRegistry::new();
     for helper in BlackboxFunction::used_in_program(program) {
-        module.body().append_operation(helper.emit(context)?.into());
+        helper.emit(context, module.body())?;
     }
 
     for (i, circuit) in program.functions.iter().enumerate() {
-        let struct_def = CircuitTranslator::new(context, circuit, program)
-            .translate(i, &mut brillig_registry)?;
-        module.body().append_operation(struct_def.into());
+        CircuitTranslator::new(context, circuit, program).translate(
+            i,
+            &mut brillig_registry,
+            module.body(),
+        )?;
     }
 
     emit_brillig_functions(context, &module, &brillig_registry)?;

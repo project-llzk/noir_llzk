@@ -1,18 +1,24 @@
 use acir::{
-    AcirField as _, FieldElement,
     circuit::Circuit,
     native_types::{Expression, Witness},
+    AcirField as _, FieldElement,
 };
-use llzk::builder::OpBuilder;
-use llzk::prelude::{
-    Block, BlockLike, LlzkContext, Location, Operation, Region, RegionLike as _, StructDefOp,
-    StructDefOpLike, StructType, SymbolRefAttribute, Type, Value, dialect, melior_dialects::scf,
+use llzk::{
+    builder::EntryPoint,
+    prelude::{
+        dialect::{self, *},
+        melior_dialects::scf,
+        Block, BlockLike, LlzkContext, Location, Operation, Region, RegionLike as _, StructDefOp,
+        StructDefOpLike, StructType, SymbolRefAttribute, Type, Value,
+    },
 };
+use llzk::{builder::OpBuilder, prelude::dialect::r#struct};
 
 use crate::{
     block_writer::BlockWriter,
     common::{
         collect_witnesses, constrain_bool, emit_expression, emit_gated_eq, is_trivial_predicate,
+        value,
     },
     error::Error,
     opcodes::OpcodeEmitter,
@@ -73,14 +79,16 @@ impl<'p> OpcodeEmitter for Call<'p> {
         context: &'c LlzkContext,
         struct_def: &StructDefOp<'c>,
     ) -> Result<(), Error> {
-        let member = dialect::r#struct::member(
+        let builder = OpBuilder::new(context, EntryPoint::End(struct_def.body()));
+        r#struct::member(
+            &builder,
             Location::unknown(context),
             &format!("subcircuit_{}", self.index),
             StructType::from_str(context, &format!("Circuit{}", self.callee_id)),
             false,
             false,
+            false,
         )?;
-        struct_def.body().append_operation(member.into());
         Ok(())
     }
 
@@ -167,7 +175,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Define constrain function for inner circuit.
         // Call it conditionally based on predicate value.
-        let call_op: Operation<'c> = dialect::function::call(
+        let call_op: OperationRef<'c> = function::call(
             &OpBuilder::new(context, writer.insertion_point()),
             location,
             SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
@@ -182,8 +190,12 @@ impl<'p> OpcodeEmitter for Call<'p> {
             }
             Some(p) => {
                 let one = writer.emit_constant(&FieldElement::one())?;
-                let pred_is_one =
-                    writer.insert_op_with_result(dialect::bool::eq(location, p, one)?)?;
+                let pred_is_one = value!(bool::eq(
+                    &OpBuilder::new(context, writer.insertion_point()),
+                    location,
+                    p,
+                    one
+                )?)?;
 
                 let then_region = Region::new();
                 let then_block = Block::new(&[]);

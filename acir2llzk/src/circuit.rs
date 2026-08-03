@@ -1,33 +1,35 @@
 use std::collections::{BTreeSet, HashSet};
 
 use acir::{
-    FieldElement,
     circuit::{
-        Circuit, Opcode, Program,
         brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
+        Circuit, Opcode, Program,
     },
     native_types::Expression,
+    FieldElement,
 };
 use llzk::{
     attributes::NamedAttribute,
+    builder::{BlockInsertPointLike, OpBuilder},
+    dialect::empty_region,
     prelude::{
-        BlockLike, FeltType, LlzkContext, LlzkError, Location, Operation, PublicAttribute,
-        StructDefOp, StructDefOpLike, StructType, Type, dialect,
+        dialect::r#struct, BlockRef, FeltType, LlzkContext, Location, PublicAttribute, StructDefOp,
+        StructDefOpLike, StructType, Type,
     },
 };
 
 use crate::{
-    Error, FIELD_NAME,
     blackboxes::build_blackbox_handler,
     block_writer::BlockWriter,
     brillig::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
-        TranslatedOpcode,
         assert_zero::AssertZero,
         brillig_call::BrilligCall,
         call::Call,
         memory_ops::{self, MemoryInit},
+        TranslatedOpcode,
     },
+    Error, FIELD_NAME,
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -70,16 +72,18 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         self,
         circuit_index: usize,
         brillig_registry: &mut BrilligRegistry<'p>,
-    ) -> Result<StructDefOp<'c>, Error> {
+        dest: BlockRef<'c, '_>,
+    ) -> Result<(), Error> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
 
-        let struct_def = dialect::r#struct::def(
+        let struct_def = r#struct::def(
+            &OpBuilder::new(self.context, dest.at_end()),
             location,
             &struct_name,
-            [] as [Result<Operation, LlzkError>; 0],
+            empty_region,
         )?;
-
+        let builder = OpBuilder::new(self.context, struct_def.body().at_end());
         let ops = self.build_handlers(brillig_registry)?;
         let input_witnesses = self.sorted_input_witnesses();
 
@@ -90,7 +94,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         // Phase 1: struct members
         self.emit_witness_members(&struct_def, &input_witnesses, &opcode_witnesses)?;
         for op in &ops {
-            op.emit_member(self.context, &struct_def)?;
+            op.emit_member(self.context, struct_def)?;
         }
 
         let inputs = self.build_input_list(&input_witnesses);
@@ -98,34 +102,25 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let struct_type = StructType::from_str(self.context, &struct_name);
 
         // Phase 2: @compute
-        let compute = dialect::r#struct::helpers::compute_fn(
-            location,
-            struct_type,
-            &inputs,
-            Some(&arg_attrs),
-        )?;
-        struct_def.body().append_operation(compute.into());
+        r#struct::helpers::compute_fn(&builder, location, struct_type, &inputs, Some(&arg_attrs))?;
         let mut compute_writer =
-            BlockWriter::for_compute(self.context, &struct_def, &input_witnesses)?;
+            BlockWriter::for_compute(self.context, struct_def, &input_witnesses)?;
         for op in &ops {
             op.emit_compute(&mut compute_writer)?;
         }
 
         // Phase 3: @constrain
-        let constrain = dialect::r#struct::helpers::constrain_fn(
+        r#struct::helpers::constrain_fn(
+            &builder,
             location,
             struct_type,
             &inputs,
             Some(&arg_attrs),
         )?;
-        struct_def.body().append_operation(constrain.into());
         let mut constrain_writer =
-            BlockWriter::for_constrain(self.context, &struct_def, &input_witnesses)?;
-        for op in &ops {
-            op.emit_constrain(&mut constrain_writer)?;
-        }
-
-        Ok(struct_def)
+            BlockWriter::for_constrain(self.context, struct_def, &input_witnesses)?;
+        ops.into_iter()
+            .try_for_each(|op| op.emit_constrain(&mut constrain_writer))
     }
 
     /// Converts each ACIR opcode into a [`TranslatedOpcode`], pre-computing
@@ -308,9 +303,15 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
             }
             let member_name = format!("w{i}");
             let is_public = public_witnesses.contains(&i);
-            let member =
-                dialect::r#struct::member(location, &member_name, felt_type, false, is_public)?;
-            struct_def.body().append_operation(member.into());
+            r#struct::member(
+                &OpBuilder::new(self.context, struct_def.body().at_end()),
+                location,
+                &member_name,
+                felt_type,
+                true,
+                false,
+                is_public,
+            )?;
         }
 
         Ok(())

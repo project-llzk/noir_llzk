@@ -1,13 +1,16 @@
 //! Structured translator: walks a [`StructuredFunction`] tree and emits
 //! LLZK IR via the existing per-opcode handlers from [`super::translator`].
 
-use acir::FieldElement;
 use acir::brillig::Opcode as BrilligOpcode;
 use acir::circuit::brillig::BrilligBytecode;
-use llzk::dialect::function::{FuncDefOpLike, def};
+use acir::FieldElement;
+use llzk::builder::{BlockInsertPointLike, OpBuilder};
+use llzk::dialect::empty_region;
+use llzk::dialect::function::{def, FuncDefOpLike};
+use llzk::prelude::dialect::function;
 use llzk::prelude::{
-    Block, BlockLike, FunctionType, LlzkContext, Location, Module, OperationLike, RegionLike,
-    Value, dialect,
+    dialect, Block, BlockLike, FunctionType, LlzkContext, Location, Module, OperationLike,
+    RegionLike, Value,
 };
 
 use crate::brillig::translator::{
@@ -20,7 +23,7 @@ use crate::error::Error;
 use super::cfg::Block as CFGBlock;
 use super::registry::{BrilligRegistry, BrilligRegistryKey};
 use super::structurer::{StructureNode, StructuredFunction, StructuredProcedure};
-use super::translator::{TranslationCtx, translate_block_body};
+use super::translator::{translate_block_body, TranslationCtx};
 
 /// Per-Brillig-function emission state.
 pub(super) struct BrilligFunctionEmitter<'c, 'p> {
@@ -194,28 +197,37 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
 
     /// Emits all brillig function procedure bodies.
     fn translate_procedures(&mut self) -> Result<(), Error> {
-        for procedure in self.procedures {
-            self.translate_procedure(procedure)?;
-        }
-        Ok(())
+        self.procedures
+            .iter()
+            .try_for_each(|procedure| self.translate_procedure(procedure))
     }
 
     /// Emits one [`StructuredProcedure`]'s body.
     fn translate_procedure(&mut self, procedure: &StructuredProcedure) -> Result<(), Error> {
         let proc_func_type = FunctionType::new(self.context, &[], &[]);
         let proc_name = BrilligRegistry::procedure_function_name(self.variant, procedure.entry);
-        let proc_func = def(self.location, &proc_name, proc_func_type, &[], None)?;
+        let proc_func = function::def(
+            &OpBuilder::new(self.context, self.module.body().at_end()),
+            self.location,
+            &proc_name,
+            proc_func_type,
+            &[],
+            None,
+            empty_region,
+        )?;
         proc_func.set_allow_witness_attr(true);
         proc_func.set_allow_non_native_field_ops_attr(true);
 
-        let proc_body = Block::new(&[]);
-        let mut proc_writer = BrilligWriter::new(self.context, &proc_body);
+        let proc_body = proc_func.region(0)?.append_block(Block::new(&[]));
+        let mut proc_writer = BrilligWriter::new(self.context, proc_body);
         let mut ctx = TranslationCtx::new(&mut proc_writer, &[], None);
         let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
         self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)?;
-        proc_body.append_operation(dialect::function::r#return(self.location, &[]));
-        proc_func.region(0)?.append_block(proc_body);
-        self.module.body().append_operation(proc_func.into());
+        function::r#return(
+            &OpBuilder::new(self.context, proc_body.at_end()),
+            self.location,
+            &[],
+        );
         Ok(())
     }
 }

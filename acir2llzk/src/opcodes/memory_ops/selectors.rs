@@ -7,7 +7,9 @@
 //!   the gadget the backends actually consume.
 
 use acir::{AcirField, FieldElement};
-use llzk::prelude::{Block, BlockLike, LlzkContext, Location, Value, dialect};
+use llzk::builder::{EntryPoint, OpBuilder};
+use llzk::prelude::dialect::felt;
+use llzk::prelude::{dialect, Block, BlockLike, BlockRef, LlzkContext, Location, Value};
 
 use crate::block_writer::BlockWriter;
 use crate::common::{field_to_felt_const, insert_if_with_results};
@@ -38,17 +40,17 @@ pub(super) fn emit_selectors_compute<'c, 'b>(
             writer,
             cond,
             &[felt_ty],
-            |then_block| {
+            |builder| {
                 Ok([append_felt_const(
-                    then_block,
+                    builder,
                     context,
                     location,
                     &FieldElement::one(),
                 )?])
             },
-            |else_block| {
+            |builder| {
                 Ok([append_felt_const(
-                    else_block,
+                    builder,
                     context,
                     location,
                     &FieldElement::zero(),
@@ -103,15 +105,12 @@ pub(super) fn emit_selectors_constrain<'c, 'b>(
 }
 
 /// Appends `felt.const value` to an inner `scf.if` branch block and returns the result.
-fn append_felt_const<'c, 'b>(
-    block: &'b Block<'c>,
+fn append_felt_const<'c: 'b, 'b>(
+    builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
     value: &FieldElement,
 ) -> Result<Value<'c, 'b>, Error> {
     let attr = field_to_felt_const(context, value);
-    Ok(block
-        .append_operation(dialect::felt::constant(location, attr)?)
-        .result(0)?
-        .into())
+    Ok(felt::constant(builder, location, attr)?.result(0)?.into())
 }

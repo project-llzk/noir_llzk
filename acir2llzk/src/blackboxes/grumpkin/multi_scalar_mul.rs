@@ -1,23 +1,31 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    AcirField, FieldElement,
     brillig::{BlackBoxOp, Opcode as BrilligOpcode},
-    circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
+    circuit::{opcodes::BlackBoxFuncCall, Opcode, Program},
+    AcirField, FieldElement,
 };
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, Region,
-    RegionLike, Value, dialect, melior_dialects::scf,
+use llzk::{
+    builder::{BlockInsertPointLike as _, OpBuilder},
+    dialect::empty_region,
+    prelude::{
+        dialect::{self, bool, function},
+        melior_dialects::scf,
+        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
+        OperationLike, Region, RegionLike, Value,
+    },
 };
 
 use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
-    common::append_if_with_results,
+    blackboxes::common::{
+        append_felt_constant, append_op_with_result, create_helper_function, felt_type,
+    },
+    common::{append_if_with_results, as_value},
     error::Error,
 };
 
 use super::common::{
-    EmbeddedPointValue, emit_curve_add_result, emit_infinity_point, point_to_array,
+    emit_curve_add_result, emit_infinity_point, point_to_array, EmbeddedPointValue,
 };
 
 pub(crate) const SCALAR_LOW_BITS: usize = 128;
@@ -38,25 +46,22 @@ pub(crate) fn used_arities(program: &Program<FieldElement>) -> BTreeSet<usize> {
     acir_arities.chain(brillig_arities).collect()
 }
 
-pub(crate) fn multi_scalar_mul_helper_name(num_points: usize) -> String {
+pub(in crate::blackboxes) fn multi_scalar_mul_helper_name(num_points: usize) -> String {
     format!("multi_scalar_mul_{num_points}")
 }
 
-pub(crate) fn emit_multi_scalar_mul_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
+pub(in crate::blackboxes) fn emit_multi_scalar_mul_helper<'c>(
+    context: &'c LlzkContext,
+    block: BlockRef<'c, '_>,
     num_points: usize,
-) -> Result<FuncDefOp<'c>, Error> {
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
     let num_inputs = num_points * 3 + num_points * SCALAR_TOTAL_BITS + 1;
-    let inputs = vec![(felt, location); num_inputs];
-    let input_types = vec![felt; num_inputs];
-    let function_type = FunctionType::new(context, &input_types, &[felt, felt, felt]);
     let helper_name = multi_scalar_mul_helper_name(num_points);
-    let function = dialect::function::def(location, &helper_name, function_type, &[], None)?;
+    let (function, block) =
+        create_helper_function(context, block, location, &helper_name, num_inputs, 3)?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
     let points = (0..num_points)
         .map(|index| {
             let base = index * 3;
@@ -80,89 +85,71 @@ pub(crate) fn emit_multi_scalar_mul_helper<'c>(
         .collect::<Result<Vec<Vec<Value<'c, '_>>>, Error>>()?;
     let predicate: Value<'c, '_> = block.argument(num_inputs - 1)?.into();
 
-    let one = append_felt_constant(&block, context, location, &FieldElement::one())?;
-    let predicate_is_true =
-        append_op_with_result(&block, dialect::bool::eq(location, predicate, one)?)?;
+    let builder = OpBuilder::at_block_end(context, block);
+    let one = append_felt_constant(&builder, context, location, &FieldElement::one())?;
+    let predicate_is_true = as_value(bool::eq(&builder, location, predicate, one)?)?;
     let result_types = [felt, felt, felt];
     let [output_x, output_y, output_infinite] = append_if_with_results(
-        &block,
+        &builder,
         location,
         predicate_is_true,
         &result_types,
-        |then_block| {
-            emit_multi_scalar_mul_result(then_block, context, location, &points, &scalar_bits)
+        |builder| {
+            emit_multi_scalar_mul_result(builder, context, location, &points, &scalar_bits)
                 .map(point_to_array)
         },
-        |else_block| emit_infinity_point(else_block, context, location).map(point_to_array),
+        |builder| emit_infinity_point(builder, context, location).map(point_to_array),
     )?;
-    block.append_operation(dialect::function::r#return(
-        location,
-        &[output_x, output_y, output_infinite],
-    ));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    function::r#return(&builder, location, &[output_x, output_y, output_infinite]);
+    Ok(())
 }
 
 fn emit_multi_scalar_mul_result<'c, 'a, 'v>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
+    builder: &OpBuilder<'c, '_>,
+    context: &'c LlzkContext,
     location: Location<'c>,
     points: &[EmbeddedPointValue<'c, 'v>],
     scalar_bits: &[Vec<Value<'c, 'v>>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
     debug_assert_eq!(points.len(), scalar_bits.len());
 
-    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(block, context, location)?;
+    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(builder, context, location)?;
     for (&point, bits) in points.iter().zip(scalar_bits) {
-        let scaled = emit_scalar_mul_result(block, context, location, point, bits)?;
-        acc = emit_curve_add_result(block, context, location, acc, scaled)?;
+        let scaled = emit_scalar_mul_result(builder, context, location, point, bits)?;
+        acc = emit_curve_add_result(builder, context, location, acc, scaled)?;
     }
     Ok(acc)
 }
 
 fn emit_scalar_mul_result<'c, 'a, 'v>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
+    builder: &OpBuilder<'c, '_>,
+    context: &'c LlzkContext,
     location: Location<'c>,
     point: EmbeddedPointValue<'c, 'v>,
     scalar_bits: &[Value<'c, 'v>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
     let felt = felt_type(context);
     let result_types = [felt, felt, felt];
-    let one = append_felt_constant(block, context, location, &FieldElement::one())?;
-    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(block, context, location)?;
+    let one = append_felt_constant(builder, context, location, &FieldElement::one())?;
+    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(builder, context, location)?;
 
     for &bit in scalar_bits.iter().rev() {
-        acc = emit_curve_add_result(block, context, location, acc, acc)?;
-        let bit_is_one = append_op_with_result(block, dialect::bool::eq(location, bit, one)?)?;
-        let current_acc = acc;
+        acc = emit_curve_add_result(builder, context, location, acc, acc)?;
+        let bit_is_one = as_value(bool::eq(builder, location, bit, one)?)?;
 
-        let then_region = Region::new();
-        let then_block = Block::new(&[]);
-        let added = emit_curve_add_result(&then_block, context, location, current_acc, point)?;
-        then_block.append_operation(scf::r#yield(&[added.0, added.1, added.2], location));
-        then_region.append_block(then_block);
-
-        let else_region = Region::new();
-        let else_block = Block::new(&[]);
-        else_block.append_operation(scf::r#yield(
-            &[current_acc.0, current_acc.1, current_acc.2],
+        let result = append_if_with_results(
+            builder,
             location,
-        ));
-        else_region.append_block(else_block);
-
-        let result = block.append_operation(scf::r#if(
             bit_is_one,
             &result_types,
-            then_region,
-            else_region,
-            location,
-        ));
-        acc = (
-            result.result(0)?.into(),
-            result.result(1)?.into(),
-            result.result(2)?.into(),
-        );
+            |builder| {
+                let added = emit_curve_add_result(&builder, context, location, current_acc, point)?;
+                Ok([added.0, added.1, added.2])
+            },
+            |builder| Ok([acc.0, acc.1, acc.2]),
+        )?;
+
+        acc = (result[0], result[1], result[2]);
     }
 
     Ok(acc)

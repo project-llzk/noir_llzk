@@ -1,16 +1,21 @@
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
-    Value, dialect,
+use llzk::{
+    builder::OpBuilder,
+    prelude::{
+        dialect::{self, function},
+        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
+        OperationLike, RegionLike, Value,
+    },
 };
 
 use crate::{
     blackboxes::common::{
-        ConstantCache, emit_message_words, emit_word_to_bytes, emit_xor, felt_type,
+        block_args_slice, create_helper_function, emit_message_words, emit_word_to_bytes, emit_xor,
+        felt_type, ConstantCache, WordArithEmitter,
     },
     error::Error,
 };
 
-use super::common::{IV, emit_g, iv_values};
+use super::common::{emit_g, iv_values, IV};
 
 pub(crate) const BLAKE3_DIGEST_BYTES: usize = 32;
 const BLOCK_BYTES: usize = 64;
@@ -36,35 +41,32 @@ pub(in crate::blackboxes) fn blake3_helper_name(num_blocks: usize) -> String {
     format!("blake3_blocks_{num_blocks}")
 }
 
-pub(in crate::blackboxes) fn emit_blake3_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
+pub(in crate::blackboxes) fn emit_blake3_helper<'c, 'a>(
+    context: &'c LlzkContext,
+    block: BlockRef<'c, 'a>,
     num_blocks: usize,
-) -> Result<FuncDefOp<'c>, Error> {
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
     let num_inputs = blake3_capacity_bytes(num_blocks);
-    let inputs = vec![(felt, location); num_inputs + 1];
-    let input_types = vec![felt; num_inputs + 1];
-    let output_types = vec![felt; BLAKE3_DIGEST_BYTES];
-    let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(
+    let (function, block) = create_helper_function(
+        context,
+        block,
         location,
         &blake3_helper_name(num_blocks),
-        function_type,
-        &[],
-        None,
+        num_inputs + 1,
+        BLAKE3_DIGEST_BYTES,
     )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let input_values = (0..num_inputs)
-        .map(|i| block.argument(i).map(Into::into))
-        .collect::<Result<Vec<Value<'c, '_>>, _>>()?;
+    let input_values = block_args_slice(block, 0..num_inputs)?;
     let final_block_len = block.argument(num_inputs)?.into();
-    let outputs = emit_blake3_hash(&block, context, location, &input_values, final_block_len)?;
-    block.append_operation(dialect::function::r#return(location, &outputs));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    let outputs = emit_blake3_hash(
+        &mut WordArithEmitter::new(block, context, location),
+        &input_values,
+        final_block_len,
+    )?;
+    function::r#return(&OpBuilder::at_block_end(context, block), location, &outputs);
+    Ok(())
 }
 
 struct EmitOutput<'c, 'a> {
@@ -75,15 +77,12 @@ struct EmitOutput<'c, 'a> {
     flags: u32,
 }
 
-fn emit_blake3_hash<'c, 'a>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
+fn emit_blake3_hash<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     inputs: &[Value<'c, 'a>],
     final_block_len: Value<'c, 'a>,
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
-    let mut cache = ConstantCache::new(block, context, location);
-    let key_words = iv_values(&mut cache)?;
+    let key_words = iv_values(emitter)?;
 
     let num_blocks = inputs.len() / BLOCK_BYTES;
     let num_chunks = num_blocks.div_ceil(CHUNK_BYTES / BLOCK_BYTES);
@@ -94,13 +93,12 @@ fn emit_blake3_hash<'c, 'a>(
         let chunk_end = chunk_start + CHUNK_BYTES;
         let chunk_data = &inputs[chunk_start..chunk_end];
 
-        let output =
-            emit_chunk_output(&mut cache, &key_words, chunk_data, chunk_index as u64, None)?;
-        let mut new_cv = emit_output_cv(&mut cache, &output)?;
+        let output = emit_chunk_output(emitter, &key_words, chunk_data, chunk_index as u64, None)?;
+        let mut new_cv = emit_output_cv(emitter, &output)?;
         let mut total = chunk_index + 1;
         while total & 1 == 0 {
             let left = cv_stack.pop().expect("stack should have a value");
-            new_cv = emit_parent_cv(&mut cache, &key_words, &left, &new_cv)?;
+            new_cv = emit_parent_cv(emitter, &key_words, &left, &new_cv)?;
             total >>= 1;
         }
         cv_stack.push(new_cv);
@@ -110,7 +108,7 @@ fn emit_blake3_hash<'c, 'a>(
     let last_chunk_start = last_chunk_index * CHUNK_BYTES;
     let last_chunk_data = &inputs[last_chunk_start..];
     let mut output = emit_chunk_output(
-        &mut cache,
+        emitter,
         &key_words,
         last_chunk_data,
         last_chunk_index as u64,
@@ -118,22 +116,22 @@ fn emit_blake3_hash<'c, 'a>(
     )?;
 
     if num_chunks == 1 {
-        return emit_root_output_bytes(&mut cache, output);
+        return emit_root_output_bytes(emitter, output);
     }
 
     for i in (0..cv_stack.len()).rev() {
-        let cv = emit_output_cv(&mut cache, &output)?;
-        output = emit_parent_output(&mut cache, &key_words, &cv_stack[i], &cv)?;
+        let cv = emit_output_cv(emitter, &output)?;
+        output = emit_parent_output(emitter, &key_words, &cv_stack[i], &cv)?;
     }
-    emit_root_output_bytes(&mut cache, output)
+    emit_root_output_bytes(emitter, output)
 }
 
-fn emit_output_cv<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_output_cv<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     output: &EmitOutput<'c, 'a>,
 ) -> Result<[Value<'c, 'a>; 8], Error> {
     emit_compress(
-        cache,
+        emitter,
         &output.input_cv,
         &output.block_words,
         output.counter,
@@ -142,12 +140,12 @@ fn emit_output_cv<'c, 'a>(
     )
 }
 
-fn emit_root_output_bytes<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_root_output_bytes<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     output: EmitOutput<'c, 'a>,
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
     let full = emit_compress_full(
-        cache,
+        emitter,
         &output.input_cv,
         &output.block_words,
         0,
@@ -156,19 +154,19 @@ fn emit_root_output_bytes<'c, 'a>(
     )?;
     let mut digest = Vec::with_capacity(BLAKE3_DIGEST_BYTES);
     for word in full.iter().take(8) {
-        digest.extend(emit_word_to_bytes(cache, *word)?);
+        digest.extend(emitter.emit_word_to_bytes(*word)?);
     }
     Ok(digest)
 }
 
-fn emit_chunk_output<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_chunk_output<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     key_words: &[Value<'c, 'a>; 8],
     chunk_data: &[Value<'c, 'a>],
     chunk_counter: u64,
     final_block_len: Option<Value<'c, 'a>>,
 ) -> Result<EmitOutput<'c, 'a>, Error> {
-    let zero = cache.u32(0)?;
+    let zero = emitter.u32(0)?;
     let num_blocks = chunk_data.len() / BLOCK_BYTES;
     let mut cv = *key_words;
 
@@ -179,7 +177,7 @@ fn emit_chunk_output<'c, 'a>(
         let mut padded_block = vec![zero; BLOCK_BYTES];
         padded_block[..block_end - block_start]
             .copy_from_slice(&chunk_data[block_start..block_end]);
-        let words_vec = emit_message_words(cache, &padded_block)?;
+        let words_vec = emitter.emit_message_words(&padded_block)?;
         let block_words: [Value<'c, 'a>; 16] = words_vec.try_into().expect("exactly sixteen words");
 
         let mut flags = 0u32;
@@ -188,9 +186,9 @@ fn emit_chunk_output<'c, 'a>(
         }
         let is_last = block_index == num_blocks - 1;
         let block_len = if is_last {
-            final_block_len.unwrap_or(cache.u32(BLOCK_BYTES as u32)?)
+            final_block_len.unwrap_or(emitter.u32(BLOCK_BYTES as u32)?)
         } else {
-            cache.u32(BLOCK_BYTES as u32)?
+            emitter.u32(BLOCK_BYTES as u32)?
         };
         if is_last {
             flags |= CHUNK_END;
@@ -203,18 +201,18 @@ fn emit_chunk_output<'c, 'a>(
             });
         }
 
-        cv = emit_compress(cache, &cv, &block_words, chunk_counter, block_len, flags)?;
+        cv = emit_compress(emitter, &cv, &block_words, chunk_counter, block_len, flags)?;
     }
     unreachable!()
 }
 
 fn emit_parent_output<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     key_words: &[Value<'c, 'a>; 8],
     left: &[Value<'c, 'a>; 8],
     right: &[Value<'c, 'a>; 8],
 ) -> Result<EmitOutput<'c, 'a>, Error> {
-    let zero = cache.u32(0)?;
+    let zero = emitter.u32(0)?;
     let mut block_words = [zero; 16];
     block_words[..8].copy_from_slice(left);
     block_words[8..].copy_from_slice(right);
@@ -222,87 +220,87 @@ fn emit_parent_output<'c, 'a>(
         input_cv: *key_words,
         block_words,
         counter: 0,
-        block_len: cache.u32(BLOCK_BYTES as u32)?,
+        block_len: emitter.u32(BLOCK_BYTES as u32)?,
         flags: PARENT,
     })
 }
 
-fn emit_parent_cv<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_parent_cv<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     key_words: &[Value<'c, 'a>; 8],
     left: &[Value<'c, 'a>; 8],
     right: &[Value<'c, 'a>; 8],
 ) -> Result<[Value<'c, 'a>; 8], Error> {
-    let mut block_words = [cache.u32(0)?; 16];
+    let mut block_words = [emitter.u32(0)?; 16];
     block_words[..8].copy_from_slice(left);
     block_words[8..].copy_from_slice(right);
-    let block_len = cache.u32(BLOCK_BYTES as u32)?;
-    emit_compress(cache, key_words, &block_words, 0, block_len, PARENT)
+    let block_len = emitter.u32(BLOCK_BYTES as u32)?;
+    emit_compress(emitter, key_words, &block_words, 0, block_len, PARENT)
 }
 
-fn emit_compress<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_compress<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
     block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 8], Error> {
-    let v = emit_compress_raw(cache, h, m, counter, block_len, flags)?;
+    let v = emit_compress_raw(emitter, h, m, counter, block_len, flags)?;
     let mut result = [v[0]; 8];
     for i in 0..8 {
-        result[i] = emit_xor(cache.block, cache.location, v[i], v[i + 8])?;
+        result[i] = emitter.emit_xor(v[i], v[i + 8])?;
     }
     Ok(result)
 }
 
-fn emit_compress_full<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_compress_full<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
     block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 16], Error> {
-    let v = emit_compress_raw(cache, h, m, counter, block_len, flags)?;
+    let v = emit_compress_raw(emitter, h, m, counter, block_len, flags)?;
     let mut out = [v[0]; 16];
     for i in 0..8 {
-        out[i] = emit_xor(cache.block, cache.location, v[i], v[i + 8])?;
-        out[i + 8] = emit_xor(cache.block, cache.location, v[i + 8], h[i])?;
+        out[i] = emitter.emit_xor(v[i], v[i + 8])?;
+        out[i + 8] = emitter.emit_xor(v[i + 8], h[i])?;
     }
     Ok(out)
 }
 
-fn emit_compress_raw<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_compress_raw<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     h: &[Value<'c, 'a>; 8],
     m: &[Value<'c, 'a>; 16],
     counter: u64,
     block_len: Value<'c, 'a>,
     flags: u32,
 ) -> Result<[Value<'c, 'a>; 16], Error> {
-    let mut v = [cache.u32(0)?; 16];
+    let mut v = [emitter.u32(0)?; 16];
     v[..8].copy_from_slice(h);
     for i in 0..4 {
-        v[8 + i] = cache.u32(IV[i])?;
+        v[8 + i] = emitter.u32(IV[i])?;
     }
     let counter_lo = (counter & 0xFFFF_FFFF) as u32;
     let counter_hi = (counter >> 32) as u32;
-    v[12] = cache.u32(counter_lo)?;
-    v[13] = cache.u32(counter_hi)?;
+    v[12] = emitter.u32(counter_lo)?;
+    v[13] = emitter.u32(counter_hi)?;
     v[14] = block_len;
-    v[15] = cache.u32(flags)?;
+    v[15] = emitter.u32(flags)?;
 
     let mut msg = *m;
     for round in 0..BLAKE3_ROUNDS {
-        emit_g(cache, &mut v, (0, 4, 8, 12), msg[0], msg[1])?;
-        emit_g(cache, &mut v, (1, 5, 9, 13), msg[2], msg[3])?;
-        emit_g(cache, &mut v, (2, 6, 10, 14), msg[4], msg[5])?;
-        emit_g(cache, &mut v, (3, 7, 11, 15), msg[6], msg[7])?;
-        emit_g(cache, &mut v, (0, 5, 10, 15), msg[8], msg[9])?;
-        emit_g(cache, &mut v, (1, 6, 11, 12), msg[10], msg[11])?;
-        emit_g(cache, &mut v, (2, 7, 8, 13), msg[12], msg[13])?;
-        emit_g(cache, &mut v, (3, 4, 9, 14), msg[14], msg[15])?;
+        emit_g(emitter, &mut v, (0, 4, 8, 12), msg[0], msg[1])?;
+        emit_g(emitter, &mut v, (1, 5, 9, 13), msg[2], msg[3])?;
+        emit_g(emitter, &mut v, (2, 6, 10, 14), msg[4], msg[5])?;
+        emit_g(emitter, &mut v, (3, 7, 11, 15), msg[6], msg[7])?;
+        emit_g(emitter, &mut v, (0, 5, 10, 15), msg[8], msg[9])?;
+        emit_g(emitter, &mut v, (1, 6, 11, 12), msg[10], msg[11])?;
+        emit_g(emitter, &mut v, (2, 7, 8, 13), msg[12], msg[13])?;
+        emit_g(emitter, &mut v, (3, 4, 9, 14), msg[14], msg[15])?;
         if round < BLAKE3_ROUNDS - 1 {
             msg = permute_message(&msg);
         }

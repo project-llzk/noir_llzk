@@ -9,13 +9,14 @@
 
 use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::prelude::{
-    FeltType, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef, Type, Value,
-    dialect,
+    dialect::*, FeltType, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef,
+    Type, Value,
 };
 
-use crate::FIELD_NAME;
 use crate::blackboxes::registry::BlackboxFunction;
+use crate::common::as_value;
 use crate::error::Error;
+use crate::FIELD_NAME;
 
 pub(crate) trait Writer<'c, 'a>
 where
@@ -41,18 +42,22 @@ where
         FeltType::with_field(self.context(), FIELD_NAME).into()
     }
 
+    fn builder(&self) -> OpBuilder<'c, '_> {
+        OpBuilder::new(self.context(), self.insertion_point())
+    }
+
     // ── Felt arithmetic ────────────────────────────────────────────────
 
     fn insert_add(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::add(self.location(), lhs, rhs)?)
+        as_value(felt::add(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     fn insert_mul(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::mul(self.location(), lhs, rhs)?)
+        as_value(felt::mul(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     fn insert_div(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::div(self.location(), lhs, rhs)?)
+        as_value(felt::div(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     /// `felt.uintdiv` — unsigned integer division over the felt's integer
@@ -63,12 +68,12 @@ where
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::uintdiv(self.location(), lhs, rhs)?)
+        as_value(felt::uintdiv(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     /// `felt.umod` — same constraints as [`Self::insert_uintdiv`].
     fn insert_umod(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::umod(self.location(), lhs, rhs)?)
+        as_value(felt::umod(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     // ── Felt bitwise ───────────────────────────────────────────────────
@@ -80,7 +85,7 @@ where
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_and(self.location(), lhs, rhs)?)
+        as_value(felt::bit_and(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     fn insert_felt_bit_xor(
@@ -88,7 +93,7 @@ where
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_xor(self.location(), lhs, rhs)?)
+        as_value(felt::bit_xor(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     // ── Bool comparisons ───────────────────────────────────────────────
@@ -98,7 +103,7 @@ where
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::lt(self.location(), lhs, rhs)?)
+        as_value(bool::lt(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     fn insert_bool_eq(
@@ -106,26 +111,32 @@ where
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::eq(self.location(), lhs, rhs)?)
+        as_value(bool::eq(&self.builder(), self.location(), lhs, rhs)?)
     }
 
     fn insert_bool_assert(&self, cond: Value<'c, 'a>) -> Result<(), Error> {
-        self.insert_op(dialect::bool::assert(self.location(), cond, None)?);
+        bool::assert(&self.builder(), self.location(), cond, None)?;
         Ok(())
     }
 
     // ── Misc ───────────────────────────────────────────────────────────
 
     fn insert_nondet(&self, result_type: Type<'c>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::llzk::nondet(self.location(), result_type))
+        as_value(llzk::nondet(&self.builder(), self.location(), result_type))
     }
 
     fn insert_cast_to_index(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::cast::toindex(self.location(), val))
+        as_value(cast::toindex(
+            &self.builder(),
+            self.location(),
+            val,
+            None, // TODO: What are the overflow semantics of Noir?
+        ))
     }
 
     fn insert_cast_to_felt(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::cast::tofelt(
+        as_value(cast::tofelt(
+            &self.builder(),
             self.location(),
             val,
             Some(FeltType::with_field(self.context(), FIELD_NAME)),
@@ -141,7 +152,7 @@ where
         args: &[Value<'c, 'a>],
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
-        let call_op = dialect::function::call(
+        let call_op = function::call(
             &OpBuilder::new(self.context(), self.insertion_point()),
             self.location(),
             FlatSymbolRefAttribute::new(self.context(), name),

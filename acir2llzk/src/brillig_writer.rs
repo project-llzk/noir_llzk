@@ -8,17 +8,18 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::builder::{BlockInsertPointLike, EntryPoint};
+use llzk::builder::{BlockInsertPointLike, EntryPoint, OpBuilder};
+use llzk::prelude::dialect::{bool, cast, felt, ram};
 use llzk::prelude::melior_dialects::{arith, scf};
 use llzk::prelude::{
-    Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationRef, Region, RegionLike, Type, Value, ValueLike, dialect,
+    dialect, Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location,
+    Operation, OperationRef, Region, RegionLike, Type, Value, ValueLike,
 };
 
-use crate::FIELD_NAME;
-use crate::common::field_to_felt_const;
+use crate::common::{as_value, field_to_felt_const};
 use crate::error::Error;
 use crate::writer::Writer;
+use crate::FIELD_NAME;
 
 /// Treats any type whose textual form starts with `!felt.` as a felt type.
 pub(crate) fn is_felt_type(ty: Type<'_>) -> bool {
@@ -65,15 +66,18 @@ impl<'c, 'a> Writer<'c, 'a> for BrilligWriter<'c, 'a> {
     fn insertion_point(&self) -> EntryPoint<'c, 'a> {
         self.current_block.at_end()
     }
+
+    fn builder(&self) -> OpBuilder<'c, '_> {
+        OpBuilder::new(self.context, self.insertion_point())
+    }
 }
 
 impl<'c, 'a> BrilligWriter<'c, 'a> {
-    pub(crate) fn new(context: &'c LlzkContext, block: &'a Block<'c>) -> Self {
-        let block_ref = unsafe { BlockRef::from_raw(block.to_raw()) };
+    pub(crate) fn new(context: &'c LlzkContext, block: BlockRef<'c, 'a>) -> Self {
         Self {
             context,
-            current_block: block_ref,
-            constants_block: block_ref,
+            current_block: block,
+            constants_block: block,
             location: Location::unknown(context),
             constant_cache: HashMap::new(),
             integer_cache: HashMap::new(),
@@ -112,7 +116,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::sub(self.location, lhs, rhs)?)
+        as_value(felt::sub(&self.builder(), self.location, lhs, rhs)?)
     }
 
     // ── Felt bitwise / shifts (BrilligWriter-only) ─────────────────────
@@ -126,7 +130,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::bit_or(self.location, lhs, rhs)?)
+        as_value(felt::bit_or(&self.builder(), self.location, lhs, rhs)?)
     }
 
     /// Emits `felt.shl lhs, rhs`.
@@ -135,7 +139,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::shl(self.location, lhs, rhs)?)
+        as_value(felt::shl(&self.builder(), self.location, lhs, rhs)?)
     }
 
     /// Emits `felt.shr lhs, rhs`.
@@ -144,7 +148,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::shr(self.location, lhs, rhs)?)
+        as_value(felt::shr(&self.builder(), self.location, lhs, rhs)?)
     }
 
     // ── Bool comparisons (BrilligWriter-only) ──────────────────────────
@@ -155,7 +159,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::le(self.location, lhs, rhs)?)
+        as_value(bool::le(&self.builder(), self.location, lhs, rhs)?)
     }
 
     /// Emits `bool.cmp gt(lhs, rhs)`.
@@ -164,12 +168,12 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::gt(self.location, lhs, rhs)?)
+        as_value(bool::gt(&self.builder(), self.location, lhs, rhs)?)
     }
 
     /// Emits `bool.not cond`.
     pub(crate) fn insert_bool_not(&self, cond: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::not(self.location, cond)?)
+        as_value(bool::not(&self.builder(), self.location, cond)?)
     }
 
     /// Emits `bool.and lhs, rhs`.
@@ -178,7 +182,7 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
         lhs: Value<'c, 'a>,
         rhs: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::bool::and(self.location, lhs, rhs)?)
+        as_value(bool::and(&self.builder(), self.location, lhs, rhs)?)
     }
 
     /// Materialises `val` (a felt holding `0` or `1`) as an `i1` via
@@ -197,7 +201,12 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// result of `bool.cmp`) to the circuit's felt type.
     pub(crate) fn insert_cast_to_felt(&self, val: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         let felt_ty = FeltType::with_field(self.context, FIELD_NAME);
-        self.insert_op_with_result(dialect::cast::tofelt(self.location, val, Some(felt_ty)))
+        as_value(cast::tofelt(
+            &self.builder(),
+            self.location,
+            val,
+            Some(felt_ty),
+        ))
     }
 
     /// Converts `val` to `index` type for `ram.load` / `ram.store` addresses.
@@ -259,14 +268,19 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
     /// `addr` must be index-typed. RAM cells always hold felts.
     pub(crate) fn insert_ram_load(&self, addr: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
         let felt_ty = FeltType::with_field(self.context, FIELD_NAME);
-        self.insert_op_with_result(dialect::ram::load(self.location, addr, Some(felt_ty)))
+        as_value(ram::load(
+            &self.builder(),
+            self.location,
+            addr,
+            Some(felt_ty),
+        ))
     }
 
     /// Emits `ram.store %addr, %val : type(val)`.
     ///
     /// `addr` must be index-typed.
     pub(crate) fn insert_ram_store(&self, addr: Value<'c, 'a>, val: Value<'c, 'a>) {
-        self.insert_op(dialect::ram::store(self.location, addr, val));
+        ram::store(&self.builder(), self.location, addr, val);
     }
 
     // ── Structured control flow ────────────────────────────────────────
@@ -407,10 +421,11 @@ impl<'c, 'a> BrilligWriter<'c, 'a> {
             return Ok(val);
         }
         let attr = field_to_felt_const(self.context, fe);
-        let op = self
-            .constants_block
-            .append_operation(dialect::felt::constant(self.location, attr)?);
-        let val: Value<'c, 'a> = op.result(0)?.into();
+        let val = as_value(felt::constant(
+            &OpBuilder::new(self.context, self.constants_block.at_end()),
+            self.location,
+            attr,
+        )?)?;
         self.constant_cache.insert(*fe, val);
         Ok(val)
     }

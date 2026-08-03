@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 
 use acir::native_types::Witness;
+use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::dialect::array::ArrayType;
+use llzk::prelude::dialect::r#struct;
+use llzk::prelude::{dialect, FeltType, LlzkContext, Location, StructDefOp, Type, Value};
 use llzk::prelude::{BlockLike, StructDefOpLike};
-use llzk::prelude::{FeltType, LlzkContext, Location, StructDefOp, Type, Value, dialect};
 
-use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
+use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, FIELD_NAME};
 
 /// Translates an ACIR `MemoryInit` opcode.
 ///
@@ -51,14 +53,16 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
         let location = Location::unknown(context);
         let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
         let array_type = ArrayType::new_with_dims(felt_type, &[self.init.len() as i64]);
-        let member = dialect::r#struct::member(
+        let builder = OpBuilder::new(context, EntryPoint::End(struct_def.body()));
+        r#struct::member(
+            &builder,
             location,
             &format!("mem{}", self.block_id),
             array_type,
+            true,
             false,
             false,
         )?;
-        struct_def.body().append_operation(member.into());
         Ok(())
     }
 
