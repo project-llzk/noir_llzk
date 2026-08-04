@@ -49,8 +49,8 @@ pub(in crate::blackboxes) fn emit_aes128_helper<'c>(
     function.set_allow_non_native_field_ops_attr(true);
 
     let plaintext = block_args_slice(block, 0..num_inputs)?;
-    let iv = block_args::<AES_BLOCK_SIZE>(&block, num_inputs)?;
-    let key = block_args::<AES_BLOCK_SIZE>(&block, num_inputs + AES_BLOCK_SIZE)?;
+    let iv = block_args::<AES_BLOCK_SIZE>(block, num_inputs)?;
+    let key = block_args::<AES_BLOCK_SIZE>(block, num_inputs + AES_BLOCK_SIZE)?;
 
     let mut emitter = WordArithEmitter::new(block, context, location);
     let sbox_array = emit_sbox_array(&mut emitter)?;

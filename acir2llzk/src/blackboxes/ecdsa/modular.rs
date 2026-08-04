@@ -1,5 +1,7 @@
+use std::marker::PhantomData;
+
 use acir::{AcirField, FieldElement};
-use llzk::builder::{BlockInsertPointLike, OpBuilder};
+use llzk::builder::{BlockInsertPointLike, OpBuilder, OpBuilderLike};
 use llzk::prelude::dialect::{array, bool, cast, felt, function};
 use llzk::prelude::{
     dialect, Block, BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, FuncDefOp,
@@ -280,6 +282,27 @@ fn append_mul_mod_n_helper_call<'c: 'a, 'a>(
     }
 }
 
+struct AppendMulModNBarrett<C>(PhantomData<C>);
+
+impl<C: Curve> TwoInOneHelper for AppendMulModNBarrett<C> {
+    fn emit<'c: 'a, 'a>(
+        self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        lhs: Limbs<'c, 'a>,
+        rhs: Limbs<'c, 'a>,
+    ) -> LimbsResult<'c, 'a> {
+        append_mul_mod_n_barrett(builder, context, location, &lhs, &rhs, &C::N)
+    }
+}
+
+impl<C> Default for AppendMulModNBarrett<C> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
 fn emit_mul_mod_n_helper_for<'c: 'a, 'a, C: Curve>(
     context: &'c LlzkContext,
     block: BlockRef<'c, 'a>,
@@ -288,8 +311,29 @@ fn emit_mul_mod_n_helper_for<'c: 'a, 'a, C: Curve>(
         context,
         block,
         C::MUL_MOD_N_NAME,
-        |builder, ctx, loc, lhs, rhs| append_mul_mod_n_barrett(builder, ctx, loc, lhs, rhs, &C::N),
+        AppendMulModNBarrett::<C>::default(),
     )
+}
+
+struct AppendMulModPInline<C>(PhantomData<C>);
+
+impl<C: Curve> TwoInOneHelper for AppendMulModPInline<C> {
+    fn emit<'c: 'a, 'a>(
+        self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        lhs: Limbs<'c, 'a>,
+        rhs: Limbs<'c, 'a>,
+    ) -> LimbsResult<'c, 'a> {
+        C::append_mul_mod_p_inline(builder, context, location, &lhs, &rhs)
+    }
+}
+
+impl<C> Default for AppendMulModPInline<C> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
 }
 
 fn emit_mul_mod_p_helper_for<'c, C: Curve>(
@@ -300,71 +344,81 @@ fn emit_mul_mod_p_helper_for<'c, C: Curve>(
         context,
         block,
         C::MUL_MOD_P_NAME,
-        C::append_mul_mod_p_inline,
+        AppendMulModPInline::<C>::default(),
     )
 }
 
-fn emit_inv_mod_helper_for<'c>(
+fn emit_inv_mod_helper_for<'c: 'a, 'a>(
     context: &'c LlzkContext,
-    block: BlockRef<'c, '_>,
+    block: BlockRef<'c, 'a>,
     helper_name: &str,
     modulus: &[u64; LIMBS],
 ) -> Result<(), Error> {
-    emit_one_in_one_out_helper(context, block, helper_name, |builder, ctx, loc, a| {
-        append_inv_mod_n_barrett(builder, ctx, loc, a, modulus)
-    })
+    emit_one_in_one_out_helper(
+        context,
+        block,
+        helper_name,
+        AppendInvModNBarrett { modulus: *modulus },
+    )
 }
 
-fn emit_two_in_one_out_helper<'c, F>(
-    context: &'c LlzkContext,
-    block: BlockRef<'c, '_>,
+type Limbs<'c, 'a> = [Value<'c, 'a>; LIMBS];
+type LimbsResult<'c, 'a> = Result<Limbs<'c, 'a>, Error>;
+
+trait TwoInOneHelper {
+    fn emit<'c: 'a, 'a>(
+        self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        lhs: Limbs<'c, 'a>,
+        rhs: Limbs<'c, 'a>,
+    ) -> LimbsResult<'c, 'a>;
+}
+
+fn emit_two_in_one_out_helper<'ctx: 'body, 'l, 'body, 'module: 'body>(
+    context: &'ctx LlzkContext,
+    block: BlockRef<'ctx, 'module>,
     helper_name: &str,
-    body: F,
-) -> Result<(), Error>
-where
-    F: for<'a> FnOnce(
-        &OpBuilder<'c, '_>,
-        &'c LlzkContext,
-        Location<'c>,
-        &[Value<'c, 'a>; LIMBS],
-        &[Value<'c, 'a>; LIMBS],
-    ) -> Result<[Value<'c, 'a>; LIMBS], Error>,
-{
+    body: impl TwoInOneHelper,
+) -> Result<(), Error> {
     let location = Location::unknown(context);
     let (function, block) =
         create_helper_function(context, block, location, helper_name, 2 * LIMBS, LIMBS)?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let lhs: [Value; LIMBS] = block_args::<LIMBS>(&block, 0)?;
-    let rhs: [Value; LIMBS] = block_args::<LIMBS>(&block, LIMBS)?;
+    let lhs = block_args::<LIMBS>(block, 0)?;
+    let rhs = block_args::<LIMBS>(block, LIMBS)?;
     let builder = OpBuilder::at_block_end(context, block);
-    let result = body(&builder, context, location, &lhs, &rhs)?;
+    let result = body.emit(&builder, context, location, lhs, rhs)?;
     function::r#return(&builder, location, &result);
     Ok(())
 }
 
-fn emit_one_in_one_out_helper<'c, F>(
-    context: &'c LlzkContext,
-    block: BlockRef<'c, '_>,
+trait OneInOneHelper {
+    fn emit<'c: 'a, 'a>(
+        self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        val: Limbs<'c, 'a>,
+    ) -> LimbsResult<'c, 'a>;
+}
+
+fn emit_one_in_one_out_helper<'ctx: 'module, 'body, 'module: 'body>(
+    context: &'ctx LlzkContext,
+    block: BlockRef<'ctx, 'module>,
     helper_name: &str,
-    body: F,
-) -> Result<(), Error>
-where
-    F: for<'a> FnOnce(
-        &OpBuilder<'c, '_>,
-        &'c LlzkContext,
-        Location<'c>,
-        &[Value<'c, 'a>; LIMBS],
-    ) -> Result<[Value<'c, 'a>; LIMBS], Error>,
-{
+    body: impl OneInOneHelper,
+) -> Result<(), Error> {
     let location = Location::unknown(context);
     let (function, block) =
         create_helper_function(context, block, location, helper_name, LIMBS, LIMBS)?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let a: [Value; LIMBS] = block_args::<LIMBS>(&block, 0)?;
+    let a = block_args::<LIMBS>(block, 0)?;
     let builder = OpBuilder::at_block_end(context, block);
-    let result = body(&builder, context, location, &a)?;
+    let result = body.emit(&builder, context, location, a)?;
     function::r#return(&builder, location, &result);
     Ok(())
 }
@@ -566,6 +620,22 @@ pub(super) fn append_dbl_p<'c: 'a, 'a, C: Curve>(
     a: &[Value<'c, 'a>; LIMBS],
 ) -> Result<[Value<'c, 'a>; LIMBS], Error> {
     append_add_mod_n(builder, context, location, a, a, &C::P)
+}
+
+struct AppendInvModNBarrett {
+    modulus: [u64; LIMBS],
+}
+
+impl OneInOneHelper for AppendInvModNBarrett {
+    fn emit<'c: 'a, 'a>(
+        self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        val: Limbs<'c, 'a>,
+    ) -> LimbsResult<'c, 'a> {
+        append_inv_mod_n_barrett(builder, context, location, &val, &self.modulus)
+    }
 }
 
 /// Deterministic `a^(n-2) mod n` for a generic 256-bit modulus `n` via

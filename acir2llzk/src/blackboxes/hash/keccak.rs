@@ -71,7 +71,7 @@ pub(in crate::blackboxes) fn emit_keccak_helper<'c>(
     )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let state: [Value<'c, '_>; KECCAK_STATE_WORDS] = block_args(&block, 0)?;
+    let state: [Value<'c, '_>; KECCAK_STATE_WORDS] = block_args(block, 0)?;
 
     let mut cache = WordArithEmitter::new(block, context, location);
     let outputs = emit_keccak_permutation(&mut cache, &state)?;

@@ -43,7 +43,7 @@ pub(super) fn felt_type<'c>(context: &'c LlzkContext) -> Type<'c> {
 }
 
 pub(super) fn block_args<'c, 'a, const N: usize>(
-    block: &'a Block<'c>,
+    block: BlockRef<'c, 'a>,
     offset: usize,
 ) -> Result<[Value<'c, 'a>; N], Error> {
     let vec: Vec<Value<'c, 'a>> = (0..N)
@@ -58,14 +58,14 @@ pub(super) fn block_args<'c, 'a, const N: usize>(
 }
 
 /// Creates an empty helper function that maps N felt inputs to M felt outputs.
-pub(super) fn create_helper_function<'c, 'a>(
+pub(super) fn create_helper_function<'c: 'a, 'a: 'b, 'b>(
     context: &'c LlzkContext,
     block: BlockRef<'c, 'a>,
     location: Location<'c>,
     name: &str,
     inputs: usize,
     outputs: usize,
-) -> Result<(FuncDefOpRef<'c, 'a>, BlockRef<'c, 'a>), Error> {
+) -> Result<(FuncDefOpRef<'c, 'a>, BlockRef<'c, 'b>), Error> {
     let felt = Type::from(context.felt_type());
     let function = function::def(
         &OpBuilder::at_block_end(context, block),

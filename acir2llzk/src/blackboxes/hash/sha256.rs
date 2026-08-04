@@ -50,8 +50,8 @@ pub(in crate::blackboxes) fn emit_sha256_helper<'c, 'b>(
     )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let msg: [Value<'c, '_>; SHA256_MESSAGE_WORDS] = block_args(&block, 0)?;
-    let state: [Value<'c, '_>; SHA256_STATE_WORDS] = block_args(&block, SHA256_MESSAGE_WORDS)?;
+    let msg: [Value<'c, '_>; SHA256_MESSAGE_WORDS] = block_args(block, 0)?;
+    let state: [Value<'c, '_>; SHA256_STATE_WORDS] = block_args(block, SHA256_MESSAGE_WORDS)?;
 
     let mut emitter = WordArithEmitter::new(block, context, location);
     let outputs = emit_sha256_compress(&mut emitter, &msg, &state)?;
