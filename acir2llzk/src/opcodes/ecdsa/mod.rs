@@ -3,10 +3,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use crate::{
@@ -15,8 +15,8 @@ use crate::{
     common::constrain_bool,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_input_witness, constrain_inputs_width, validate_byte_input,
-        validate_constant_fits,
+        collect_input_witness, constrain_inputs_width, validate_byte_input, validate_constant_fits,
+        OpcodeEmitter,
     },
     writer::Writer,
 };

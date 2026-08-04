@@ -15,7 +15,10 @@ pub(crate) mod sha256;
 use std::collections::BTreeSet;
 
 use acir::{circuit::opcodes::FunctionInput, native_types::Witness, AcirField, FieldElement};
-use llzk::prelude::{LlzkContext, OperationRef, StructDefOpRef, Value};
+use llzk::{
+    builder::OpBuilder,
+    prelude::{LlzkContext, OperationRef, Value},
+};
 
 use crate::{block_writer::BlockWriter, error::Error, writer::Writer};
 
@@ -38,7 +41,7 @@ pub(crate) trait OpcodeEmitter {
     fn emit_member<'c>(
         &self,
         _context: &'c LlzkContext,
-        _builder: StructDefOpRef<'c, '_>,
+        _builder: &OpBuilder<'c, '_>,
     ) -> Result<(), Error> {
         Ok(())
     }

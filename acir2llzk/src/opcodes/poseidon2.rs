@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use llzk::prelude::Value;
@@ -13,7 +13,7 @@ use crate::{
     blackboxes::{hash::poseidon2::STATE_WIDTH, registry::BlackboxFunction},
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness},
+    opcodes::{collect_input_witness, OpcodeEmitter},
     writer::Writer,
 };
 

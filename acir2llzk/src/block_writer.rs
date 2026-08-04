@@ -1,16 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
-use acir::circuit::opcodes::FunctionInput;
-use acir::{AcirField, FieldElement};
+use acir::{circuit::opcodes::FunctionInput, AcirField, FieldElement};
 use llzk::{
     builder::{EntryPoint, OpBuilder},
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
         dialect::{array, constrain, felt, function, r#struct},
         melior_dialects::arith,
-        BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-        OperationLike, OperationRef, RegionLike, StructDefOpLike, StructDefOpRef, StructType,
-        SymbolRefAttribute, Type, Value, ValueLike,
+        BlockLike, BlockRef, FeltType, FuncDefOpRef, IntegerAttribute, LlzkContext, Location,
+        Operation, OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type,
+        Value, ValueLike,
     },
 };
 
@@ -117,12 +116,9 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Creates a writer targeting the `@compute` function of the given struct.
     pub(crate) fn for_compute(
         context: &'c LlzkContext,
-        struct_def: StructDefOpRef<'c, '_>,
+        compute: FuncDefOpRef<'c, 'a>,
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
-        let compute = struct_def
-            .compute_func()
-            .expect("Struct should have @compute");
         let block = compute.region(0)?.first_block().unwrap();
 
         // The first operation in compute is `struct.new`, its result is %self.
@@ -136,12 +132,9 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Creates a writer targeting the `@constrain` function of the given struct.
     pub(crate) fn for_constrain(
         context: &'c LlzkContext,
-        struct_def: StructDefOpRef<'c, '_>,
+        constrain: FuncDefOpRef<'c, 'a>,
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
-        let constrain = struct_def
-            .constrain_func()
-            .expect("Struct should have @constrain");
         let block = constrain.region(0)?.first_block().unwrap();
 
         // @constrain argument 0 is %self — inputs start at argument 1.

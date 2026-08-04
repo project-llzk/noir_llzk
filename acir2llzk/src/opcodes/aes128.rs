@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use crate::{
@@ -12,8 +12,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
-        validate_byte_input, write_digest_outputs,
+        collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
+        validate_byte_input, write_digest_outputs, OpcodeEmitter,
     },
     writer::Writer,
 };
@@ -74,6 +74,46 @@ impl Aes128Encrypt<'_> {
     }
 }
 
+//impl<'a> TryFrom<&'a Opcode<FieldElement>> for Option<Aes128Encrypt<'a>> {
+//    type Error = Error;
+//
+//    fn try_from(opcode: &'a Opcode<FieldElement>) -> Result<Self, Self::Error> {
+//        match opcode {
+//            Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AES128Encrypt {
+//                inputs,
+//                iv,
+//                key,
+//                outputs,
+//            }) => {
+//                if inputs.len() % AES_BLOCK_SIZE != 0 {
+//                    return Err(Error::UnsupportedOpcode(format!(
+//                        "AES128Encrypt input length {} is not a multiple of {AES_BLOCK_SIZE}",
+//                        inputs.len(),
+//                    )));
+//                }
+//                if outputs.len() != inputs.len() {
+//                    return Err(Error::UnsupportedOpcode(format!(
+//                        "AES128Encrypt output length {} doesn't match input length {}",
+//                        outputs.len(),
+//                        inputs.len(),
+//                    )));
+//                }
+//                for input in inputs.iter().chain(iv.iter()).chain(key.iter()) {
+//                    validate_byte_input(input)?;
+//                }
+//                Ok(Some(Aes128Encrypt {
+//                    inputs,
+//                    iv,
+//                    key,
+//                    outputs,
+//                }))
+//            }
+//            _ => Ok(None),
+//        }
+//    }
+//}
+
+//#[deprecated]
 pub(crate) fn from_opcode<'a>(
     opcode: &'a Opcode<FieldElement>,
 ) -> Result<Option<Aes128Encrypt<'a>>, Error> {

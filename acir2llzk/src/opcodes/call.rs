@@ -2,8 +2,7 @@ use ::llzk::{
     builder::OpBuilder,
     prelude::{
         dialect::{r#struct, *},
-        LlzkContext, Location, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute,
-        Type, Value,
+        LlzkContext, Location, StructType, SymbolRefAttribute, Type, Value,
     },
 };
 use acir::{
@@ -24,8 +23,6 @@ use crate::{
 };
 
 pub(crate) struct Call<'p> {
-    /// Position of this opcode in the caller's opcode list — used as the subcircuit suffix.
-    index: usize,
     /// Callee circuit index in the program (from `AcirFunctionId.0`).
     callee_id: u32,
     /// Caller witness indices passed positionally as callee input parameters.
@@ -37,6 +34,8 @@ pub(crate) struct Call<'p> {
     callee: &'p Circuit<FieldElement>,
 
     predicate: &'p Expression<FieldElement>,
+    callee_name: String,
+    member_name: String,
 }
 
 impl<'p> Call<'p> {
@@ -49,13 +48,22 @@ impl<'p> Call<'p> {
         predicate: &'p Expression<FieldElement>,
     ) -> Self {
         Self {
-            index,
             callee_id,
             inputs,
             outputs,
             callee,
             predicate,
+            callee_name: format!("Circuit{}", callee_id),
+            member_name: format!("subcircuit_{}", index),
         }
+    }
+
+    fn callee_name(&self) -> &str {
+        &self.callee_name
+    }
+
+    fn member_name(&self) -> &str {
+        &self.member_name
     }
 }
 
@@ -75,14 +83,13 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_member<'c>(
         &self,
         context: &'c LlzkContext,
-        struct_def: StructDefOpRef<'c, '_>,
+        builder: &OpBuilder<'c, '_>,
     ) -> Result<(), Error> {
-        let builder = OpBuilder::at_block_end(context, struct_def.body());
         r#struct::member(
-            &builder,
+            builder,
             Location::unknown(context),
-            &format!("subcircuit_{}", self.index),
-            StructType::from_str(context, &format!("Circuit{}", self.callee_id)),
+            self.member_name(),
+            StructType::from_str(context, self.callee_name()),
             false,
             false,
             false,
@@ -108,14 +115,14 @@ impl<'p> OpcodeEmitter for Call<'p> {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct.
-        let callee_struct_type = writer.struct_type(&callee_name);
+        let callee_struct_type = writer.struct_type(self.callee_name());
         let callee_val: Value<'c, 'b> = writer
             .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
             .result(0)?
             .into();
 
         // Store callee struct as subcircuit member.
-        writer.write_member(&format!("subcircuit_{}", self.index), callee_val)?;
+        writer.write_member(self.member_name(), callee_val)?;
 
         let pred_val = if is_trivial_predicate(self.predicate) {
             None
@@ -147,8 +154,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
     /// 4. Constrains output witnesses against callee return values, gated by the predicate.
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let trivial = is_trivial_predicate(self.predicate);
-        let callee_name = format!("Circuit{}", self.callee_id);
-        let callee_struct_type = writer.struct_type(&callee_name);
+        let callee_struct_type = writer.struct_type(self.callee_name());
         let context = writer.context();
         let location = writer.location();
 
@@ -163,7 +169,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Read the stored subcomponent from %self.
         let callee_val: Value<'c, 'b> =
-            writer.read_self_member(callee_struct_type, &format!("subcircuit_{}", self.index))?;
+            writer.read_self_member(callee_struct_type, self.member_name())?;
 
         // Build args: callee struct first, then caller input witnesses.
         let mut arg_vals = vec![callee_val];
@@ -178,7 +184,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
             function::call(
                 builder,
                 location,
-                SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
+                SymbolRefAttribute::new_from_str(context, self.callee_name(), &["constrain"]),
                 &arg_vals,
                 &[] as &[Type<'c>],
             )?;

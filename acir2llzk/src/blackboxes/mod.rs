@@ -5,18 +5,19 @@ pub(crate) mod grumpkin;
 pub(crate) mod hash;
 pub(crate) mod registry;
 
-use acir::{FieldElement, circuit::Opcode};
+use acir::{circuit::Opcode, FieldElement};
 
 use crate::{
     error::Error,
     opcodes::{
-        TranslatedOpcode, aes128, bitwise, blake2s, blake3, ecdsa as ecdsa_opcodes,
-        grumpkin as grumpkin_opcodes, keccak, poseidon2, sha256,
+        aes128, bitwise, blake2s, blake3, ecdsa as ecdsa_opcodes, grumpkin as grumpkin_opcodes,
+        keccak, poseidon2, sha256, TranslatedOpcode,
     },
 };
 
 /// Dispatches a [`BlackBoxFuncCall`](acir::circuit::opcodes::BlackBoxFuncCall) opcode
 /// to its handler.
+//#[deprecated]
 pub(crate) fn build_blackbox_handler<'a>(
     opcode: &'a Opcode<FieldElement>,
 ) -> Result<Option<TranslatedOpcode<'a>>, Error> {

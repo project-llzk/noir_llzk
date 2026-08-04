@@ -4,10 +4,7 @@ use acir::native_types::Witness;
 use llzk::{
     builder::OpBuilder,
     dialect::array::ArrayType,
-    prelude::{
-        dialect::r#struct, FeltType, LlzkContext, Location, StructDefOpLike, StructDefOpRef, Type,
-        Value,
-    },
+    prelude::{dialect::r#struct, FeltType, LlzkContext, Location, Type, Value},
 };
 
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, FIELD_NAME};
@@ -51,14 +48,13 @@ impl<'p> OpcodeEmitter for MemoryInit<'p> {
     fn emit_member<'c>(
         &self,
         context: &'c LlzkContext,
-        struct_def: StructDefOpRef<'c, '_>,
+        builder: &OpBuilder<'c, '_>,
     ) -> Result<(), Error> {
         let location = Location::unknown(context);
         let felt_type: Type<'c> = FeltType::with_field(context, FIELD_NAME).into();
         let array_type = ArrayType::new_with_dims(felt_type, &[self.init.len() as i64]);
-        let builder = OpBuilder::at_block_end(context, struct_def.body());
         r#struct::member(
-            &builder,
+            builder,
             location,
             &format!("mem{}", self.block_id),
             array_type,
