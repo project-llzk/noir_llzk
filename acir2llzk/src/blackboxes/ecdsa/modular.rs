@@ -1,20 +1,20 @@
 use std::marker::PhantomData;
 
 use acir::{AcirField, FieldElement};
-use llzk::builder::{BlockInsertPointLike, OpBuilder, OpBuilderLike};
-use llzk::prelude::dialect::{array, bool, cast, felt, function};
-use llzk::prelude::{
-    dialect, Block, BlockLike, BlockRef, FeltType, FlatSymbolRefAttribute, FuncDefOp,
-    FuncDefOpLike, FunctionType, LlzkContext, Location, OperationLike, RegionLike, Value,
+use llzk::{
+    builder::OpBuilder,
+    prelude::{
+        dialect::{bool, cast, felt, function},
+        BlockRef, FlatSymbolRefAttribute, FuncDefOpLike, LlzkContext, Location, OperationLike,
+        Value,
+    },
 };
 
-use crate::blackboxes::common::create_helper_function;
-use crate::common::as_value;
 use crate::{
-    blackboxes::common::{block_args, felt_type},
+    blackboxes::common::{block_args, create_helper_function},
+    common::as_value,
     error::Error,
     multiprec::LIMBS,
-    FIELD_NAME,
 };
 
 use super::{
@@ -22,8 +22,8 @@ use super::{
     curve::{Curve, Secp256k1, Secp256r1},
     limbs::{
         append_felt_constant, append_limbs_add_with_carry, append_limbs_lt_bool,
-        append_limbs_mul_wide, append_limbs_sub_with_borrow, append_not_bit, append_op_with_result,
-        append_select_limbs, append_split_low_64, two_pow_64,
+        append_limbs_mul_wide, append_limbs_sub_with_borrow, append_not_bit, append_select_limbs,
+        append_split_low_64, two_pow_64,
     },
 };
 

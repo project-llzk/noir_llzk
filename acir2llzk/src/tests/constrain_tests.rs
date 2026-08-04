@@ -1,16 +1,21 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
-use llzk::prelude::{LlzkContext, OperationLike, RegionLike, StructDefOpLike};
+use llzk::prelude::{
+    dialect::constrain, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
+    StructDefOpLike, StructDefOpRef,
+};
 
-use super::{make_circuit_with_opcodes, translate_single_circuit, verify_struct_in_module};
+use crate::tests::print_and_verify_module;
+
+use super::{make_circuit_with_opcodes, translate_single_circuit};
 
 /// Count the number of `constrain.eq` operations in the constrain function.
-fn count_constrain_eq_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
+fn count_constrain_eq_ops(struct_def: &StructDefOpRef) -> usize {
     let constrain = struct_def.constrain_func().expect("Should have @constrain");
     let block = constrain.region(0).unwrap().first_block().unwrap();
     super::iter_block_ops(block)
-        .filter(llzk::prelude::dialect::constrain::is_constrain_eq)
+        .filter(constrain::is_eq_op)
         .count()
 }
 
@@ -18,6 +23,7 @@ fn count_constrain_eq_ops(struct_def: &llzk::prelude::StructDefOp) -> usize {
 #[test]
 fn assert_zero_linear_only() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let expr = Expression {
         mul_terms: vec![],
         linear_combinations: vec![
@@ -27,51 +33,54 @@ fn assert_zero_linear_only() {
         q_c: -FieldElement::from(10u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
-    verify_struct_in_module(&context, struct_def, "assert_zero_linear_only");
+    print_and_verify_module(&module, "assert_zero_linear_only");
 }
 
 /// `x * x - 9 = 0` → mul term with same witness both sides (squaring)
 #[test]
 fn assert_zero_squaring() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let expr = Expression {
         mul_terms: vec![(FieldElement::one(), Witness(0), Witness(0))],
         linear_combinations: vec![],
         q_c: -FieldElement::from(9u128),
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
-    verify_struct_in_module(&context, struct_def, "assert_zero_squaring");
+    print_and_verify_module(&module, "assert_zero_squaring");
 }
 
 /// `2*x*y + 3*x - 7 = 0` → mixed mul and linear with non-unit coefficients
 #[test]
 fn assert_zero_mixed_coefficients() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let expr = Expression {
         mul_terms: vec![(FieldElement::from(2u128), Witness(0), Witness(1))],
         linear_combinations: vec![(FieldElement::from(3u128), Witness(0))],
         q_c: -FieldElement::from(7u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 1);
 
-    verify_struct_in_module(&context, struct_def, "assert_zero_mixed_coefficients");
+    print_and_verify_module(&module, "assert_zero_mixed_coefficients");
 }
 
 /// Multiple `AssertZero` opcodes → multiple constraint sequences in the same @constrain body
 #[test]
 fn multiple_assert_zero_opcodes() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let expr1 = Expression {
         mul_terms: vec![(FieldElement::one(), Witness(0), Witness(1))],
         linear_combinations: vec![],
@@ -92,17 +101,18 @@ fn multiple_assert_zero_opcodes() {
         &[],
         vec![Opcode::AssertZero(expr1), Opcode::AssertZero(expr2)],
     );
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     assert_eq!(count_constrain_eq_ops(&struct_def), 2);
 
-    verify_struct_in_module(&context, struct_def, "multiple_assert_zero_opcodes");
+    print_and_verify_module(&module, "multiple_assert_zero_opcodes");
 }
 
 /// Coefficient of -1 uses felt.neg optimization
 #[test]
 fn assert_zero_neg_one_coefficient() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let expr = Expression {
         mul_terms: vec![],
         linear_combinations: vec![
@@ -112,9 +122,8 @@ fn assert_zero_neg_one_coefficient() {
         q_c: FieldElement::zero(),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    translate_single_circuit(&context, circuit, module.body()).unwrap();
 
-    let module = super::wrap_struct_in_module(&context, struct_def);
     let ir = format!("{}", module.as_operation());
     println!("neg_one_coefficient:\n{ir}");
     assert!(

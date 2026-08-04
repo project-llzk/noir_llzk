@@ -1,22 +1,20 @@
 use acir::{AcirField, FieldElement};
-use llzk::builder::{OpBuilder, OpBuilderLike as _};
-use llzk::dialect::llzk::LoopBoundsAttribute;
-use llzk::prelude::dialect::{bool, felt};
-use llzk::prelude::melior_dialects::scf;
-use llzk::prelude::{
-    dialect, Block, BlockLike, LlzkContext, Location, OperationMutLike, OperationRef, Region,
-    RegionLike, Value,
+use llzk::{
+    builder::{OpBuilder, OpBuilderLike as _},
+    dialect::llzk::LoopBoundsAttribute,
+    prelude::{
+        dialect::{bool, felt},
+        melior_dialects::scf,
+        Block, BlockLike, LlzkContext, Location, OperationMutLike, OperationRef, Region,
+        RegionLike, Type, Value,
+    },
 };
 
-use crate::common::as_value;
-use crate::{blackboxes::common::felt_type, error::Error, multiprec::LIMBS};
+use crate::{common::as_value, error::Error, multiprec::LIMBS};
 
 use super::{
     curve::Curve,
-    limbs::{
-        append_felt_constant, append_limbs_eq_bool, append_not_bit, append_op_with_result,
-        append_select_limbs,
-    },
+    limbs::{append_felt_constant, append_limbs_eq_bool, append_not_bit, append_select_limbs},
     modular::{
         append_add_p, append_dbl_p, append_inv_p, append_mul_p, append_sub_p, pack_const_limbs,
     },
@@ -338,7 +336,7 @@ fn append_joint_scalar_mul_limb_loop<'c: 'a, 'a, C: Curve>(
     u1_limb: Value<'c, 'a>,
     u2_limb: Value<'c, 'a>,
 ) -> Result<JacobianPoint<'c, 'a>, Error> {
-    let felt_ty = felt_type(context);
+    let felt_ty = Type::from(context.felt_type());
     let loop_arg_types = vec![(felt_ty, location); 1 + 3 * LIMBS];
     let loop_result_types = vec![felt_ty; 1 + 3 * LIMBS];
 

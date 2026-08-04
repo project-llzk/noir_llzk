@@ -1,13 +1,14 @@
 use std::collections::BTreeSet;
 
 use acir::native_types::Witness;
-use llzk::builder::{EntryPoint, OpBuilder};
-use llzk::dialect::array::ArrayType;
-use llzk::prelude::dialect::r#struct;
-use llzk::prelude::{
-    dialect, FeltType, LlzkContext, Location, StructDefOp, StructDefOpRef, Type, Value,
+use llzk::{
+    builder::OpBuilder,
+    dialect::array::ArrayType,
+    prelude::{
+        dialect::r#struct, FeltType, LlzkContext, Location, StructDefOpLike, StructDefOpRef, Type,
+        Value,
+    },
 };
-use llzk::prelude::{BlockLike, StructDefOpLike};
 
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, FIELD_NAME};
 

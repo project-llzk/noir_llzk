@@ -1,17 +1,10 @@
 use llzk::{
     builder::OpBuilder,
-    prelude::{
-        dialect::{self, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, RegionLike, Value,
-    },
+    prelude::{dialect::function, BlockRef, FuncDefOpLike, LlzkContext, Location, Value},
 };
 
 use crate::{
-    blackboxes::common::{
-        block_args, create_helper_function, felt_type, BitwiseEmitter, ConstantCache,
-        WordArithEmitter,
-    },
+    blackboxes::common::{block_args, create_helper_function, WordArithEmitter},
     error::Error,
 };
 

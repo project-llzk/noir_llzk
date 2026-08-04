@@ -1,14 +1,14 @@
 use acir::{
-    AcirField, FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlockId, BlockType, MemOp},
+    circuit::Opcode,
     native_types::{Expression, Witness},
+    AcirField, FieldElement,
 };
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 
 use crate::tests::count_occurrences;
 
-use super::{make_circuit_with_opcodes, translate_single_circuit, wrap_struct_in_module};
+use super::{make_circuit_with_opcodes, translate_single_circuit};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,9 +106,9 @@ fn translate_and_verify(
     inputs: &[u32],
 ) -> String {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(witness_count, inputs, &[], &[], opcodes);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).unwrap();
     let ir = format!("{}", module.as_operation());
     assert!(module.as_operation().verify(), "module should verify");
     ir
@@ -226,9 +226,10 @@ fn two_blocks_independent_reads_verifies() {
 #[test]
 fn memory_op_before_init_is_error() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), None);
     let opcodes = vec![memory_read(0, 0, 1)]; // no MemoryInit for block 0
     let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], opcodes);
-    let result = translate_single_circuit(&context, circuit);
+    let result = translate_single_circuit(&context, circuit, module.body());
     assert!(
         matches!(result, Err(crate::Error::UnsupportedOpcode(_))),
         "expected UnsupportedOpcode, got {result:?}"

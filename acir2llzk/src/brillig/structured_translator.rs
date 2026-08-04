@@ -1,29 +1,31 @@
 //! Structured translator: walks a [`StructuredFunction`] tree and emits
 //! LLZK IR via the existing per-opcode handlers from [`super::translator`].
 
-use acir::brillig::Opcode as BrilligOpcode;
-use acir::circuit::brillig::BrilligBytecode;
-use acir::FieldElement;
-use llzk::builder::{BlockInsertPointLike, OpBuilder};
-use llzk::dialect::empty_region;
-use llzk::dialect::function::{def, FuncDefOpLike};
-use llzk::prelude::dialect::function;
-use llzk::prelude::{
-    dialect, Block, BlockLike, FunctionType, LlzkContext, Location, Module, OperationLike,
-    RegionLike, Value,
+use acir::{brillig::Opcode as BrilligOpcode, circuit::brillig::BrilligBytecode, FieldElement};
+use llzk::{
+    builder::{BlockInsertPointLike, OpBuilder},
+    dialect::{empty_region, function::FuncDefOpLike},
+    prelude::{
+        dialect::function, Block, FunctionType, LlzkContext, Location, Module, OperationLike,
+        RegionLike, Value,
+    },
 };
 
-use crate::brillig::translator::{
-    emit_bool_assert, emit_if_with, emit_return_data, emit_set_flag, emit_trap, emit_while_with,
-    init_escape_flags,
+use crate::{
+    brillig::translator::{
+        emit_bool_assert, emit_if_with, emit_return_data, emit_set_flag, emit_trap,
+        emit_while_with, init_escape_flags,
+    },
+    brillig_writer::BrilligWriter,
+    error::Error,
 };
-use crate::brillig_writer::BrilligWriter;
-use crate::error::Error;
 
-use super::cfg::Block as CFGBlock;
-use super::registry::{BrilligRegistry, BrilligRegistryKey};
-use super::structurer::{StructureNode, StructuredFunction, StructuredProcedure};
-use super::translator::{translate_block_body, TranslationCtx};
+use super::{
+    cfg::Block as CFGBlock,
+    registry::{BrilligRegistry, BrilligRegistryKey},
+    structurer::{StructureNode, StructuredFunction, StructuredProcedure},
+    translator::{translate_block_body, TranslationCtx},
+};
 
 /// Per-Brillig-function emission state.
 pub(super) struct BrilligFunctionEmitter<'c, 'p> {

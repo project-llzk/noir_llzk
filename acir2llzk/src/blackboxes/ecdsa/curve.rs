@@ -1,6 +1,6 @@
 use llzk::{
     builder::OpBuilder,
-    prelude::{Block, LlzkContext, Location, Value},
+    prelude::{LlzkContext, Location, Value},
 };
 
 use crate::{error::Error, multiprec::LIMBS};

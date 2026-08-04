@@ -1,13 +1,11 @@
 use ::llzk::{
-    builder::EntryPoint,
+    builder::OpBuilder,
     prelude::{
-        dialect::{self, *},
-        melior_dialects::scf,
-        Block, BlockLike, LlzkContext, Location, Operation, OperationRef, Region, RegionLike as _,
-        StructDefOp, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute, Type, Value,
+        dialect::{r#struct, *},
+        LlzkContext, Location, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute,
+        Type, Value,
     },
 };
-use ::llzk::{builder::OpBuilder, prelude::dialect::r#struct};
 use acir::{
     circuit::Circuit,
     native_types::{Expression, Witness},

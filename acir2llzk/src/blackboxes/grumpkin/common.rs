@@ -2,18 +2,16 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{self, bool, felt},
-        melior_dialects::scf,
-        Block, BlockLike, LlzkContext, Location, Region, RegionLike, Type, Value,
+        dialect::{bool, felt},
+        LlzkContext, Location, Type, Value,
     },
 };
 
 use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
+    blackboxes::common::append_felt_constant,
     block_writer::BlockWriter,
     common::{
-        append_if_with_results, as_value, build_yielding_region, constrain_bool, emit_gated_eq,
-        insert_if_with_results,
+        append_if_with_results, as_value, constrain_bool, emit_gated_eq, insert_if_with_results,
     },
     error::Error,
     writer::Writer,
@@ -74,7 +72,7 @@ pub(crate) fn emit_predicate_gate<'c, 'b>(
     let predicate_is_true = emit_is_one(writer, predicate)?;
     let context = writer.context();
     let location = writer.location();
-    let result_types = [felt_type(context)];
+    let result_types = [Type::from(context.felt_type())];
     let [predicate_gate] = insert_if_with_results(
         writer,
         predicate_is_true,

@@ -8,18 +8,22 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::builder::{BlockInsertPointLike, EntryPoint, OpBuilder};
-use llzk::prelude::dialect::{bool, cast, felt, ram};
-use llzk::prelude::melior_dialects::{arith, scf};
-use llzk::prelude::{
-    dialect, Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location,
-    Operation, OperationRef, Region, RegionLike, Type, Value, ValueLike,
+use llzk::{
+    builder::{BlockInsertPointLike, EntryPoint, OpBuilder},
+    prelude::{
+        dialect::{bool, cast, felt, ram},
+        melior_dialects::{arith, scf},
+        Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+        OperationRef, Region, RegionLike, Type, Value, ValueLike,
+    },
 };
 
-use crate::common::{as_value, field_to_felt_const};
-use crate::error::Error;
-use crate::writer::Writer;
-use crate::FIELD_NAME;
+use crate::{
+    common::{as_value, field_to_felt_const},
+    error::Error,
+    writer::Writer,
+    FIELD_NAME,
+};
 
 /// Treats any type whose textual form starts with `!felt.` as a felt type.
 pub(crate) fn is_felt_type(ty: Type<'_>) -> bool {

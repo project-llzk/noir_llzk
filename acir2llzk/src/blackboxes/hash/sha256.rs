@@ -1,19 +1,12 @@
 use llzk::{
     builder::{BlockInsertPointLike as _, OpBuilder},
-    dialect::empty_region,
-    prelude::{
-        dialect::{self, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FuncDefOpRef, FunctionType,
-        LlzkContext, Location, OperationLike, RegionLike, Value,
-    },
+    prelude::{dialect::function, BlockRef, FuncDefOpLike, LlzkContext, Location, Value},
 };
 
 use crate::{
-    blackboxes::common::{block_args, create_helper_function, felt_type, WordArithEmitter},
+    blackboxes::common::{block_args, create_helper_function, WordArithEmitter},
     error::Error,
 };
-
-use crate::blackboxes::common::ConstantCache;
 
 pub(crate) const SHA256_STATE_WORDS: usize = 8;
 const SHA256_MESSAGE_WORDS: usize = 16;

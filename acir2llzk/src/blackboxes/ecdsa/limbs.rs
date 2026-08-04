@@ -2,14 +2,14 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{self, bool, cast, felt},
-        Block, FeltType, LlzkContext, Location, Value,
+        dialect::{bool, cast, felt},
+        LlzkContext, Location, Value,
     },
 };
 
-use crate::{common::as_value, error::Error, multiprec::LIMBS, FIELD_NAME};
+use crate::{common::as_value, error::Error, multiprec::LIMBS};
 
-pub(super) use crate::blackboxes::common::{append_felt_constant, append_op_with_result};
+pub(super) use crate::blackboxes::common::append_felt_constant;
 
 pub(super) fn two_pow_64() -> FieldElement {
     FieldElement::from(2u128).pow(&FieldElement::from(64u128))

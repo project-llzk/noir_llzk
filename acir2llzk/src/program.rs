@@ -1,11 +1,7 @@
 //! Compile the outer level `Program` to LLZK `Module`
 
 use acir::{circuit::Program, FieldElement};
-use llzk::prelude::{
-    llzk_module, BlockLike, LlzkContext, Location, Module, OperationMutLike, StructType,
-    TypeAttribute,
-};
-use llzk_sys::MAIN_ATTR_NAME;
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Module, StructType};
 
 use crate::{
     blackboxes::registry::BlackboxFunction,
@@ -27,12 +23,10 @@ pub(crate) fn translate_program<'c>(
     program: &Program<FieldElement>,
     source_language: &str,
 ) -> Result<Module<'c>, Error> {
-    let location = Location::unknown(context);
-    let mut module = llzk_module(location, Some(source_language));
-    module.as_operation_mut().set_attribute(
-        MAIN_ATTR_NAME.as_ref(),
-        TypeAttribute::new(StructType::from_str(context, MAIN_STRUCT_NAME).into()).into(),
-    );
+    let module = LlzkModuleBuilder::new(context)
+        .with_language(source_language)
+        .with_main(StructType::from_str(context, MAIN_STRUCT_NAME))
+        .build();
 
     let mut brillig_registry = BrilligRegistry::new();
     for helper in BlackboxFunction::used_in_program(program) {

@@ -1,14 +1,14 @@
-use acir::circuit::Opcode;
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::{Circuit, Program, PublicInputs};
-use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement};
-use llzk::prelude::{
-    BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationLike,
-    OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType, TypeAttribute,
-    llzk_module,
+use acir::{
+    circuit::{
+        opcodes::{BlackBoxFuncCall, FunctionInput},
+        Circuit, Opcode, Program, PublicInputs,
+    },
+    native_types::{Expression, Witness},
+    AcirField, FieldElement,
 };
-use llzk_sys::MAIN_ATTR_NAME;
+use llzk::prelude::{
+    BlockLike, BlockRef, LlzkContext, Module, OperationLike, OperationRef, StructDefOpRef,
+};
 
 use crate::brillig::BrilligRegistry;
 use crate::circuit::CircuitTranslator;
@@ -119,14 +119,18 @@ pub(crate) fn make_circuit_with_opcodes(
 /// `@brillig_{id}` function bodies are never emitted, leaving dangling
 /// symbol references. Tests that exercise Brillig should use
 /// [`crate::program::translate_program`] directly.
-pub(super) fn translate_single_circuit<'c>(
+pub(super) fn translate_single_circuit<'c, 'a>(
     context: &'c LlzkContext,
     circuit: Circuit<FieldElement>,
-) -> Result<StructDefOp<'c>, crate::Error> {
+    dest: BlockRef<'c, 'a>,
+) -> Result<StructDefOpRef<'c, 'a>, crate::Error> {
     let program = make_program(vec![circuit]);
     let mut brillig_registry = BrilligRegistry::new();
-    CircuitTranslator::new(context, &program.functions[0], &program)
-        .translate(0, &mut brillig_registry)
+    CircuitTranslator::new(context, &program.functions[0], &program).translate(
+        0,
+        &mut brillig_registry,
+        dest,
+    )
 }
 
 /// Convenience wrapper used by tests that need the full module translation,
@@ -137,26 +141,6 @@ pub(super) fn translate_single_circuit_module<'c>(
 ) -> Result<Module<'c>, crate::Error> {
     let program = make_program(vec![circuit]);
     driver.translate(&program)
-}
-
-/// Wraps a `StructDefOp` in a module, prints the IR, and asserts verification passes.
-fn verify_struct_in_module(context: &LlzkContext, struct_def: StructDefOp, label: &str) {
-    let module = wrap_struct_in_module(context, struct_def);
-    print_and_verify_module(&module, label);
-}
-
-fn wrap_struct_in_module<'c>(context: &'c LlzkContext, struct_def: StructDefOp<'c>) -> Module<'c> {
-    let location = Location::unknown(context);
-    let mut module = llzk_module(location, Some("Noir"));
-    module.as_operation_mut().set_attribute(
-        MAIN_ATTR_NAME.as_ref(),
-        TypeAttribute::new(
-            StructType::new(FlatSymbolRefAttribute::new(context, "Circuit0"), &[]).into(),
-        )
-        .into(),
-    );
-    module.body().append_operation(struct_def.into());
-    module
 }
 
 /// Builds an `AssertZero` opcode for `a * b - out = 0`.

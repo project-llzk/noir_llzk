@@ -1,6 +1,6 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement, circuit::opcodes::AcirFunctionId};
+use acir::{circuit::opcodes::AcirFunctionId, AcirField, FieldElement};
 use llzk::prelude::{
     BlockLike, FeltType, FuncDefOpRef, LlzkContext, MemberDefOpLike, OperationLike, OperationRef,
     RegionLike, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute, Type, Value,
@@ -11,8 +11,8 @@ use super::{
     first_struct_def, make_circuit, make_circuit_with_opcodes, make_program, mul_constraint,
     print_and_verify_module,
 };
-use crate::Driver;
 use crate::tests::TestConfig;
+use crate::Driver;
 
 const FIELD_NAME: &str = "bn254";
 
@@ -85,10 +85,10 @@ fn collect_call_info<'c, 'a>(
     StructCallInfo {
         member_count: struct_def.member_defs().len(),
         compute_writem_count: super::iter_block_ops(compute_block)
-            .filter(llzk::prelude::dialect::r#struct::is_struct_writem)
+            .filter(llzk::prelude::dialect::r#struct::is_writem_op)
             .count(),
         constrain_readm_count: super::iter_block_ops(constrain_block)
-            .filter(llzk::prelude::dialect::r#struct::is_struct_readm)
+            .filter(llzk::prelude::dialect::r#struct::is_readm_op)
             .count(),
         calls,
     }
@@ -107,7 +107,7 @@ fn collect_calls_recursive<'c, 'a>(
     calls: &mut Vec<OperationRef<'c, 'a>>,
 ) {
     for op in super::iter_block_ops(block) {
-        if llzk::prelude::dialect::function::is_func_call(&op) {
+        if llzk::prelude::dialect::function::is_call_op(&op) {
             calls.push(op);
         }
         for region in op.regions() {
@@ -531,7 +531,7 @@ fn call_with_nontrivial_predicate() {
     let constrain_fn = struct0.constrain_func().expect("should have @constrain");
     let constrain_block = constrain_fn.region(0).unwrap().first_block().unwrap();
     let felt_muls: Vec<OperationRef> = super::iter_block_ops(constrain_block)
-        .filter(llzk::prelude::dialect::felt::is_felt_mul)
+        .filter(llzk::prelude::dialect::felt::is_mul_op)
         .collect();
     assert_eq!(
         felt_muls.len(),
@@ -587,7 +587,7 @@ fn predicated_call_gates_callee_constrain() {
 
     // No top-level function.call — it must be nested inside the gating scf.if.
     let top_level_calls = super::iter_block_ops(constrain_block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
+        .filter(llzk::prelude::dialect::function::is_call_op)
         .count();
     assert_eq!(
         top_level_calls, 0,
@@ -610,7 +610,7 @@ fn predicated_call_gates_callee_constrain() {
         .first_block()
         .expect("scf.if then-region should have a block");
     let then_calls = super::iter_block_ops(then_block)
-        .filter(llzk::prelude::dialect::function::is_func_call)
+        .filter(llzk::prelude::dialect::function::is_call_op)
         .count();
     assert_eq!(
         then_calls, 1,

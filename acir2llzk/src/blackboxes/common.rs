@@ -8,16 +8,14 @@ use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, function},
     prelude::{
-        dialect::{self, felt},
-        Block, BlockLike, BlockRef, FeltType, FuncDefOpRef, FunctionType, LlzkContext, Location,
-        Operation, OperationLike as _, OperationRef, RegionLike as _, Type, Value,
+        dialect::felt, Block, BlockLike, BlockRef, FuncDefOpRef, FunctionType, LlzkContext,
+        Location, OperationLike as _, OperationRef, RegionLike as _, Type, Value,
     },
 };
 
 use crate::{
     common::{as_value, field_to_felt_const},
     error::Error,
-    FIELD_NAME,
 };
 
 pub(super) fn append_felt_constant<'c: 'a, 'a>(
@@ -28,18 +26,6 @@ pub(super) fn append_felt_constant<'c: 'a, 'a>(
 ) -> Result<Value<'c, 'a>, Error> {
     let attr = field_to_felt_const(context, value);
     as_value(felt::constant(builder, location, attr)?)
-}
-
-pub(super) fn append_op_with_result<'c, 'a>(
-    block: &'a Block<'c>,
-    op: Operation<'c>,
-) -> Result<Value<'c, 'a>, Error> {
-    Ok(block.append_operation(op).result(0)?.into())
-}
-
-#[deprecated]
-pub(super) fn felt_type<'c>(context: &'c LlzkContext) -> Type<'c> {
-    FeltType::with_field(context, FIELD_NAME).into()
 }
 
 pub(super) fn block_args<'c, 'a, const N: usize>(

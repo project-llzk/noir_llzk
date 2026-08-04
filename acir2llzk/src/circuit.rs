@@ -14,7 +14,7 @@ use llzk::{
     dialect::empty_region,
     prelude::{
         dialect::r#struct, BlockRef, FeltType, LlzkContext, Location, PublicAttribute, StructDefOp,
-        StructDefOpLike, StructType, Type,
+        StructDefOpLike, StructDefOpRef, StructType, Type,
     },
 };
 
@@ -68,12 +68,12 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// 3. Iterate opcodes → `emit_member` (subcomponent members for `Call`).
     /// 4. Build and populate the `@compute` function.
     /// 5. Build and populate the `@constrain` function.
-    pub(crate) fn translate(
+    pub(crate) fn translate<'a>(
         self,
         circuit_index: usize,
         brillig_registry: &mut BrilligRegistry<'p>,
-        dest: BlockRef<'c, '_>,
-    ) -> Result<(), Error> {
+        dest: BlockRef<'c, 'a>,
+    ) -> Result<StructDefOpRef<'c, 'a>, Error> {
         let location = Location::unknown(self.context);
         let struct_name = format!("Circuit{circuit_index}");
 
@@ -120,7 +120,8 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
         let mut constrain_writer =
             BlockWriter::for_constrain(self.context, struct_def, &input_witnesses)?;
         ops.into_iter()
-            .try_for_each(|op| op.emit_constrain(&mut constrain_writer))
+            .try_for_each(|op| op.emit_constrain(&mut constrain_writer))?;
+        Ok(struct_def)
     }
 
     /// Converts each ACIR opcode into a [`TranslatedOpcode`], pre-computing

@@ -7,14 +7,17 @@
 //!   the gadget the backends actually consume.
 
 use acir::{AcirField, FieldElement};
-use llzk::builder::{EntryPoint, OpBuilder};
-use llzk::prelude::dialect::felt;
-use llzk::prelude::{dialect, Block, BlockLike, BlockRef, LlzkContext, Location, Value};
+use llzk::{
+    builder::OpBuilder,
+    prelude::{dialect::felt, LlzkContext, Location, Value},
+};
 
-use crate::block_writer::BlockWriter;
-use crate::common::{field_to_felt_const, insert_if_with_results};
-use crate::error::Error;
-use crate::writer::Writer;
+use crate::{
+    block_writer::BlockWriter,
+    common::{field_to_felt_const, insert_if_with_results},
+    error::Error,
+    writer::Writer,
+};
 
 /// Phase-specific strategy for materialising the one-hot selector vector over `idx_felt`.
 pub(super) type EmitSelectors<'c, 'b> = fn(

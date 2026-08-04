@@ -2,19 +2,15 @@ use std::array;
 
 use acir::{AcirField, FieldElement};
 use llzk::{
-    builder::{BlockInsertPointLike, OpBuilder},
-    dialect::empty_region,
+    builder::OpBuilder,
     prelude::{
-        dialect::{self, felt, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FunctionType, LlzkContext, Location, OperationLike,
-        RegionLike, Value,
+        dialect::{felt, function},
+        BlockLike, BlockRef, LlzkContext, Location, Value,
     },
 };
 
 use crate::{
-    blackboxes::common::{
-        append_felt_constant, append_op_with_result, create_helper_function, felt_type,
-    },
+    blackboxes::common::{append_felt_constant, create_helper_function},
     common::as_value,
     error::Error,
 };
@@ -30,7 +26,7 @@ pub(in crate::blackboxes) fn emit_poseidon2_helper<'c>(
     block: BlockRef<'c, '_>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let (function, block) = create_helper_function(
+    let (_, block) = create_helper_function(
         context,
         block,
         location,

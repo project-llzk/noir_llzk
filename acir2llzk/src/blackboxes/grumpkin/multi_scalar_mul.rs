@@ -6,20 +6,15 @@ use acir::{
     AcirField, FieldElement,
 };
 use llzk::{
-    builder::{BlockInsertPointLike as _, OpBuilder},
-    dialect::empty_region,
+    builder::OpBuilder,
     prelude::{
-        dialect::{self, bool, function},
-        melior_dialects::scf,
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, Region, RegionLike, Type, Value,
+        dialect::{bool, function},
+        BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Type, Value,
     },
 };
 
 use crate::{
-    blackboxes::common::{
-        append_felt_constant, append_op_with_result, create_helper_function, felt_type,
-    },
+    blackboxes::common::{append_felt_constant, create_helper_function},
     common::{append_if_with_results, as_value},
     error::Error,
 };
@@ -129,7 +124,7 @@ fn emit_scalar_mul_result<'c: 'a, 'a>(
     point: EmbeddedPointValue<'c, 'a>,
     scalar_bits: &[Value<'c, 'a>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
-    let felt = felt_type(context);
+    let felt = Type::from(context.felt_type());
     let result_types = [felt, felt, felt];
     let one = append_felt_constant(builder, context, location, &FieldElement::one())?;
     let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(builder, context, location)?;
@@ -147,7 +142,7 @@ fn emit_scalar_mul_result<'c: 'a, 'a>(
                 let added = emit_curve_add_result(&builder, context, location, acc, point)?;
                 Ok([added.0, added.1, added.2])
             },
-            |builder| Ok([acc.0, acc.1, acc.2]),
+            |_| Ok([acc.0, acc.1, acc.2]),
         )?;
 
         acc = (result[0], result[1], result[2]);

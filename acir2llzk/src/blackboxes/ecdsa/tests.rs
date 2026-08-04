@@ -8,40 +8,50 @@ use super::{
     },
     point::{append_joint_scalar_mul, append_point_add_mixed_complete},
 };
-use crate::{
-    blackboxes::common::{block_args, felt_type},
-    multiprec::LIMBS,
-};
+use crate::{blackboxes::common::block_args, multiprec::LIMBS};
 use acir::AcirField;
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
-    RegionLike, Value, WalkOrder, WalkResult, dialect, llzk_module,
+use llzk::{
+    builder::OpBuilder,
+    dialect::{empty_region, module::LlzkModuleBuilder},
+    prelude::{
+        dialect, Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
+        OperationLike, RegionLike, Type, Value, WalkOrder, WalkResult,
+    },
 };
 use llzk_interpreter::{Felt, Interpreter, Value as InterpValue};
 use num_bigint::BigUint;
 
 fn build_test_module<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
-    let felt_ty = felt_type(context);
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
+    let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
     let inputs = vec![(felt_ty, location); 2 * LIMBS];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(location, "test_mul_mod_p_k1", function_type, &[], None)
-        .expect("function.def");
+    let function = dialect::function::def(
+        &builder,
+        location,
+        "test_mul_mod_p_k1",
+        function_type,
+        &[],
+        None,
+        empty_region,
+    )
+    .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    let lhs: [Value; LIMBS] = block_args::<LIMBS>(&block, 0).expect("block args");
-    let rhs: [Value; LIMBS] = block_args::<LIMBS>(&block, LIMBS).expect("block args");
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
+    let lhs = block_args::<LIMBS>(block, 0).expect("block args");
+    let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
     let result =
-        append_mul_mod_p_secp256k1(&block, context, location, &lhs, &rhs).expect("mul_mod_p");
-    block.append_operation(dialect::function::r#return(location, &result));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+        append_mul_mod_p_secp256k1(&builder, context, location, &lhs, &rhs).expect("mul_mod_p");
+    dialect::function::r#return(&builder, location, &result);
 
     module
 }
@@ -149,26 +159,35 @@ fn limbs_from_big(value: &BigUint) -> [u64; LIMBS] {
 
 fn build_test_module_barrett<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
-    let felt_ty = felt_type(context);
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
+    let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
     let inputs = vec![(felt_ty, location); 2 * LIMBS];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(location, "test_mul_mod_n", function_type, &[], None)
-        .expect("function.def");
+    let function = dialect::function::def(
+        &builder,
+        location,
+        "test_mul_mod_n",
+        function_type,
+        &[],
+        None,
+        empty_region,
+    )
+    .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    let lhs: [Value; LIMBS] = block_args::<LIMBS>(&block, 0).expect("block args");
-    let rhs: [Value; LIMBS] = block_args::<LIMBS>(&block, LIMBS).expect("block args");
-    let result = append_mul_mod_n_barrett(&block, context, location, &lhs, &rhs, &n_limbs)
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
+    let lhs = block_args::<LIMBS>(block, 0).expect("block args");
+    let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
+    let result = append_mul_mod_n_barrett(&builder, context, location, &lhs, &rhs, &n_limbs)
         .expect("mul_mod_n");
-    block.append_operation(dialect::function::r#return(location, &result));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+    dialect::function::r#return(&builder, location, &result);
     module
 }
 
@@ -246,38 +265,43 @@ fn barrett_large_values_n_k1() {
 
 fn build_test_module_inverse<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
     // The inverse body dispatches its inner multiplications through the
     // mul-mod-n helper. Emit the matching mul helper (k1 or r1) so the
     // module verifies as a self-contained unit.
     if n_limbs == SECP256K1_N {
-        module
-            .body()
-            .append_operation(emit_secp256k1_mul_mod_n_helper(context).unwrap().into());
+        emit_secp256k1_mul_mod_n_helper(context, module.body()).unwrap();
     } else if n_limbs == SECP256R1_N {
-        module
-            .body()
-            .append_operation(emit_secp256r1_mul_mod_n_helper(context).unwrap().into());
+        emit_secp256r1_mul_mod_n_helper(context, module.body()).unwrap();
     }
 
-    let felt_ty = felt_type(context);
+    let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; LIMBS];
     let output_types = vec![felt_ty; LIMBS];
     let inputs = vec![(felt_ty, location); LIMBS];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(location, "test_inv_mod_n", function_type, &[], None)
-        .expect("function.def");
+    let function = dialect::function::def(
+        &builder,
+        location,
+        "test_inv_mod_n",
+        function_type,
+        &[],
+        None,
+        empty_region,
+    )
+    .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    let a: [Value; LIMBS] = block_args::<LIMBS>(&block, 0).expect("block args");
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
+    let a: [Value; LIMBS] = block_args::<LIMBS>(block, 0).expect("block args");
     let result =
-        append_inv_mod_n_barrett(&block, context, location, &a, &n_limbs).expect("inv_mod_n");
-    block.append_operation(dialect::function::r#return(location, &result));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+        append_inv_mod_n_barrett(&builder, context, location, &a, &n_limbs).expect("inv_mod_n");
+    dialect::function::r#return(&builder, location, &result);
     module
 }
 
@@ -377,37 +401,41 @@ fn jacobian_to_affine(x: &BigUint, y: &BigUint, z: &BigUint, p: &BigUint) -> (Bi
 
 fn build_test_module_jacobian_double<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
-    module.body().append_operation(
-        emit_secp256k1_mul_mod_p_helper(context)
-            .expect("mul_mod_p helper")
-            .into(),
-    );
-    let felt_ty = felt_type(context);
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
+    emit_secp256k1_mul_mod_p_helper(context, module.body()).unwrap();
+    let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 3 * LIMBS];
     let output_types = vec![felt_ty; 3 * LIMBS];
     let inputs = vec![(felt_ty, location); 3 * LIMBS];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function =
-        dialect::function::def(location, "test_point_double_k1", function_type, &[], None)
-            .expect("function.def");
+    let function = dialect::function::def(
+        &builder,
+        location,
+        "test_point_double_k1",
+        function_type,
+        &[],
+        None,
+        empty_region,
+    )
+    .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    let x: [Value; LIMBS] = block_args::<LIMBS>(&block, 0).expect("block args");
-    let y: [Value; LIMBS] = block_args::<LIMBS>(&block, LIMBS).expect("block args");
-    let z: [Value; LIMBS] = block_args::<LIMBS>(&block, 2 * LIMBS).expect("block args");
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
+    let x = block_args::<LIMBS>(block, 0).expect("block args");
+    let y = block_args::<LIMBS>(block, LIMBS).expect("block args");
+    let z = block_args::<LIMBS>(block, 2 * LIMBS).expect("block args");
     let (xr, yr, zr) =
-        Secp256k1::append_point_double(&block, context, location, &(x, y, z)).expect("double");
+        Secp256k1::append_point_double(&builder, context, location, &(x, y, z)).expect("double");
     let mut out = Vec::with_capacity(3 * LIMBS);
     out.extend(xr);
     out.extend(yr);
     out.extend(zr);
-    block.append_operation(dialect::function::r#return(location, &out));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+    (dialect::function::r#return(&builder, location, &out));
     module
 }
 
@@ -470,45 +498,46 @@ fn triple_generator_k1() -> (BigUint, BigUint) {
 
 fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
-    module.body().append_operation(
-        emit_secp256k1_mul_mod_p_helper(context)
-            .expect("mul_mod_p helper")
-            .into(),
-    );
-    let felt_ty = felt_type(context);
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
+    emit_secp256k1_mul_mod_p_helper(context, module.body()).unwrap();
+    let felt_ty = llzk::prelude::Type::from(context.felt_type());
     // 3 Jacobian limbs + 2 affine limbs = 5 * LIMBS inputs.
     let input_types = vec![felt_ty; 5 * LIMBS];
     let output_types = vec![felt_ty; 3 * LIMBS];
     let inputs = vec![(felt_ty, location); 5 * LIMBS];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
     let function = dialect::function::def(
+        &builder,
         location,
         "test_point_add_mixed_k1",
         function_type,
         &[],
         None,
+        empty_region,
     )
     .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
-    let p1x: [Value; LIMBS] = block_args::<LIMBS>(&block, 0).expect("block args");
-    let p1y: [Value; LIMBS] = block_args::<LIMBS>(&block, LIMBS).expect("block args");
-    let p1z: [Value; LIMBS] = block_args::<LIMBS>(&block, 2 * LIMBS).expect("block args");
-    let q_x: [Value; LIMBS] = block_args::<LIMBS>(&block, 3 * LIMBS).expect("block args");
-    let q_y: [Value; LIMBS] = block_args::<LIMBS>(&block, 4 * LIMBS).expect("block args");
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
+    let p1x = block_args::<LIMBS>(block, 0).expect("block args");
+    let p1y = block_args::<LIMBS>(block, LIMBS).expect("block args");
+    let p1z = block_args::<LIMBS>(block, 2 * LIMBS).expect("block args");
+    let q_x = block_args::<LIMBS>(block, 3 * LIMBS).expect("block args");
+    let q_y = block_args::<LIMBS>(block, 4 * LIMBS).expect("block args");
     let q_is_infinity = crate::blackboxes::ecdsa::limbs::append_felt_constant(
-        &block,
+        &builder,
         context,
         location,
         &acir::FieldElement::zero(),
     )
     .expect("zero");
     let (xr, yr, zr) = append_point_add_mixed_complete::<Secp256k1>(
-        &block,
+        &builder,
         context,
         location,
         &(p1x, p1y, p1z),
@@ -520,9 +549,7 @@ fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<
     out.extend(xr);
     out.extend(yr);
     out.extend(zr);
-    block.append_operation(dialect::function::r#return(location, &out));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+    dialect::function::r#return(&builder, location, &out);
     module
 }
 
@@ -578,21 +605,13 @@ fn jacobian_2g_plus_g_matches_3g_k1() {
 
 fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c> {
     let location = Location::unknown(context);
-    let module = llzk_module(location, Some("Noir"));
+    let module = LlzkModuleBuilder::create(location, Some("Noir"));
     // Joint scalar mul calls mul-mod-p (per iteration) and inv-mod-p
     // (final jacobian-to-affine conversion). The inv body in turn calls
     // mul-mod-p, so we emit both helpers.
-    module.body().append_operation(
-        emit_secp256k1_mul_mod_p_helper(context)
-            .expect("mul_mod_p helper")
-            .into(),
-    );
-    module.body().append_operation(
-        emit_secp256k1_inv_mod_p_helper(context)
-            .expect("inv_mod_p helper")
-            .into(),
-    );
-    let felt_ty = felt_type(context);
+    emit_secp256k1_mul_mod_p_helper(context, module.body()).expect("mul_mod_p helper");
+    emit_secp256k1_inv_mod_p_helper(context, module.body()).expect("inv_mod_p helper");
+    let felt_ty = Type::from(context.felt_type());
     // Inputs: G (8 limbs) + P (8 limbs) + G+P (8 limbs)
     // + G+P-is-infinity + u1 (4 limbs) + u2 (4 limbs) = 33 felts.
     let input_types = vec![felt_ty; 33];
@@ -600,21 +619,26 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     let output_types = vec![felt_ty; 9];
     let inputs = vec![(felt_ty, location); 33];
 
+    let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
     let function = dialect::function::def(
+        &builder,
         location,
         "test_joint_scalar_mul_k1",
         function_type,
         &[],
         None,
+        empty_region,
     )
     .expect("function.def");
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
     let block = Block::new(&inputs);
+    let block = function.region(0).unwrap().append_block(block);
+    let builder = OpBuilder::at_block_end(context, block);
     let take = |offset: usize| -> [Value; LIMBS] {
-        block_args::<LIMBS>(&block, offset).expect("block args")
+        block_args::<LIMBS>(block, offset).expect("block args")
     };
     let gx = take(0);
     let gy = take(4);
@@ -627,7 +651,7 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     let u2 = take(29);
 
     let (rx, ry, is_inf) = append_joint_scalar_mul::<Secp256k1>(
-        &block,
+        &builder,
         context,
         location,
         &(gx, gy),
@@ -642,9 +666,7 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     out.extend(rx);
     out.extend(ry);
     out.push(is_inf);
-    block.append_operation(dialect::function::r#return(location, &out));
-    function.region(0).unwrap().append_block(block);
-    module.body().append_operation(function.into());
+    dialect::function::r#return(&builder, location, &out);
     module
 }
 

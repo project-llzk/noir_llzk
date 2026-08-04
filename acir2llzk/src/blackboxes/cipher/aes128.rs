@@ -1,17 +1,15 @@
 use llzk::{
-    builder::{BlockInsertPointLike, OpBuilder},
+    builder::OpBuilder,
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
-        dialect::{self, array, cast, felt, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, RegionLike, Value,
+        dialect::{array, cast, felt, function},
+        BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
     },
 };
 
 use crate::{
     blackboxes::common::{
-        append_op_with_result, block_args, block_args_slice, create_helper_function, felt_type,
-        ConstantCache, WordArithEmitter,
+        block_args, block_args_slice, create_helper_function, ConstantCache, WordArithEmitter,
     },
     common::as_value,
     error::Error,

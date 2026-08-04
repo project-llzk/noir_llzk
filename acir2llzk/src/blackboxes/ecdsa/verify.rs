@@ -2,17 +2,13 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{self, bool, felt, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, RegionLike, Value,
+        dialect::{bool, felt, function},
+        BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
     },
 };
 
 use crate::{
-    blackboxes::{
-        common::{create_helper_function, felt_type},
-        ecdsa::modular::append_mul_n,
-    },
+    blackboxes::{common::create_helper_function, ecdsa::modular::append_mul_n},
     common::{append_if_with_results, as_value},
     error::Error,
     multiprec::LIMBS,
@@ -26,7 +22,7 @@ use super::{
     curve::{Curve, Secp256k1, Secp256r1},
     limbs::{
         append_felt_constant, append_limbs_eq_bool, append_limbs_lt_bool, append_not_bit,
-        append_op_with_result, append_select_limbs,
+        append_select_limbs,
     },
     modular::{append_inv_n, append_mul_p, pack_const_limbs},
     point::{

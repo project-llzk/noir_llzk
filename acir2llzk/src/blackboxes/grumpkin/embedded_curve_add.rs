@@ -3,14 +3,14 @@ use llzk::{
     builder::{BlockInsertPointLike, OpBuilder},
     dialect::empty_region,
     prelude::{
-        dialect::{self, bool, function},
-        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, RegionLike, Value,
+        dialect::{bool, function},
+        Block, BlockLike, BlockRef, FuncDefOpLike, FunctionType, LlzkContext, Location,
+        OperationLike, RegionLike, Type, Value,
     },
 };
 
 use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
+    blackboxes::common::append_felt_constant,
     common::{append_if_with_results, as_value},
     error::Error,
 };
@@ -24,7 +24,7 @@ pub(crate) fn emit_embedded_curve_add_helper<'c>(
     block: BlockRef<'c, '_>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
+    let felt = Type::from(context.felt_type());
     let inputs = vec![(felt, location); 7];
     let function_type = FunctionType::new(context, &[felt; 7], &[felt, felt, felt]);
     let function = function::def(

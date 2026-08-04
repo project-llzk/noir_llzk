@@ -7,11 +7,11 @@ use acir::brillig::{
     BinaryFieldOp, BinaryIntOp, BitSize, HeapVector, IntegerBitSize, MemoryAddress,
     Opcode as BrilligOpcode,
 };
-use acir::circuit::Opcode;
 use acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId, BrilligInputs, BrilligOutputs};
+use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
-use llzk::prelude::dialect::function::is_func_call;
+use llzk::prelude::dialect::function::is_call_op;
 use llzk::prelude::{
     BlockRef, FuncDefOpRef, Module, OperationLike, OperationRef, RegionLike, StructDefOpLike,
 };
@@ -180,13 +180,13 @@ pub(super) fn count_compute_op(module: &Module, name: &str) -> usize {
 /// Counts `function.call` ops in `@compute`.
 pub(super) fn count_compute_calls(module: &Module) -> usize {
     iter_block_ops(get_compute_block(module))
-        .filter(is_func_call)
+        .filter(is_call_op)
         .count()
 }
 
 /// Returns the first `function.call` op in `@compute`, if any.
 pub(super) fn first_compute_call<'c, 'a>(module: &'a Module<'c>) -> Option<OperationRef<'c, 'a>> {
-    iter_block_ops(get_compute_block(module)).find(is_func_call)
+    iter_block_ops(get_compute_block(module)).find(is_call_op)
 }
 
 /// Builds a non-trivial predicate `Expression` whose value equals witness `w`.

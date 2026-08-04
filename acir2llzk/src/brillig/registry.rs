@@ -18,20 +18,19 @@ use llzk::{
     builder::{BlockInsertPointLike, OpBuilder},
     dialect::empty_region,
     prelude::{
-        dialect::{self, function},
-        Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
-        OperationLike, RegionLike, Type, Value,
+        dialect::function, Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext,
+        Location, Module, OperationLike, RegionLike, Type, Value,
     },
 };
 
-use crate::brillig_writer::BrilligWriter;
-use crate::error::Error;
-use crate::{brillig::translator::TranslationCtx, FIELD_NAME};
+use crate::{
+    brillig::translator::TranslationCtx, brillig_writer::BrilligWriter, error::Error, FIELD_NAME,
+};
 
-use super::cfg::Cfg;
-use super::memory::precompute_calldata_copy_params;
-use super::structured_translator::BrilligFunctionEmitter;
-use super::structurer::structure_function;
+use super::{
+    cfg::Cfg, memory::precompute_calldata_copy_params,
+    structured_translator::BrilligFunctionEmitter, structurer::structure_function,
+};
 
 /// Identifies a single shape variant of a Brillig function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

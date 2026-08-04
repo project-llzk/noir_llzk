@@ -2,20 +2,24 @@ use std::collections::{HashMap, HashSet};
 
 use acir::circuit::opcodes::FunctionInput;
 use acir::{AcirField, FieldElement};
-use llzk::builder::{EntryPoint, OpBuilder};
-use llzk::dialect::array::{ArrayCtor, ArrayType};
-use llzk::prelude::dialect::{array, constrain, felt, function, r#struct};
-use llzk::prelude::melior_dialects::arith;
-use llzk::prelude::{
-    dialect, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructDefOpRef,
-    StructType, SymbolRefAttribute, Type, Value, ValueLike,
+use llzk::{
+    builder::{EntryPoint, OpBuilder},
+    dialect::array::{ArrayCtor, ArrayType},
+    prelude::{
+        dialect::{array, constrain, felt, function, r#struct},
+        melior_dialects::arith,
+        BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+        OperationLike, OperationRef, RegionLike, StructDefOpLike, StructDefOpRef, StructType,
+        SymbolRefAttribute, Type, Value, ValueLike,
+    },
 };
 
-use crate::common::{as_value, field_to_felt_const};
-use crate::error::Error;
-use crate::writer::Writer;
-use crate::FIELD_NAME;
+use crate::{
+    common::{as_value, field_to_felt_const},
+    error::Error,
+    writer::Writer,
+    FIELD_NAME,
+};
 
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).
