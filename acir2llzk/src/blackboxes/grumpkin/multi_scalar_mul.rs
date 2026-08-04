@@ -139,7 +139,7 @@ fn emit_scalar_mul_result<'c: 'a, 'a>(
             bit_is_one,
             &result_types,
             |builder| {
-                let added = emit_curve_add_result(&builder, context, location, acc, point)?;
+                let added = emit_curve_add_result(builder, context, location, acc, point)?;
                 Ok([added.0, added.1, added.2])
             },
             |_| Ok([acc.0, acc.1, acc.2]),
