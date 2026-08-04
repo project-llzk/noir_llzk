@@ -9,23 +9,27 @@ pub mod config;
 pub mod error;
 mod multiprec;
 mod opcodes;
-mod program;
 mod writer;
 
-use acir::{FieldElement, circuit::Program};
-use base64::Engine as _;
+use acir::{circuit::Program, FieldElement};
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 pub use error::Error;
-use llzk::prelude::{LlzkContext, Module, ModuleExt as _};
-use program::translate_program;
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Module, ModuleExt as _, StructType};
 
-use crate::config::{Config, OutputFormat};
+use crate::{
+    blackboxes::registry::BlackboxFunction,
+    brillig::{emit_brillig_functions, BrilligRegistry},
+    circuit::CircuitTranslator,
+    config::{Config, OutputFormat},
+};
 
 #[cfg(test)]
 mod tests;
 
 /// The field name used for all felt types and constants.
 pub const FIELD_NAME: &str = "bn254";
+const MAIN_STRUCT_NAME: &str = "Circuit0";
 
 /// A result produced by the driver.
 pub type DriverResult<T> = Result<T, Error>;
@@ -71,7 +75,27 @@ impl<'c> Driver<'c> {
 
     /// Translates the ACIR [`Program`] into a LLZK [`Module`]
     pub fn translate<'d>(&'d self, program: &Program<FieldElement>) -> DriverResult<Module<'d>> {
-        translate_program(&self.ctx, program, self.config.source_language())
+        let module = LlzkModuleBuilder::new(&self.ctx)
+            .with_language(self.config.source_language())
+            .with_main(StructType::from_str(&self.ctx, MAIN_STRUCT_NAME))
+            .build();
+
+        let mut brillig_registry = BrilligRegistry::new();
+        for helper in BlackboxFunction::used_in_program(program) {
+            helper.emit(&self.ctx, module.body())?;
+        }
+
+        for (i, circuit) in program.functions.iter().enumerate() {
+            CircuitTranslator::new(&self.ctx, circuit, program).translate(
+                i,
+                &mut brillig_registry,
+                module.body(),
+            )?;
+        }
+
+        emit_brillig_functions(&self.ctx, &module, &brillig_registry)?;
+
+        Ok(module)
     }
 
     /// Writes the resulting module.

@@ -6,15 +6,15 @@ use super::{
     make_circuit, make_circuit_with_opcodes, make_program, mul_constraint, print_and_verify_module,
     translate_single_circuit,
 };
-use crate::program::translate_program;
+use crate::{tests::TestConfig, Driver};
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
 #[test]
 fn zero_opcodes_verifies() {
-    let context = LlzkContext::new();
+    let driver = Driver::new(&TestConfig);
     let circuit = make_circuit(1, &[0, 1], &[], &[]);
     let program = make_program(vec![circuit]);
-    let module = translate_program(&context, &program, "ACIR").unwrap();
+    let module = driver.translate(&program).unwrap();
 
     print_and_verify_module(&module, "zero_opcodes_verifies");
 }
@@ -22,14 +22,14 @@ fn zero_opcodes_verifies() {
 /// translate_program with 3 circuits → module with 3 struct defs
 #[test]
 fn three_circuits_three_structs() {
-    let context = LlzkContext::new();
+    let driver = Driver::new(&TestConfig);
     let circuits = vec![
         make_circuit(1, &[0, 1], &[], &[]),
         make_circuit(2, &[0], &[1], &[2]),
         make_circuit(0, &[0], &[], &[]),
     ];
     let program = make_program(circuits);
-    let module = translate_program(&context, &program, "ACIR").unwrap();
+    let module = driver.translate(&program).unwrap();
 
     let ir = format!("{}", module.as_operation());
     println!("three_circuits_three_structs:\n{ir}");

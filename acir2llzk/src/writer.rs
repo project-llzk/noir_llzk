@@ -7,16 +7,15 @@
 //! trait supplies thin wrappers for `felt`, `bool`, `cast`, and
 //! `function.call` ops so each writer doesn't redefine them.
 
-use ::llzk::builder::{EntryPoint, OpBuilder};
-use ::llzk::prelude::{
-    dialect::*, FeltType, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef,
-    Type, Value,
+use ::llzk::{
+    builder::{EntryPoint, OpBuilder},
+    prelude::{
+        dialect::*, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef, Type,
+        Value,
+    },
 };
 
-use crate::blackboxes::registry::BlackboxFunction;
-use crate::common::as_value;
-use crate::error::Error;
-use crate::FIELD_NAME;
+use crate::{blackboxes::registry::BlackboxFunction, common::as_value, error::Error};
 
 pub(crate) trait Writer<'c, 'a>
 where
@@ -39,7 +38,7 @@ where
     }
 
     fn felt_type(&self) -> Type<'c> {
-        FeltType::with_field(self.context(), FIELD_NAME).into()
+        self.context().felt_type().into()
     }
 
     fn builder(&self) -> OpBuilder<'c, '_> {
@@ -139,7 +138,7 @@ where
             &self.builder(),
             self.location(),
             val,
-            Some(FeltType::with_field(self.context(), FIELD_NAME)),
+            Some(self.felt_type().try_into().unwrap()),
         ))
     }
 

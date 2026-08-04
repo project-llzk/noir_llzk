@@ -10,7 +10,7 @@ use llzk::prelude::{
 use super::{
     make_circuit_with_opcodes, mul_constraint, print_and_verify_module, translate_single_circuit,
 };
-use crate::program::translate_program;
+use crate::{tests::TestConfig, Driver};
 
 /// Count `struct.writem` operations in the compute function.
 fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {
@@ -127,7 +127,7 @@ fn two_unknowns_error() {
 /// Full module (compute + constrain) verifies for a circuit with solving
 #[test]
 fn full_module_compute_and_constrain_verifies() {
-    let context = LlzkContext::new();
+    let driver = Driver::new(&TestConfig);
     // w0=x (private), w1=y (public), w2=z (intermediate, returned)
     // expr: x * y - z = 0
     let circuit = make_circuit_with_opcodes(2, &[0], &[1], &[2], vec![mul_constraint(0, 1, 2)]);
@@ -135,7 +135,7 @@ fn full_module_compute_and_constrain_verifies() {
         functions: vec![circuit],
         unconstrained_functions: vec![],
     };
-    let module = translate_program(&context, &program, "ACIR").unwrap();
+    let module = driver.translate(&program).unwrap();
     print_and_verify_module(&module, "full_module_compute_and_constrain_verifies");
 }
 
