@@ -9,7 +9,10 @@ use llzk::{
 };
 
 use crate::{
-    blackboxes::common::{create_helper_function, felt_type},
+    blackboxes::{
+        common::{create_helper_function, felt_type},
+        ecdsa::modular::append_mul_n,
+    },
     common::{append_if_with_results, as_value},
     error::Error,
     multiprec::LIMBS,
@@ -25,14 +28,14 @@ use super::{
         append_felt_constant, append_limbs_eq_bool, append_limbs_lt_bool, append_not_bit,
         append_op_with_result, append_select_limbs,
     },
-    modular::{append_inv_n, append_mul_p, builder_thing, pack_const_limbs},
+    modular::{append_inv_n, append_mul_p, pack_const_limbs},
     point::{
         append_jacobian_to_affine, append_joint_scalar_mul, append_point_add_mixed_complete,
         JacobianPoint,
     },
 };
 
-fn append_pack_args_be_to_le_limbs<'c, 'a>(
+fn append_pack_args_be_to_le_limbs<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     block: BlockRef<'c, '_>,
     context: &'c LlzkContext,
@@ -71,7 +74,7 @@ fn append_pack_args_be_to_le_limbs<'c, 'a>(
 ///   `s_inv = s^(n-2) mod n`, `u1 = z·s_inv mod n`, `u2 = r·s_inv mod n`
 /// - `R.x < n` and `R.x == r`
 #[allow(clippy::too_many_arguments)]
-fn append_verify_result<'c, 'a, C: Curve>(
+fn append_verify_result<'c: 'a, 'a, C: Curve>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -103,8 +106,8 @@ fn append_verify_result<'c, 'a, C: Curve>(
     let on_curve = append_limbs_eq_bool(builder, context, location, &py_sq, &rhs)?;
 
     let s_inv = append_inv_n::<C>(builder, context, location, sig_s)?;
-    let u1 = builder_thing::<C>(builder, context, location, z, &s_inv)?;
-    let u2 = builder_thing::<C>(builder, context, location, sig_r, &s_inv)?;
+    let u1 = append_mul_n::<C>(builder, context, location, z, &s_inv)?;
+    let u2 = append_mul_n::<C>(builder, context, location, sig_r, &s_inv)?;
 
     // Precompute G + P in affine so the joint scalar mul's table is ready.
     let g_as_jac: JacobianPoint<'c, 'a> = (g_x_limbs, g_y_limbs, one_limbs);
@@ -198,12 +201,13 @@ fn emit_compute_helper_deterministic<'c, C: Curve>(
     // constrain side's `1 - predicate`); the full verify runs only when active.
     let one_felt = append_felt_constant(&builder, context, location, &FieldElement::one())?;
     let predicate_is_true = as_value(bool::eq(&builder, location, predicate, one_felt)?)?;
+    let felt = context.felt_type();
 
     let [result] = append_if_with_results(
         &builder,
         location,
         predicate_is_true,
-        &[felt],
+        &[felt.into()],
         |builder| {
             let valid = append_verify_result::<C>(
                 builder, context, location, &pk_x, &pk_y, &sig_r, &sig_s, &z,

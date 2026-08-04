@@ -1,24 +1,24 @@
+use ::llzk::{
+    builder::EntryPoint,
+    prelude::{
+        dialect::{self, *},
+        melior_dialects::scf,
+        Block, BlockLike, LlzkContext, Location, Operation, OperationRef, Region, RegionLike as _,
+        StructDefOp, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute, Type, Value,
+    },
+};
+use ::llzk::{builder::OpBuilder, prelude::dialect::r#struct};
 use acir::{
     circuit::Circuit,
     native_types::{Expression, Witness},
     AcirField as _, FieldElement,
 };
-use llzk::{
-    builder::EntryPoint,
-    prelude::{
-        dialect::{self, *},
-        melior_dialects::scf,
-        Block, BlockLike, LlzkContext, Location, Operation, Region, RegionLike as _, StructDefOp,
-        StructDefOpLike, StructType, SymbolRefAttribute, Type, Value,
-    },
-};
-use llzk::{builder::OpBuilder, prelude::dialect::r#struct};
 
 use crate::{
     block_writer::BlockWriter,
     common::{
-        collect_witnesses, constrain_bool, emit_expression, emit_gated_eq, is_trivial_predicate,
-        value,
+        append_if_with_results, as_value, collect_witnesses, constrain_bool, emit_expression,
+        emit_gated_eq, is_trivial_predicate,
     },
     error::Error,
     opcodes::OpcodeEmitter,
@@ -77,9 +77,9 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_member<'c>(
         &self,
         context: &'c LlzkContext,
-        struct_def: &StructDefOp<'c>,
+        struct_def: StructDefOpRef<'c, '_>,
     ) -> Result<(), Error> {
-        let builder = OpBuilder::new(context, EntryPoint::End(struct_def.body()));
+        let builder = OpBuilder::at_block_end(context, struct_def.body());
         r#struct::member(
             &builder,
             Location::unknown(context),
@@ -175,46 +175,38 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Define constrain function for inner circuit.
         // Call it conditionally based on predicate value.
-        let call_op: OperationRef<'c> = function::call(
-            &OpBuilder::new(context, writer.insertion_point()),
-            location,
-            SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
-            &arg_vals,
-            &[] as &[Type<'c>],
-        )?
-        .into();
+        // The creation is wrapped in a closure since the insertion point could vary.
+        let call_op_fn = |builder: &OpBuilder| -> Result<(), Error> {
+            function::call(
+                builder,
+                location,
+                SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
+                &arg_vals,
+                &[] as &[Type<'c>],
+            )?;
+            Ok(())
+        };
 
+        let builder = OpBuilder::new(context, writer.insertion_point());
         match pred_val {
             None => {
-                writer.insert_op(call_op);
+                call_op_fn(&builder)?;
             }
             Some(p) => {
                 let one = writer.emit_constant(&FieldElement::one())?;
-                let pred_is_one = value!(bool::eq(
-                    &OpBuilder::new(context, writer.insertion_point()),
+                let pred_is_one = as_value(bool::eq(&builder, location, p, one)?)?;
+
+                append_if_with_results(
+                    &builder,
                     location,
-                    p,
-                    one
-                )?)?;
-
-                let then_region = Region::new();
-                let then_block = Block::new(&[]);
-                then_block.append_operation(call_op);
-                then_block.append_operation(scf::r#yield(&[], location));
-                then_region.append_block(then_block);
-
-                let else_region = Region::new();
-                let else_block = Block::new(&[]);
-                else_block.append_operation(scf::r#yield(&[], location));
-                else_region.append_block(else_block);
-
-                writer.insert_op(scf::r#if(
                     pred_is_one,
                     &[],
-                    then_region,
-                    else_region,
-                    location,
-                ));
+                    |builder| {
+                        call_op_fn(builder)?;
+                        Ok([])
+                    },
+                    |_| Ok([]),
+                )?;
             }
         }
 

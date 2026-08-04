@@ -48,7 +48,7 @@ pub(crate) fn emit_embedded_curve_add_helper<'c>(
     let predicate: Value<'c, '_> = block.argument(6)?.into();
 
     let builder = OpBuilder::new(context, block.at_end());
-    let one = append_felt_constant(&block, context, location, &FieldElement::one())?;
+    let one = append_felt_constant(&builder, context, location, &FieldElement::one())?;
     let predicate_is_true = as_value(bool::eq(&builder, location, predicate, one)?)?;
     let result_types = [felt, felt, felt];
     let [output_x, output_y, output_infinite] = append_if_with_results(

@@ -158,7 +158,7 @@ fn emit_big_sigma1<'c: 'a, 'a>(
 }
 
 /// Ch(e, f, g) = (e AND f) XOR (NOT e AND g) = g XOR (e AND (f XOR g)).
-fn emit_ch<'c, 'a>(
+fn emit_ch<'c: 'a, 'a>(
     emitter: &mut WordArithEmitter<'c, 'a, '_>,
     e: Value<'c, 'a>,
     f: Value<'c, 'a>,
@@ -170,7 +170,7 @@ fn emit_ch<'c, 'a>(
 }
 
 /// Maj(a, b, c) = (a AND b) XOR (a AND c) XOR (b AND c) = (a AND b) XOR (c AND (a XOR b)).
-fn emit_maj<'c, 'a>(
+fn emit_maj<'c: 'a, 'a>(
     emitter: &mut WordArithEmitter<'c, 'a, '_>,
     a: Value<'c, 'a>,
     b: Value<'c, 'a>,

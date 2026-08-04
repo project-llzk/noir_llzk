@@ -5,7 +5,7 @@ use acir::{
     circuit::{opcodes::BlackBoxFuncCall, Opcode, Program},
     FieldElement,
 };
-use llzk::prelude::{FuncDefOp, FuncDefOpRef, LlzkContext, Type};
+use llzk::prelude::{BlockRef, FuncDefOp, FuncDefOpRef, LlzkContext, Type};
 
 use crate::error::Error;
 

@@ -225,7 +225,7 @@ pub(super) fn append_point_add_mixed_complete<'c: 'a, 'a, C: Curve>(
     )
 }
 
-fn append_select_jacobian<'c, 'a>(
+fn append_select_jacobian<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -241,7 +241,7 @@ fn append_select_jacobian<'c, 'a>(
 }
 
 /// `mask` is a runtime power-of-two; the surrounding loop guarantees `mask != 0`.
-fn append_extract_masked_bit<'c, 'a>(
+fn append_extract_masked_bit<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -256,7 +256,7 @@ fn append_extract_masked_bit<'c, 'a>(
 /// The `(0, 0)` slot can be a don't-care if the caller knows it's unused —
 /// the joint scalar mul exploits this by skipping the add when both bits are 0.
 #[allow(clippy::too_many_arguments)]
-fn append_select_affine_2x2<'c, 'a>(
+fn append_select_affine_2x2<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -326,7 +326,7 @@ fn collect_loop_jacobian<'c, 'a>(op: OperationRef<'c, 'a>) -> Result<JacobianPoi
 }
 
 #[allow(clippy::too_many_arguments)]
-fn append_joint_scalar_mul_limb_loop<'c, 'a, C: Curve>(
+fn append_joint_scalar_mul_limb_loop<'c: 'a, 'a, C: Curve>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,

@@ -99,7 +99,7 @@ pub(crate) fn emit_predicate_gate<'c, 'b>(
     Ok((predicate_is_true, predicate_gate))
 }
 
-pub(crate) fn emit_finite_curve_add_result<'c, 'a>(
+pub(crate) fn emit_finite_curve_add_result<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -169,12 +169,12 @@ pub(crate) fn emit_finite_curve_add_result<'c, 'a>(
     .map(point_from_array)
 }
 
-pub(crate) fn emit_curve_add_result<'c, 'a>(
+pub(crate) fn emit_curve_add_result<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
-    input1: EmbeddedPointValue<'c, '_>,
-    input2: EmbeddedPointValue<'c, '_>,
+    input1: EmbeddedPointValue<'c, 'a>,
+    input2: EmbeddedPointValue<'c, 'a>,
 ) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
     let (input1_x, input1_y, input1_infinite) = input1;
     let (input2_x, input2_y, input2_infinite) = input2;
@@ -216,7 +216,7 @@ pub(crate) fn emit_curve_add_result<'c, 'a>(
     Ok((result[0], result[1], result[2]))
 }
 
-pub(crate) fn emit_affine_curve_formula<'c, 'a>(
+pub(crate) fn emit_affine_curve_formula<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -255,7 +255,7 @@ pub(crate) fn emit_affine_curve_formula<'c, 'a>(
     Ok((output_x, output_y, output_infinite))
 }
 
-pub(crate) fn emit_infinity_point<'c, 'a>(
+pub(crate) fn emit_infinity_point<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,

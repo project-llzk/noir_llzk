@@ -12,7 +12,7 @@ use llzk::{
         dialect::{self, bool, function},
         melior_dialects::scf,
         Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, Region, RegionLike, Value,
+        OperationLike, Region, RegionLike, Type, Value,
     },
 };
 
@@ -88,6 +88,7 @@ pub(in crate::blackboxes) fn emit_multi_scalar_mul_helper<'c>(
     let builder = OpBuilder::at_block_end(context, block);
     let one = append_felt_constant(&builder, context, location, &FieldElement::one())?;
     let predicate_is_true = as_value(bool::eq(&builder, location, predicate, one)?)?;
+    let felt = Type::from(context.felt_type());
     let result_types = [felt, felt, felt];
     let [output_x, output_y, output_infinite] = append_if_with_results(
         &builder,
@@ -104,12 +105,12 @@ pub(in crate::blackboxes) fn emit_multi_scalar_mul_helper<'c>(
     Ok(())
 }
 
-fn emit_multi_scalar_mul_result<'c, 'a, 'v>(
+fn emit_multi_scalar_mul_result<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
-    points: &[EmbeddedPointValue<'c, 'v>],
-    scalar_bits: &[Vec<Value<'c, 'v>>],
+    points: &[EmbeddedPointValue<'c, 'a>],
+    scalar_bits: &[Vec<Value<'c, 'a>>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
     debug_assert_eq!(points.len(), scalar_bits.len());
 
@@ -121,12 +122,12 @@ fn emit_multi_scalar_mul_result<'c, 'a, 'v>(
     Ok(acc)
 }
 
-fn emit_scalar_mul_result<'c, 'a, 'v>(
+fn emit_scalar_mul_result<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
-    point: EmbeddedPointValue<'c, 'v>,
-    scalar_bits: &[Value<'c, 'v>],
+    point: EmbeddedPointValue<'c, 'a>,
+    scalar_bits: &[Value<'c, 'a>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
     let felt = felt_type(context);
     let result_types = [felt, felt, felt];
@@ -143,7 +144,7 @@ fn emit_scalar_mul_result<'c, 'a, 'v>(
             bit_is_one,
             &result_types,
             |builder| {
-                let added = emit_curve_add_result(&builder, context, location, current_acc, point)?;
+                let added = emit_curve_add_result(&builder, context, location, acc, point)?;
                 Ok([added.0, added.1, added.2])
             },
             |builder| Ok([acc.0, acc.1, acc.2]),

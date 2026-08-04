@@ -2,15 +2,15 @@ use llzk::{
     builder::OpBuilder,
     prelude::{
         dialect::{self, function},
-        Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
+        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
         OperationLike, RegionLike, Value,
     },
 };
 
 use crate::{
     blackboxes::common::{
-        block_args, create_helper_function, emit_and, emit_rotl64, emit_xor, felt_type,
-        BitwiseEmitter, ConstantCache, WordArithEmitter,
+        block_args, create_helper_function, felt_type, BitwiseEmitter, ConstantCache,
+        WordArithEmitter,
     },
     error::Error,
 };
@@ -58,7 +58,7 @@ const ROT_OFFSETS: [[u32; LANE_DIM]; LANE_DIM] = [
 
 pub(in crate::blackboxes) fn emit_keccak_helper<'c>(
     context: &'c LlzkContext,
-    block: BlockRef<'c>,
+    block: BlockRef<'c, '_>,
 ) -> Result<(), Error> {
     let location = Location::unknown(context);
     let (function, block) = create_helper_function(
@@ -160,7 +160,7 @@ fn emit_round<'c: 'a, 'a>(
     Ok(a)
 }
 
-fn emit_not<'c, 'a>(
+fn emit_not<'c: 'a, 'a>(
     emitter: &mut WordArithEmitter<'c, 'a, '_>,
     value: Value<'c, 'a>,
     mask: Value<'c, 'a>,

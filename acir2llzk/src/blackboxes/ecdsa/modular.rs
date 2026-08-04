@@ -466,7 +466,7 @@ fn append_call_inv_mod_helper<'c: 'a, 'a>(
 }
 
 /// Inputs and output are in `[0, n)`.
-pub(super) fn append_add_mod_n<'c, 'a>(
+pub(super) fn append_add_mod_n<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -484,7 +484,7 @@ pub(super) fn append_add_mod_n<'c, 'a>(
 }
 
 /// Inputs and output are in `[0, n)`.
-pub(super) fn append_sub_mod_n<'c, 'a>(
+pub(super) fn append_sub_mod_n<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -539,7 +539,7 @@ pub(super) fn append_inv_n<'c: 'a, 'a, C: Curve>(
     append_call_inv_mod_helper(builder, context, location, C::INV_MOD_N_NAME, a)
 }
 
-pub(super) fn append_add_p<'c, 'a, C: Curve>(
+pub(super) fn append_add_p<'c: 'a, 'a, C: Curve>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -549,7 +549,7 @@ pub(super) fn append_add_p<'c, 'a, C: Curve>(
     append_add_mod_n(builder, context, location, a, b, &C::P)
 }
 
-pub(super) fn append_sub_p<'c, 'a, C: Curve>(
+pub(super) fn append_sub_p<'c: 'a, 'a, C: Curve>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -559,7 +559,7 @@ pub(super) fn append_sub_p<'c, 'a, C: Curve>(
     append_sub_mod_n(builder, context, location, a, b, &C::P)
 }
 
-pub(super) fn append_dbl_p<'c, 'a, C: Curve>(
+pub(super) fn append_dbl_p<'c: 'a, 'a, C: Curve>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,
@@ -601,7 +601,7 @@ pub(super) fn append_inv_mod_n_barrett<'c: 'a, 'a>(
 /// `r >= n ? r - n : r`, where `r` is 5-limb and `n` is 4-limb (implicit zero
 /// top limb). Returns the 5-limb result; the caller is responsible for
 /// dropping the now-known-zero top limb after enough iterations.
-fn append_conditional_sub_n_5<'c, 'a>(
+fn append_conditional_sub_n_5<'c: 'a, 'a>(
     builder: &OpBuilder<'c, '_>,
     context: &'c LlzkContext,
     location: Location<'c>,

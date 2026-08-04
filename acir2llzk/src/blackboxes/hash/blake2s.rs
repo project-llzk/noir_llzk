@@ -3,7 +3,7 @@ use llzk::{
     dialect::empty_region,
     prelude::{
         dialect::{self, function},
-        Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
+        Block, BlockLike, BlockRef, FuncDefOp, FuncDefOpLike, FunctionType, LlzkContext, Location,
         OperationLike, RegionLike, Value,
     },
 };

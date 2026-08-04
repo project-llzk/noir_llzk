@@ -7,8 +7,8 @@
 //! trait supplies thin wrappers for `felt`, `bool`, `cast`, and
 //! `function.call` ops so each writer doesn't redefine them.
 
-use llzk::builder::{EntryPoint, OpBuilder};
-use llzk::prelude::{
+use ::llzk::builder::{EntryPoint, OpBuilder};
+use ::llzk::prelude::{
     dialect::*, FeltType, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef,
     Type, Value,
 };
@@ -159,7 +159,7 @@ where
             args,
             result_types,
         )?;
-        Ok(self.insert_op(call_op.into()))
+        Ok(call_op.into())
     }
 
     fn call_blackbox_function(

@@ -49,7 +49,7 @@ pub(super) const IV: [u32; 8] = [
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 ];
 
-pub(super) fn iv_values<'c, 'a>(
+pub(super) fn iv_values<'c: 'a, 'a>(
     cache: &mut ConstantCache<'c, 'a, '_>,
 ) -> Result<[Value<'c, 'a>; 8], Error> {
     let mut values = Vec::with_capacity(8);

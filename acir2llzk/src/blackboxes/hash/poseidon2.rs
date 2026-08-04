@@ -84,7 +84,7 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
             .expect("STATE_WIDTH diagonal constants"))
     }
 
-    fn emit_permutation(&self, state: &mut State<'c, '_>) -> Result<(), Error> {
+    fn emit_permutation<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
         let rc = round_constants();
         let full_half = ROUNDS_F / 2;
         let partial_end = full_half + ROUNDS_P;
@@ -115,15 +115,23 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
         Ok(())
     }
 
-    fn emit_add(&self, lhs: Value<'c, 'v>, rhs: Value<'c, 'v>) -> Result<Value<'c, 'v>, Error> {
+    fn emit_add<'a: 'v, 'v>(
+        &'a self,
+        lhs: Value<'c, 'v>,
+        rhs: Value<'c, 'v>,
+    ) -> Result<Value<'c, 'v>, Error> {
         as_value(felt::add(self.builder(), self.location, lhs, rhs)?)
     }
 
-    fn emit_mul(&self, lhs: Value<'c, 'v>, rhs: Value<'c, 'v>) -> Result<Value<'c, 'v>, Error> {
+    fn emit_mul<'a: 'v, 'v>(
+        &'a self,
+        lhs: Value<'c, 'v>,
+        rhs: Value<'c, 'v>,
+    ) -> Result<Value<'c, 'v>, Error> {
         as_value(felt::mul(self.builder(), self.location, lhs, rhs)?)
     }
 
-    fn emit_external_matrix(&self, state: &mut State<'c, '_>) -> Result<(), Error> {
+    fn emit_external_matrix<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
         let t0 = self.emit_add(state[0], state[1])?;
         let t1 = self.emit_add(state[2], state[3])?;
         let t2 = self.emit_add(self.emit_add(state[1], state[2])?, t1)?;
@@ -140,9 +148,9 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
         Ok(())
     }
 
-    fn emit_add_round_constants(
-        &self,
-        state: &mut State<'c, '_>,
+    fn emit_add_round_constants<'a: 'v, 'v>(
+        &'a self,
+        state: &mut State<'c, 'v>,
         constants: &[FieldElement; STATE_WIDTH],
     ) -> Result<(), Error> {
         for (s, rc) in state.iter_mut().zip(constants) {
@@ -152,33 +160,36 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
         Ok(())
     }
 
-    fn emit_sbox(&self, x: &mut Value<'c, 'a>) -> Result<(), Error> {
+    fn emit_sbox<'a: 'v, 'v>(&'a self, x: &mut Value<'c, 'v>) -> Result<(), Error> {
         let x2 = self.emit_mul(*x, *x)?;
         let x4 = self.emit_mul(x2, x2)?;
         *x = self.emit_mul(x4, *x)?;
         Ok(())
     }
 
-    fn emit_full_sbox(&self, state: &mut State<'c, '_>) -> Result<(), Error> {
+    fn emit_full_sbox<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
         state.iter_mut().try_for_each(|s| self.emit_sbox(s))
     }
 
-    fn emit_internal_matrix(
-        &self,
-        state: &mut State<'c, '_>,
-        diag: &[Value<'c, 'a>; STATE_WIDTH],
-    ) -> Result<(), Error> {
+    fn emit_internal_matrix<'v, 'a: 'v>(
+        &'a self,
+        state: &mut State<'c, 'v>,
+        diag: &State<'c, 'v>,
+    ) -> Result<(), Error>
+    where
+        'c: 'v,
+    {
         let mut sum = state[0];
         for &s in &state[1..] {
             sum = self.emit_add(sum, s)?;
         }
 
-        let mut result = state;
-        for ((r, s), &d) in result.iter_mut().zip(state).zip(diag) {
-            let scaled = self.emit_mul(*s, d)?;
+        let mut result = *state;
+        for ((r, s), &d) in result.iter_mut().zip(*state).zip(diag) {
+            let scaled = self.emit_mul(s, d)?;
             *r = self.emit_add(scaled, sum)?;
         }
-        *state = *result;
+        *state = result;
         Ok(())
     }
 }

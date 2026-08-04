@@ -9,8 +9,7 @@ use llzk::{
 
 use crate::{
     blackboxes::common::{
-        block_args_slice, create_helper_function, emit_message_words, emit_word_to_bytes, emit_xor,
-        felt_type, ConstantCache, WordArithEmitter,
+        block_args_slice, create_helper_function, felt_type, ConstantCache, WordArithEmitter,
     },
     error::Error,
 };
@@ -206,7 +205,7 @@ fn emit_chunk_output<'c: 'a, 'a>(
     unreachable!()
 }
 
-fn emit_parent_output<'c, 'a>(
+fn emit_parent_output<'c: 'a, 'a>(
     emitter: &mut WordArithEmitter<'c, 'a, '_>,
     key_words: &[Value<'c, 'a>; 8],
     left: &[Value<'c, 'a>; 8],
