@@ -19,7 +19,7 @@ use llzk::{
     dialect::empty_region,
     prelude::{
         dialect::function, Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext,
-        Location, Module, OperationLike, RegionLike, Type, Value,
+        Location, Module, RegionLike, Type, Value,
     },
 };
 
@@ -134,7 +134,10 @@ pub(crate) fn emit_brillig_functions<'c>(
 
         let arg_sig: Vec<(Type<'c>, Location<'c>)> =
             (0..key.input_count).map(|_| (felt_ty, location)).collect();
-        let body_block = func.region(0)?.append_block(Block::new(&arg_sig));
+        let func_body = func.body()?;
+        let body_block = func_body
+            .first_block()
+            .unwrap_or_else(|| func_body.append_block(Block::new(&arg_sig)));
         let calldata: Vec<Value<'c, '_>> = (0..key.input_count)
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
@@ -157,7 +160,7 @@ pub(crate) fn emit_brillig_functions<'c>(
         let returns = emitter.translate(&structured, ctx, key.output_count)?;
 
         function::r#return(
-            &OpBuilder::new(context, body_block.at_end()),
+            &OpBuilder::at_block_end(context, body_block),
             location,
             &returns,
         );

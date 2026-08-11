@@ -8,8 +8,8 @@ use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, function},
     prelude::{
-        dialect::felt, Block, BlockLike, BlockRef, FuncDefOpRef, FunctionType, LlzkContext,
-        Location, OperationLike as _, OperationRef, RegionLike as _, Type, Value,
+        dialect::felt, Block, BlockLike, BlockRef, FuncDefOpLike, FuncDefOpRef, FunctionType,
+        LlzkContext, Location, OperationRef, RegionLike as _, Type, Value,
     },
 };
 
@@ -63,9 +63,10 @@ pub(super) fn create_helper_function<'c: 'a, 'a: 'b, 'b>(
         empty_region,
     )?;
 
-    let body = function
-        .region(0)?
-        .append_block(Block::new(&vec![(felt, location); inputs]));
+    let region = function.body()?;
+    let body = region
+        .first_block()
+        .unwrap_or_else(|| region.append_block(Block::new(&vec![(felt, location); inputs])));
     Ok((function, body))
 }
 

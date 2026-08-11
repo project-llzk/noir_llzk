@@ -3,11 +3,10 @@
 
 use acir::{brillig::Opcode as BrilligOpcode, circuit::brillig::BrilligBytecode, FieldElement};
 use llzk::{
-    builder::{BlockInsertPointLike, OpBuilder},
+    builder::OpBuilder,
     dialect::{empty_region, function::FuncDefOpLike},
     prelude::{
-        dialect::function, Block, FunctionType, LlzkContext, Location, Module, OperationLike,
-        RegionLike, Value,
+        dialect::function, Block, FunctionType, LlzkContext, Location, Module, RegionLike, Value,
     },
 };
 
@@ -209,7 +208,7 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         let proc_func_type = FunctionType::new(self.context, &[], &[]);
         let proc_name = BrilligRegistry::procedure_function_name(self.variant, procedure.entry);
         let proc_func = function::def(
-            &OpBuilder::new(self.context, self.module.body().at_end()),
+            &OpBuilder::at_block_end(self.context, self.module.body()),
             self.location,
             &proc_name,
             proc_func_type,
@@ -220,13 +219,16 @@ impl<'c, 'p> BrilligFunctionEmitter<'c, 'p> {
         proc_func.set_allow_witness_attr(true);
         proc_func.set_allow_non_native_field_ops_attr(true);
 
-        let proc_body = proc_func.region(0)?.append_block(Block::new(&[]));
+        let proc_body = proc_func.body()?;
+        let proc_body = proc_body
+            .first_block()
+            .unwrap_or_else(|| proc_body.append_block(Block::new(&[])));
         let mut proc_writer = BrilligWriter::new(self.context, proc_body);
         let mut ctx = TranslationCtx::new(&mut proc_writer, &[], None);
         let escape_flag_addrs = init_escape_flags(&mut ctx, procedure.escape_flag_count)?;
         self.emit_body(&mut ctx, &escape_flag_addrs, &procedure.body)?;
         function::r#return(
-            &OpBuilder::new(self.context, proc_body.at_end()),
+            &OpBuilder::at_block_end(self.context, proc_body),
             self.location,
             &[],
         );

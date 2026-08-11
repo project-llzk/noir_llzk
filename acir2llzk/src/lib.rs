@@ -15,7 +15,9 @@ use acir::{circuit::Program, FieldElement};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 pub use error::Error;
-use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Module, ModuleExt as _, StructType};
+use llzk::prelude::{
+    verify_operation_with_diags, LlzkContext, LlzkModuleBuilder, Module, ModuleExt as _, StructType,
+};
 
 use crate::{
     blackboxes::registry::BlackboxFunction,
@@ -95,6 +97,12 @@ impl<'c> Driver<'c> {
 
         emit_brillig_functions(&self.ctx, &module, &brillig_registry)?;
 
+        verify_operation_with_diags(&module.as_operation()).inspect_err(|_| {
+            eprintln!(
+                "Module validation failed. Dumping:\n{}",
+                module.as_operation()
+            );
+        })?;
         Ok(module)
     }
 

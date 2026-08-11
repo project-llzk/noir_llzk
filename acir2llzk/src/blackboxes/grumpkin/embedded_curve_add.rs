@@ -4,8 +4,8 @@ use llzk::{
     dialect::empty_region,
     prelude::{
         dialect::{bool, function},
-        Block, BlockLike, BlockRef, FuncDefOpLike, FunctionType, LlzkContext, Location,
-        OperationLike, RegionLike, Type, Value,
+        Block, BlockLike, BlockRef, FuncDefOpLike, FunctionType, LlzkContext, Location, RegionLike,
+        Type, Value,
     },
 };
 
@@ -38,7 +38,10 @@ pub(crate) fn emit_embedded_curve_add_helper<'c>(
     )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0)?.append_block(Block::new(&inputs));
+    let body = function.body()?;
+    let block = body
+        .first_block()
+        .unwrap_or_else(|| body.append_block(Block::new(&inputs)));
     let input1_x: Value<'c, '_> = block.argument(0)?.into();
     let input1_y: Value<'c, '_> = block.argument(1)?.into();
     let input1_infinite: Value<'c, '_> = block.argument(2)?.into();
