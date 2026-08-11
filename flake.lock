@@ -19,33 +19,31 @@
     "llzk-lib": {
       "inputs": {
         "flake-utils": [
-          "llzk-rs-pkgs",
           "llzk-pkgs",
           "flake-utils"
         ],
         "llzk-pkgs": [
-          "llzk-rs-pkgs",
           "llzk-pkgs"
         ],
         "nixpkgs": [
-          "llzk-rs-pkgs",
           "llzk-pkgs",
           "nixpkgs"
         ],
         "release-helpers": "release-helpers"
       },
       "locked": {
-        "lastModified": 1785458408,
-        "narHash": "sha256-pVg+PbFoZp43IkLa4DcoZdj6bsM481kgRyJlH/fP3ZQ=",
-        "owner": "project-llzk",
-        "repo": "llzk-lib",
-        "rev": "5db6f8f9baaa40787a1a40625796497445f2da36",
-        "type": "github"
+        "lastModified": 1786017341,
+        "narHash": "sha256-ifX1Q6lBo9bXkfmotKiStJKj7HfyVdzLEUQ/qmmfGLw=",
+        "ref": "dani/tweak-pcl-lowering-legalization",
+        "rev": "e30a1b132f4140031c00854e649559094310e37e",
+        "revCount": 610,
+        "type": "git",
+        "url": "https://github.com/project-llzk/llzk-lib"
       },
       "original": {
-        "owner": "project-llzk",
-        "repo": "llzk-lib",
-        "type": "github"
+        "ref": "dani/tweak-pcl-lowering-legalization",
+        "type": "git",
+        "url": "https://github.com/project-llzk/llzk-lib"
       }
     },
     "llzk-pkgs": {
@@ -73,7 +71,9 @@
           "llzk-pkgs",
           "flake-utils"
         ],
-        "llzk-lib": "llzk-lib",
+        "llzk-lib": [
+          "llzk-lib"
+        ],
         "llzk-pkgs": [
           "llzk-pkgs"
         ],
@@ -89,11 +89,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1785508161,
-        "narHash": "sha256-fWJxN5Vaakew3hP26WxizGxqvVx08WL1Nc/oI4YFacw=",
+        "lastModified": 1785963550,
+        "narHash": "sha256-61jYhchvsTrnEqbl1GkZ3oiPrtenQkq+apTlLUXSV+M=",
         "ref": "refs/heads/main",
-        "rev": "1d06a3609f0b07429e39652ca302f3299e95264b",
-        "revCount": 549,
+        "rev": "8d0faf9a0c18ed7b913cbb3325eaab8457ff6183",
+        "revCount": 557,
         "type": "git",
         "url": "https://github.com/project-llzk/llzk-rs"
       },
@@ -138,13 +138,11 @@
     "release-helpers": {
       "inputs": {
         "flake-utils": [
-          "llzk-rs-pkgs",
           "llzk-lib",
           "llzk-pkgs",
           "flake-utils"
         ],
         "nixpkgs": [
-          "llzk-rs-pkgs",
           "llzk-lib",
           "llzk-pkgs",
           "nixpkgs"
@@ -170,10 +168,7 @@
           "llzk-pkgs",
           "flake-utils"
         ],
-        "llzk-lib": [
-          "llzk-rs-pkgs",
-          "llzk-lib"
-        ],
+        "llzk-lib": "llzk-lib",
         "llzk-pkgs": "llzk-pkgs",
         "llzk-rs-pkgs": "llzk-rs-pkgs",
         "nixpkgs": [
