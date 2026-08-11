@@ -14,7 +14,7 @@ pub(crate) mod sha256;
 
 use std::collections::BTreeSet;
 
-use acir::{circuit::opcodes::FunctionInput, native_types::Witness, AcirField, FieldElement};
+use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput, native_types::Witness};
 use llzk::{
     builder::OpBuilder,
     prelude::{LlzkContext, OperationRef, Value},

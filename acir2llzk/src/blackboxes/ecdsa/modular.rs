@@ -4,9 +4,9 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{bool, cast, felt, function},
         BlockRef, FlatSymbolRefAttribute, FuncDefOpLike, LlzkContext, Location, OperationLike,
         Value,
+        dialect::{bool, cast, felt, function},
     },
 };
 

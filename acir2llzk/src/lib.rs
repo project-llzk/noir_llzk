@@ -11,17 +11,17 @@ mod multiprec;
 mod opcodes;
 mod writer;
 
-use acir::{circuit::Program, FieldElement};
-use base64::engine::general_purpose::STANDARD;
+use acir::{FieldElement, circuit::Program};
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 pub use error::Error;
 use llzk::prelude::{
-    verify_operation_with_diags, LlzkContext, LlzkModuleBuilder, Module, ModuleExt as _, StructType,
+    LlzkContext, LlzkModuleBuilder, Module, ModuleExt as _, StructType, verify_operation_with_diags,
 };
 
 use crate::{
     blackboxes::registry::BlackboxFunction,
-    brillig::{emit_brillig_functions, BrilligRegistry},
+    brillig::{BrilligRegistry, emit_brillig_functions},
     circuit::CircuitTranslator,
     config::{Config, OutputFormat},
 };

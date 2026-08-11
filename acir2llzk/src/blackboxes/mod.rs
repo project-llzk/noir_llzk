@@ -5,13 +5,13 @@ pub(crate) mod grumpkin;
 pub(crate) mod hash;
 pub(crate) mod registry;
 
-use acir::{circuit::Opcode, FieldElement};
+use acir::{FieldElement, circuit::Opcode};
 
 use crate::{
     error::Error,
     opcodes::{
-        aes128, bitwise, blake2s, blake3, ecdsa as ecdsa_opcodes, grumpkin as grumpkin_opcodes,
-        keccak, poseidon2, sha256, TranslatedOpcode,
+        TranslatedOpcode, aes128, bitwise, blake2s, blake3, ecdsa as ecdsa_opcodes,
+        grumpkin as grumpkin_opcodes, keccak, poseidon2, sha256,
     },
 };
 

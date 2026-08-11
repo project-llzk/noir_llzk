@@ -9,7 +9,7 @@
 use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
-    prelude::{dialect::felt, LlzkContext, Location, Value},
+    prelude::{LlzkContext, Location, Value, dialect::felt},
 };
 
 use crate::{

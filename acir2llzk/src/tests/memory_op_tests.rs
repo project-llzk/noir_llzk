@@ -1,8 +1,8 @@
 use acir::{
-    circuit::opcodes::{BlockId, BlockType, MemOp},
-    circuit::Opcode,
-    native_types::{Expression, Witness},
     AcirField, FieldElement,
+    circuit::Opcode,
+    circuit::opcodes::{BlockId, BlockType, MemOp},
+    native_types::{Expression, Witness},
 };
 use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 

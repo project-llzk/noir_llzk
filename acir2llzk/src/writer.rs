@@ -10,8 +10,8 @@
 use ::llzk::{
     builder::{EntryPoint, OpBuilder},
     prelude::{
-        dialect::*, FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef, Type,
-        Value,
+        FlatSymbolRefAttribute, LlzkContext, Location, Operation, OperationRef, Type, Value,
+        dialect::*,
     },
 };
 

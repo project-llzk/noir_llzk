@@ -11,7 +11,7 @@ use super::{
         append_add_p, append_mul_mod_n_barrett, append_mul_mod_p_secp256k1, append_mul_p,
         append_sub_p, pack_const_limbs,
     },
-    point::{append_point_double_a_neg_3, append_point_double_a_zero, JacobianPoint},
+    point::{JacobianPoint, append_point_double_a_neg_3, append_point_double_a_zero},
 };
 
 /// Short-Weierstrass curve over a ~256-bit prime.

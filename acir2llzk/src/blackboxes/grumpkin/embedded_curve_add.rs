@@ -3,9 +3,9 @@ use llzk::{
     builder::{BlockInsertPointLike, OpBuilder},
     dialect::empty_region,
     prelude::{
-        dialect::{bool, function},
         Block, BlockLike, BlockRef, FuncDefOpLike, FunctionType, LlzkContext, Location, RegionLike,
         Type, Value,
+        dialect::{bool, function},
     },
 };
 

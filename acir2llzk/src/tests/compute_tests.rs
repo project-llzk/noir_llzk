@@ -10,7 +10,7 @@ use llzk::prelude::{
 use super::{
     make_circuit_with_opcodes, mul_constraint, print_and_verify_module, translate_single_circuit,
 };
-use crate::{tests::TestConfig, Driver};
+use crate::{Driver, tests::TestConfig};
 
 /// Count `struct.writem` operations in the compute function.
 fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {

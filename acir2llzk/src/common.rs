@@ -6,15 +6,15 @@ use llzk::builder::{OpBuilder, OpBuilderLike as _};
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::OperationLike;
 use llzk::prelude::{
-    melior_dialects::scf, Block, BlockLike, LlzkContext, Location, OperationRef, Region,
-    RegionLike, Type, Value,
+    Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
+    melior_dialects::scf,
 };
 use num_bigint::BigUint;
 
+use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::error::Error;
 use crate::writer::Writer;
-use crate::FIELD_NAME;
 
 /// Converts an ACIR `FieldElement` to an LLZK `FeltConstAttribute`.
 pub(crate) fn field_to_felt_const<'c>(

@@ -1,16 +1,16 @@
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::function, BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
+        BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Value, dialect::function,
     },
 };
 
 use crate::{
-    blackboxes::common::{block_args_slice, create_helper_function, WordArithEmitter},
+    blackboxes::common::{WordArithEmitter, block_args_slice, create_helper_function},
     error::Error,
 };
 
-use super::common::{emit_round, iv_values, IV};
+use super::common::{IV, emit_round, iv_values};
 
 pub(crate) const BLAKE2S_DIGEST_BYTES: usize = 32;
 const BLAKE2S_BLOCK_BYTES: usize = 64;

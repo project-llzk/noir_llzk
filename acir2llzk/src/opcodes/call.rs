@@ -1,14 +1,14 @@
 use ::llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{r#struct, *},
         LlzkContext, Location, StructType, SymbolRefAttribute, Type, Value,
+        dialect::{r#struct, *},
     },
 };
 use acir::{
+    AcirField as _, FieldElement,
     circuit::Circuit,
     native_types::{Expression, Witness},
-    AcirField as _, FieldElement,
 };
 
 use crate::{

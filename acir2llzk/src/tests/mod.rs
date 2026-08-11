@@ -1,10 +1,10 @@
 use acir::{
+    AcirField, FieldElement,
     circuit::{
-        opcodes::{BlackBoxFuncCall, FunctionInput},
         Circuit, Opcode, Program, PublicInputs,
+        opcodes::{BlackBoxFuncCall, FunctionInput},
     },
     native_types::{Expression, Witness},
-    AcirField, FieldElement,
 };
 use llzk::prelude::{
     BlockLike, BlockRef, LlzkContext, Module, OperationLike, OperationRef, StructDefOpRef,

@@ -11,20 +11,20 @@
 use std::collections::HashMap;
 
 use acir::{
-    circuit::brillig::{BrilligBytecode, BrilligFunctionId},
     FieldElement,
+    circuit::brillig::{BrilligBytecode, BrilligFunctionId},
 };
 use llzk::{
     builder::{BlockInsertPointLike, OpBuilder},
     dialect::empty_region,
     prelude::{
-        dialect::function, Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext,
-        Location, Module, RegionLike, Type, Value,
+        Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
+        RegionLike, Type, Value, dialect::function,
     },
 };
 
 use crate::{
-    brillig::translator::TranslationCtx, brillig_writer::BrilligWriter, error::Error, FIELD_NAME,
+    FIELD_NAME, brillig::translator::TranslationCtx, brillig_writer::BrilligWriter, error::Error,
 };
 
 use super::{

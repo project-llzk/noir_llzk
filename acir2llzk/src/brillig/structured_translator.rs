@@ -1,12 +1,12 @@
 //! Structured translator: walks a [`StructuredFunction`] tree and emits
 //! LLZK IR via the existing per-opcode handlers from [`super::translator`].
 
-use acir::{brillig::Opcode as BrilligOpcode, circuit::brillig::BrilligBytecode, FieldElement};
+use acir::{FieldElement, brillig::Opcode as BrilligOpcode, circuit::brillig::BrilligBytecode};
 use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, function::FuncDefOpLike},
     prelude::{
-        dialect::function, Block, FunctionType, LlzkContext, Location, Module, RegionLike, Value,
+        Block, FunctionType, LlzkContext, Location, Module, RegionLike, Value, dialect::function,
     },
 };
 
@@ -23,7 +23,7 @@ use super::{
     cfg::Block as CFGBlock,
     registry::{BrilligRegistry, BrilligRegistryKey},
     structurer::{StructureNode, StructuredFunction, StructuredProcedure},
-    translator::{translate_block_body, TranslationCtx},
+    translator::{TranslationCtx, translate_block_body},
 };
 
 /// Per-Brillig-function emission state.

@@ -1,23 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
-use acir::{circuit::opcodes::FunctionInput, AcirField, FieldElement};
+use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
 use llzk::{
     builder::{EntryPoint, OpBuilder},
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
-        dialect::{array, constrain, felt, function, r#struct},
-        melior_dialects::arith,
         BlockLike, BlockRef, FeltType, FuncDefOpRef, IntegerAttribute, LlzkContext, Location,
         Operation, OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type,
         Value, ValueLike,
+        dialect::{array, constrain, felt, function, r#struct},
+        melior_dialects::arith,
     },
 };
 
 use crate::{
+    FIELD_NAME,
     common::{as_value, field_to_felt_const},
     error::Error,
     writer::Writer,
-    FIELD_NAME,
 };
 
 /// Shared LLZK block writer that manages witness reads and emits operations

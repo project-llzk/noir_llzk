@@ -2,8 +2,8 @@ use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    dialect::constrain, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
-    StructDefOpLike, StructDefOpRef,
+    LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike, StructDefOpLike,
+    StructDefOpRef, dialect::constrain,
 };
 
 use crate::tests::print_and_verify_module;

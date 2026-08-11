@@ -1,10 +1,10 @@
 use llzk::{
     builder::{BlockInsertPointLike as _, OpBuilder},
-    prelude::{dialect::function, BlockRef, FuncDefOpLike, LlzkContext, Location, Value},
+    prelude::{BlockRef, FuncDefOpLike, LlzkContext, Location, Value, dialect::function},
 };
 
 use crate::{
-    blackboxes::common::{block_args, create_helper_function, WordArithEmitter},
+    blackboxes::common::{WordArithEmitter, block_args, create_helper_function},
     error::Error,
 };
 

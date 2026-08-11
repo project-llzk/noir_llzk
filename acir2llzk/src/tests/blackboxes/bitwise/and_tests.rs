@@ -1,7 +1,7 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::Opcode;
-use acir::native_types::Witness;
 use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::native_types::Witness;
 use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 
 use crate::tests::{

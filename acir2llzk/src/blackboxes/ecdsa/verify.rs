@@ -2,8 +2,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{bool, felt, function},
         BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
+        dialect::{bool, felt, function},
     },
 };
 
@@ -26,8 +26,8 @@ use super::{
     },
     modular::{append_inv_n, append_mul_p, pack_const_limbs},
     point::{
-        append_jacobian_to_affine, append_joint_scalar_mul, append_point_add_mixed_complete,
-        JacobianPoint,
+        JacobianPoint, append_jacobian_to_affine, append_joint_scalar_mul,
+        append_point_add_mixed_complete,
     },
 };
 

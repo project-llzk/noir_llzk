@@ -2,14 +2,14 @@ use llzk::{
     builder::OpBuilder,
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
-        dialect::{array, cast, felt, function},
         BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
+        dialect::{array, cast, felt, function},
     },
 };
 
 use crate::{
     blackboxes::common::{
-        block_args, block_args_slice, create_helper_function, ConstantCache, WordArithEmitter,
+        ConstantCache, WordArithEmitter, block_args, block_args_slice, create_helper_function,
     },
     common::as_value,
     error::Error,

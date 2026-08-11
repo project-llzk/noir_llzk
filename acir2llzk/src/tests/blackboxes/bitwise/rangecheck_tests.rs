@@ -1,6 +1,6 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use acir::circuit::Opcode;
 use acir::FieldElement;
+use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 
 use crate::tests::{

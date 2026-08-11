@@ -8,8 +8,8 @@ use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, function},
     prelude::{
-        dialect::felt, Block, BlockLike, BlockRef, FuncDefOpLike, FuncDefOpRef, FunctionType,
-        LlzkContext, Location, OperationRef, RegionLike as _, Type, Value,
+        Block, BlockLike, BlockRef, FuncDefOpLike, FuncDefOpRef, FunctionType, LlzkContext,
+        Location, OperationRef, RegionLike as _, Type, Value, dialect::felt,
     },
 };
 

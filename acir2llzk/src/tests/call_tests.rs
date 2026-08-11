@@ -1,6 +1,6 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
-use acir::{circuit::opcodes::AcirFunctionId, AcirField, FieldElement};
+use acir::{AcirField, FieldElement, circuit::opcodes::AcirFunctionId};
 use llzk::prelude::{
     BlockLike, FeltType, FuncDefOpRef, LlzkContext, MemberDefOpLike, OperationLike, OperationRef,
     RegionLike, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute, Type, Value,
@@ -11,8 +11,8 @@ use super::{
     first_struct_def, make_circuit, make_circuit_with_opcodes, make_program, mul_constraint,
     print_and_verify_module,
 };
-use crate::tests::TestConfig;
 use crate::Driver;
+use crate::tests::TestConfig;
 
 const FIELD_NAME: &str = "bn254";
 

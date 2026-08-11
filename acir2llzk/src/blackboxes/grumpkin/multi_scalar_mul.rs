@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
-    circuit::{opcodes::BlackBoxFuncCall, Opcode, Program},
     AcirField, FieldElement,
+    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
+    circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{bool, function},
         BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Type, Value,
+        dialect::{bool, function},
     },
 };
 
@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::common::{
-    emit_curve_add_result, emit_infinity_point, point_to_array, EmbeddedPointValue,
+    EmbeddedPointValue, emit_curve_add_result, emit_infinity_point, point_to_array,
 };
 
 pub(crate) const SCALAR_LOW_BITS: usize = 128;

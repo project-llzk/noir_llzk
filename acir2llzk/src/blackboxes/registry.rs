@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
-    circuit::{opcodes::BlackBoxFuncCall, Opcode, Program},
     FieldElement,
+    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
+    circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
 use llzk::prelude::{BlockRef, LlzkContext, Type};
 
@@ -12,34 +12,34 @@ use crate::error::Error;
 use super::{
     cipher::aes128::{aes128_helper_name, emit_aes128_helper},
     ecdsa::{
-        emit_secp256k1_compute_helper, emit_secp256k1_inv_mod_n_helper,
-        emit_secp256k1_inv_mod_p_helper, emit_secp256k1_mul_mod_n_helper,
-        emit_secp256k1_mul_mod_p_helper, emit_secp256r1_compute_helper,
-        emit_secp256r1_inv_mod_n_helper, emit_secp256r1_inv_mod_p_helper,
-        emit_secp256r1_mul_mod_n_helper, emit_secp256r1_mul_mod_p_helper,
         ECDSA_SECP256K1_COMPUTE_HELPER_NAME, ECDSA_SECP256K1_INV_MOD_N_HELPER_NAME,
         ECDSA_SECP256K1_INV_MOD_P_HELPER_NAME, ECDSA_SECP256K1_MUL_MOD_N_HELPER_NAME,
         ECDSA_SECP256K1_MUL_MOD_P_HELPER_NAME, ECDSA_SECP256R1_COMPUTE_HELPER_NAME,
         ECDSA_SECP256R1_INV_MOD_N_HELPER_NAME, ECDSA_SECP256R1_INV_MOD_P_HELPER_NAME,
         ECDSA_SECP256R1_MUL_MOD_N_HELPER_NAME, ECDSA_SECP256R1_MUL_MOD_P_HELPER_NAME,
+        emit_secp256k1_compute_helper, emit_secp256k1_inv_mod_n_helper,
+        emit_secp256k1_inv_mod_p_helper, emit_secp256k1_mul_mod_n_helper,
+        emit_secp256k1_mul_mod_p_helper, emit_secp256r1_compute_helper,
+        emit_secp256r1_inv_mod_n_helper, emit_secp256r1_inv_mod_p_helper,
+        emit_secp256r1_mul_mod_n_helper, emit_secp256r1_mul_mod_p_helper,
     },
     grumpkin::{
-        embedded_curve_add::{emit_embedded_curve_add_helper, EMBEDDED_CURVE_ADD_HELPER_NAME},
+        embedded_curve_add::{EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper},
         multi_scalar_mul::{
             emit_multi_scalar_mul_helper, multi_scalar_mul_helper_name, used_arities,
         },
     },
     hash::{
         blake2s::{
-            blake2s_helper_name, blake2s_num_blocks_for_len, emit_blake2s_helper,
-            BLAKE2S_DIGEST_BYTES,
+            BLAKE2S_DIGEST_BYTES, blake2s_helper_name, blake2s_num_blocks_for_len,
+            emit_blake2s_helper,
         },
         blake3::{
-            blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper, BLAKE3_DIGEST_BYTES,
+            BLAKE3_DIGEST_BYTES, blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper,
         },
-        keccak::{emit_keccak_helper, KECCAK_HELPER_NAME, KECCAK_STATE_WORDS},
-        poseidon2::{emit_poseidon2_helper, POSEIDON2_HELPER_NAME},
-        sha256::{emit_sha256_helper, SHA256_HELPER_NAME, SHA256_STATE_WORDS},
+        keccak::{KECCAK_HELPER_NAME, KECCAK_STATE_WORDS, emit_keccak_helper},
+        poseidon2::{POSEIDON2_HELPER_NAME, emit_poseidon2_helper},
+        sha256::{SHA256_HELPER_NAME, SHA256_STATE_WORDS, emit_sha256_helper},
     },
 };
 

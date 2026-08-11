@@ -11,18 +11,18 @@ use acir::FieldElement;
 use llzk::{
     builder::{BlockInsertPointLike, EntryPoint, OpBuilder},
     prelude::{
-        dialect::{bool, cast, felt, ram},
-        melior_dialects::{arith, scf},
         Block, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
         OperationRef, Region, RegionLike, Type, Value, ValueLike,
+        dialect::{bool, cast, felt, ram},
+        melior_dialects::{arith, scf},
     },
 };
 
 use crate::{
+    FIELD_NAME,
     common::{as_value, field_to_felt_const},
     error::Error,
     writer::Writer,
-    FIELD_NAME,
 };
 
 /// Treats any type whose textual form starts with `!felt.` as a felt type.

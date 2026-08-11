@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
-    circuit::Opcode,
-    native_types::Witness,
     AcirField, FieldElement,
+    circuit::Opcode,
+    circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    native_types::Witness,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     blackboxes::registry::BlackboxFunction,
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{collect_input_witness, OpcodeEmitter},
+    opcodes::{OpcodeEmitter, collect_input_witness},
     writer::Writer,
 };
 
@@ -35,8 +35,7 @@ struct EmbeddedCurveAddInputs<'c, 'b> {
 
 impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
-        let mut witnesses =
-            BTreeSet::from([self.outputs.0 .0, self.outputs.1 .0, self.outputs.2 .0]);
+        let mut witnesses = BTreeSet::from([self.outputs.0.0, self.outputs.1.0, self.outputs.2.0]);
 
         for input in self.input1.iter().chain(self.input2.iter()) {
             collect_input_witness(&mut witnesses, input);
@@ -53,20 +52,20 @@ impl OpcodeEmitter for EmbeddedCurveAdd<'_> {
         let output_y = helper_call.result(1)?.into();
         let output_infinite = helper_call.result(2)?.into();
 
-        writer.write_member(&format!("w{}", self.outputs.0 .0), output_x)?;
-        writer.write_member(&format!("w{}", self.outputs.1 .0), output_y)?;
-        writer.write_member(&format!("w{}", self.outputs.2 .0), output_infinite)?;
-        writer.mark_known(self.outputs.0 .0, output_x);
-        writer.mark_known(self.outputs.1 .0, output_y);
-        writer.mark_known(self.outputs.2 .0, output_infinite);
+        writer.write_member(&format!("w{}", self.outputs.0.0), output_x)?;
+        writer.write_member(&format!("w{}", self.outputs.1.0), output_y)?;
+        writer.write_member(&format!("w{}", self.outputs.2.0), output_infinite)?;
+        writer.mark_known(self.outputs.0.0, output_x);
+        writer.mark_known(self.outputs.1.0, output_y);
+        writer.mark_known(self.outputs.2.0, output_infinite);
         Ok(())
     }
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let inputs = self.read_inputs(writer)?;
-        let output_x = writer.read_witness(self.outputs.0 .0)?;
-        let output_y = writer.read_witness(self.outputs.1 .0)?;
-        let output_infinite = writer.read_witness(self.outputs.2 .0)?;
+        let output_x = writer.read_witness(self.outputs.0.0)?;
+        let output_y = writer.read_witness(self.outputs.1.0)?;
+        let output_infinite = writer.read_witness(self.outputs.2.0)?;
 
         let one = writer.emit_constant(&FieldElement::one())?;
         let zero = writer.emit_constant(&FieldElement::zero())?;

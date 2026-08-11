@@ -4,10 +4,10 @@ use acir::native_types::Witness;
 use llzk::{
     builder::OpBuilder,
     dialect::array::ArrayType,
-    prelude::{dialect::r#struct, FeltType, LlzkContext, Location, Type, Value},
+    prelude::{FeltType, LlzkContext, Location, Type, Value, dialect::r#struct},
 };
 
-use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter, FIELD_NAME};
+use crate::{FIELD_NAME, block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};
 
 /// Translates an ACIR `MemoryInit` opcode.
 ///

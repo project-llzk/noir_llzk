@@ -3,10 +3,10 @@ use llzk::{
     builder::{OpBuilder, OpBuilderLike as _},
     dialect::llzk::LoopBoundsAttribute,
     prelude::{
-        dialect::{bool, felt},
-        melior_dialects::scf,
         Block, BlockLike, LlzkContext, Location, OperationMutLike, OperationRef, Region,
         RegionLike, Type, Value,
+        dialect::{bool, felt},
+        melior_dialects::scf,
     },
 };
 

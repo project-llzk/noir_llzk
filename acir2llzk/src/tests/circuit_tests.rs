@@ -6,7 +6,7 @@ use super::{
     make_circuit, make_circuit_with_opcodes, make_program, mul_constraint, print_and_verify_module,
     translate_single_circuit,
 };
-use crate::{tests::TestConfig, Driver};
+use crate::{Driver, tests::TestConfig};
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
 #[test]
