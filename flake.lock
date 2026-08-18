@@ -32,16 +32,15 @@
         "release-helpers": "release-helpers"
       },
       "locked": {
-        "lastModified": 1786017341,
-        "narHash": "sha256-ifX1Q6lBo9bXkfmotKiStJKj7HfyVdzLEUQ/qmmfGLw=",
-        "ref": "dani/tweak-pcl-lowering-legalization",
-        "rev": "e30a1b132f4140031c00854e649559094310e37e",
-        "revCount": 610,
+        "lastModified": 1786975506,
+        "narHash": "sha256-IpRO6dCmH7tR3pYvOtX3OY0pNS+rsb6C7Z1wKnLFVnI=",
+        "ref": "refs/heads/main",
+        "rev": "a79a726f580d78a4103197244743fe1ce242e058",
+        "revCount": 625,
         "type": "git",
         "url": "https://github.com/project-llzk/llzk-lib"
       },
       "original": {
-        "ref": "dani/tweak-pcl-lowering-legalization",
         "type": "git",
         "url": "https://github.com/project-llzk/llzk-lib"
       }

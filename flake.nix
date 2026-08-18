@@ -8,7 +8,7 @@
       flake = false;
     };
     llzk-lib = {
-      url = "git+https://github.com/project-llzk/llzk-lib?ref=dani/tweak-pcl-lowering-legalization"; 
+      url = "git+https://github.com/project-llzk/llzk-lib"; 
       inputs = {
         nixpkgs.follows = "llzk-pkgs/nixpkgs";
         flake-utils.follows = "llzk-pkgs/flake-utils";
