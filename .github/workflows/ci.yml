@@ -29,57 +29,6 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
     steps:
-      # - uses: actions/checkout@v6
-      # - name: Load shared env
-      #   run: cat .github/workflows/llzk.env >> "$GITHUB_ENV"
-      # - name: Free Disk Space
-      #   uses: jlumbroso/free-disk-space@v1.3.1
-      #   with:
-      #     large-packages: false
-      # - name: Install LLVM 20 + MLIR (apt)
-      #   run: |
-      #     wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-      #       | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
-      #     CODENAME=$(lsb_release -cs)
-      #     echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-20 main" \
-      #       | sudo tee /etc/apt/sources.list.d/llvm.list
-      #     sudo apt-get update
-      #     sudo apt-get install -y --no-install-recommends \
-      #       llvm-20-dev libmlir-20-dev mlir-20-tools \
-      #       clang-20 libclang-20-dev libclang-rt-20-dev \
-      #       libpolly-20-dev \
-      #       cmake ninja-build
-      # - name: Install PCL MLIR
-      #   uses: ./.github/actions/install-pcl-mlir
-      #   with:
-      #     ref: 55cf619b032314198aacafc305871fb66b12b70e
-      #     type: Debug
-      #     mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
-      # - name: Install LLZK
-      #   uses: ./.github/actions/install-llzk
-      #   with:
-      #     ref: 8d5fc3141d268475673bb1db69701c3d12c13435
-      #     type: Debug
-      #     mlir-dir: ${{ env.MLIR_SYS_200_PREFIX }}
-      # - name: Cache Noir toolchain
-      #   id: cache-noir
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: ~/.nargo
-      #     key: ${{ runner.os }}-noir-${{ env.NOIR_TOOLCHAIN }}
-      # - name: Add Noir to PATH
-      #   run: echo "$HOME/.nargo/bin" >> "$GITHUB_PATH"
-      # - name: Install Noir toolchain
-      #   if: steps.cache-noir.outputs.cache-hit != 'true'
-      #   uses: noir-lang/noirup@v0.1.2
-      #   with:
-      #     toolchain: ${{ env.NOIR_TOOLCHAIN }}
-      # - uses: dtolnay/rust-toolchain@stable
-      #   with:
-      #     components: clippy
-      # - uses: Swatinem/rust-cache@v2
-      #
-
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -100,6 +49,14 @@ jobs:
         uses: nicknovitski/nix-develop@v1
         env:
           CI_BOT_PAT: "${{ secrets.CI_BUILD_TOKEN }}"
+      - name: Cache cargo crates
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.BUILD_TARGET }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Clippy
         run: |
           cargo clippy -p acir2llzk --all-targets --features e2e -- -D warnings
