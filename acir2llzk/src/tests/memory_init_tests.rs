@@ -1,12 +1,12 @@
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlockId, BlockType},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
-use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location};
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, StructType};
 
-use crate::tests::print_and_verify_module;
+use crate::{tests::print_and_verify_module, FIELD_NAME};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 
@@ -22,8 +22,12 @@ fn memory_init(block_id: u32, init: &[u32], block_type: BlockType) -> Opcode<Fie
 /// compute initializes all three slots.
 #[test]
 fn single_memory_init_three_witnesses() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let opcodes = vec![memory_init(0, &[2, 3, 4], BlockType::Memory)];
     // witnesses 2, 3, 4 are inputs (private parameters)
     let circuit = make_circuit_with_opcodes(4, &[2, 3, 4], &[], &[], opcodes);
@@ -34,8 +38,12 @@ fn single_memory_init_three_witnesses() {
 /// Two `MemoryInit` blocks with different `block_id`s → two distinct array members.
 #[test]
 fn two_memory_init_blocks() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let opcodes = vec![
         memory_init(0, &[2, 3], BlockType::Memory),
         memory_init(1, &[4, 5, 6], BlockType::Memory),
@@ -49,8 +57,12 @@ fn two_memory_init_blocks() {
 /// from the function-argument cache, not from struct members.
 #[test]
 fn memory_init_witnesses_overlap_with_inputs() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // Witnesses 0, 1, 2 are private inputs AND the init vector; no struct members for them.
     let opcodes = vec![memory_init(0, &[0, 1, 2], BlockType::Memory)];
     let circuit = make_circuit_with_opcodes(2, &[0, 1, 2], &[], &[], opcodes);
@@ -61,8 +73,12 @@ fn memory_init_witnesses_overlap_with_inputs() {
 /// `BlockType::CallData` → treated identically to `Memory`.
 #[test]
 fn memory_init_call_data() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let opcodes = vec![memory_init(0, &[0, 1, 2], BlockType::CallData(0))];
     let circuit = make_circuit_with_opcodes(2, &[0, 1, 2], &[], &[], opcodes);
     translate_single_circuit(&context, circuit, module.body()).unwrap();
@@ -72,8 +88,12 @@ fn memory_init_call_data() {
 /// `BlockType::ReturnData` → treated identically to `Memory`.
 #[test]
 fn memory_init_return_data() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let opcodes = vec![memory_init(0, &[0, 1, 2], BlockType::ReturnData)];
     let circuit = make_circuit_with_opcodes(2, &[0, 1, 2], &[], &[], opcodes);
     translate_single_circuit(&context, circuit, module.body()).unwrap();
@@ -83,8 +103,12 @@ fn memory_init_return_data() {
 /// Mixed block types coexist — each gets its own `@mem{id}` member.
 #[test]
 fn memory_init_mixed_block_types() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let opcodes = vec![
         memory_init(0, &[0, 1], BlockType::CallData(0)),
         memory_init(1, &[2, 3, 4], BlockType::Memory),

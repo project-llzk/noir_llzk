@@ -1,12 +1,14 @@
 use acir::{
-    AcirField, FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlockId, BlockType, MemOp},
+    circuit::Opcode,
     native_types::{Expression, Witness},
+    AcirField, FieldElement,
 };
-use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
+use llzk::prelude::{
+    verify_operation_with_diags, LlzkContext, LlzkModuleBuilder, Location, OperationLike,
+};
 
-use crate::tests::count_occurrences;
+use crate::{tests::count_occurrences, FIELD_NAME};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 
@@ -105,11 +107,14 @@ fn translate_and_verify(
     witness_count: u32,
     inputs: &[u32],
 ) -> String {
-    let context = LlzkContext::new();
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
     let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(witness_count, inputs, &[], &[], opcodes);
     translate_single_circuit(&context, circuit, module.body()).unwrap();
     let ir = format!("{}", module.as_operation());
+    eprintln!("ir = {ir}");
+    assert_eq!(verify_operation_with_diags(&module.as_operation()), Ok(()));
     assert!(module.as_operation().verify(), "module should verify");
     ir
 }

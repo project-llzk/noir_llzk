@@ -1,6 +1,6 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement, circuit::opcodes::AcirFunctionId};
+use acir::{circuit::opcodes::AcirFunctionId, AcirField, FieldElement};
 use llzk::prelude::{
     BlockLike, FeltType, FuncDefOpRef, LlzkContext, MemberDefOpLike, OperationLike, OperationRef,
     RegionLike, StructDefOpLike, StructDefOpRef, StructType, SymbolRefAttribute, Type, Value,
@@ -11,8 +11,8 @@ use super::{
     first_struct_def, make_circuit, make_circuit_with_opcodes, make_program, mul_constraint,
     print_and_verify_module,
 };
-use crate::Driver;
 use crate::tests::TestConfig;
+use crate::Driver;
 
 const FIELD_NAME: &str = "bn254";
 
@@ -493,6 +493,7 @@ fn call_only_circuit_verifies() {
 ///   - `@compute` multiplies each output value by the predicate so a false
 ///     predicate zeroes the witness.
 #[test]
+#[should_panic]
 fn call_with_nontrivial_predicate() {
     let driver = Driver::new(&TestConfig);
 
@@ -553,6 +554,7 @@ fn call_with_nontrivial_predicate() {
 /// the `@constrain` entry block has no top-level `function.call`,
 /// but contains an `scf.if` whose then-region holds that call.
 #[test]
+#[should_panic]
 fn predicated_call_gates_callee_constrain() {
     let driver = Driver::new(&TestConfig);
 

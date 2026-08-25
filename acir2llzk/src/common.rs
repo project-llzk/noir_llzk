@@ -6,12 +6,11 @@ use llzk::builder::{OpBuilder, OpBuilderLike as _};
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::OperationLike;
 use llzk::prelude::{
-    Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
-    melior_dialects::scf,
+    melior_dialects::scf, Block, BlockLike, LlzkContext, Location, OperationRef, Region,
+    RegionLike, Type, Value,
 };
 use num_bigint::BigUint;
 
-use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::error::Error;
 use crate::writer::Writer;
@@ -23,7 +22,7 @@ pub(crate) fn field_to_felt_const<'c>(
 ) -> FeltConstAttribute<'c> {
     let bytes = fe.to_le_bytes();
     let biguint = BigUint::from_bytes_le(&bytes);
-    FeltConstAttribute::from_biguint(context, &biguint, Some(FIELD_NAME))
+    FeltConstAttribute::from_biguint(context, &biguint, context.field())
 }
 
 /// Returns `true` if the predicate expression is a trivial constant `1`

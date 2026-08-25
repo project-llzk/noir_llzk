@@ -4,13 +4,14 @@ use acir::{AcirField, FieldElement};
 use llzk::prelude::dialect::r#struct;
 use llzk::prelude::{
     LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike, StructDefOpLike,
-    StructDefOpRef,
+    StructDefOpRef, StructType,
 };
 
 use super::{
     make_circuit_with_opcodes, mul_constraint, print_and_verify_module, translate_single_circuit,
 };
-use crate::{Driver, tests::TestConfig};
+use crate::FIELD_NAME;
+use crate::{tests::TestConfig, Driver};
 
 /// Count `struct.writem` operations in the compute function.
 fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {
@@ -24,8 +25,12 @@ fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {
 /// `x * y - z = 0` where x, y are inputs and z is intermediate → compute solves z = x * y
 #[test]
 fn solve_mul_term() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // w0=x (private), w1=y (private), w2=z (intermediate)
     // expr: 1*w0*w1 + (-1)*w2 + 0 = 0  →  z = x * y
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 2)]);
@@ -40,8 +45,12 @@ fn solve_mul_term() {
 /// Linear solve: `x + y - z = 0` where x, y known → z = x + y
 #[test]
 fn solve_linear() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // w0=x (private), w1=y (private), w2=z (intermediate)
     // expr: 1*w0 + 1*w1 + (-1)*w2 = 0
     let expr = Expression {
@@ -65,8 +74,12 @@ fn solve_linear() {
 /// Chain of solves: opcode 1 solves z from x,y; opcode 2 uses z to solve w
 #[test]
 fn chain_of_solves() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // w0=x, w1=y (inputs), w2=z (intermediate), w3=w (intermediate)
     // opcode 1: x * y - z = 0  →  z = x * y
     let expr1 = mul_constraint(0, 1, 2);
@@ -93,8 +106,12 @@ fn chain_of_solves() {
 /// Two unknowns in one opcode → error diagnostic
 #[test]
 fn two_unknowns_error() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // w0=x (input), w1=y (unknown), w2=z (unknown)
     // expr: x + y - z = 0 — both y and z are unknown
     let expr = Expression {
@@ -142,8 +159,12 @@ fn full_module_compute_and_constrain_verifies() {
 /// Mixed: solve with non-unit coefficients — 2*x*y + 3*z = 0, solve z
 #[test]
 fn solve_with_coefficients() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // w0=x, w1=y (inputs), w2=z (intermediate)
     // expr: 2*w0*w1 + 3*w2 = 0  →  z = -(2*x*y) / 3
     let expr = Expression {

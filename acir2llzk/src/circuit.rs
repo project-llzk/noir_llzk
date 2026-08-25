@@ -1,34 +1,34 @@
 use std::collections::{BTreeSet, HashSet};
 
 use acir::{
-    FieldElement,
     circuit::{
-        Circuit, Opcode, Program,
         brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
+        Circuit, Opcode, Program,
     },
     native_types::Expression,
+    FieldElement,
 };
 use llzk::{
     attributes::NamedAttribute,
     builder::OpBuilder,
     prelude::{
-        BlockRef, FeltType, LlzkContext, Location, PublicAttribute, StructDefOpRef, StructType,
-        Type, dialect::r#struct,
+        dialect::r#struct, BlockRef, FeltType, LlzkContext, Location, PublicAttribute,
+        StructDefOpRef, StructType, Type,
     },
 };
 
 use crate::{
-    Error, FIELD_NAME,
     blackboxes::build_blackbox_handler,
     block_writer::BlockWriter,
     brillig::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
-        TranslatedOpcode,
         assert_zero::AssertZero,
         brillig_call::BrilligCall,
         call::Call,
         memory_ops::{self, MemoryInit},
+        TranslatedOpcode,
     },
+    Error, FIELD_NAME,
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].
@@ -321,7 +321,7 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
     /// Builds the function parameter list: one `!felt.type` per input witness.
     fn build_input_list(&self, input_witnesses: &[u32]) -> Vec<(Type<'c>, Location<'c>)> {
         let location = Location::unknown(self.context);
-        let felt_type = FeltType::with_field(self.context, FIELD_NAME);
+        let felt_type = self.context.felt_type();
         input_witnesses
             .iter()
             .map(|_| (felt_type.into(), location))

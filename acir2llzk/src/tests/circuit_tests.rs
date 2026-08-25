@@ -1,12 +1,13 @@
 use llzk::prelude::{
-    BlockLike, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike, StructDefOpLike,
+    BlockLike, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
+    StructDefOpLike, StructType,
 };
 
 use super::{
     make_circuit, make_circuit_with_opcodes, make_program, mul_constraint, print_and_verify_module,
     translate_single_circuit,
 };
-use crate::{Driver, tests::TestConfig};
+use crate::{tests::TestConfig, Driver, FIELD_NAME};
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
 #[test]
@@ -44,8 +45,12 @@ fn three_circuits_three_structs() {
 /// Compute and constrain have correct number of parameters
 #[test]
 fn compute_constrain_parameter_counts() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // 2 private + 1 public = 3 input params
     let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
@@ -77,8 +82,12 @@ fn compute_constrain_parameter_counts() {
 /// produce phantom members.
 #[test]
 fn skipped_witness_indices_no_phantom_members() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // Inputs: w0, w1. Opcode references w5 (large gap, w2–w4 unused).
     // current_witness_index = 5 to satisfy ACIR, but only w5 should be a member.
     let circuit = make_circuit_with_opcodes(5, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 5)]);

@@ -1,12 +1,14 @@
 use acir::circuit::Opcode;
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
+use llzk::prelude::StructType;
 use llzk::prelude::{
-    LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike, StructDefOpLike,
-    StructDefOpRef, dialect::constrain,
+    dialect::constrain, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
+    StructDefOpLike, StructDefOpRef,
 };
 
 use crate::tests::print_and_verify_module;
+use crate::FIELD_NAME;
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 
@@ -22,8 +24,12 @@ fn count_constrain_eq_ops(struct_def: &StructDefOpRef) -> usize {
 /// `x + y - 10 = 0` → no mul terms, two linear terms with coeff 1, constant -10
 #[test]
 fn assert_zero_linear_only() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let expr = Expression {
         mul_terms: vec![],
         linear_combinations: vec![
@@ -43,8 +49,12 @@ fn assert_zero_linear_only() {
 /// `x * x - 9 = 0` → mul term with same witness both sides (squaring)
 #[test]
 fn assert_zero_squaring() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let expr = Expression {
         mul_terms: vec![(FieldElement::one(), Witness(0), Witness(0))],
         linear_combinations: vec![],
@@ -61,8 +71,12 @@ fn assert_zero_squaring() {
 /// `2*x*y + 3*x - 7 = 0` → mixed mul and linear with non-unit coefficients
 #[test]
 fn assert_zero_mixed_coefficients() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let expr = Expression {
         mul_terms: vec![(FieldElement::from(2u128), Witness(0), Witness(1))],
         linear_combinations: vec![(FieldElement::from(3u128), Witness(0))],
@@ -79,8 +93,12 @@ fn assert_zero_mixed_coefficients() {
 /// Multiple `AssertZero` opcodes → multiple constraint sequences in the same @constrain body
 #[test]
 fn multiple_assert_zero_opcodes() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let expr1 = Expression {
         mul_terms: vec![(FieldElement::one(), Witness(0), Witness(1))],
         linear_combinations: vec![],
@@ -111,8 +129,12 @@ fn multiple_assert_zero_opcodes() {
 /// Coefficient of -1 uses felt.neg optimization
 #[test]
 fn assert_zero_neg_one_coefficient() {
-    let context = LlzkContext::new();
-    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     let expr = Expression {
         mul_terms: vec![],
         linear_combinations: vec![
