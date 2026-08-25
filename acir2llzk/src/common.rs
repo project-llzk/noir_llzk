@@ -6,8 +6,8 @@ use llzk::builder::{OpBuilder, OpBuilderLike as _};
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::OperationLike;
 use llzk::prelude::{
-    melior_dialects::scf, Block, BlockLike, LlzkContext, Location, OperationRef, Region,
-    RegionLike, Type, Value,
+    Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
+    melior_dialects::scf,
 };
 use num_bigint::BigUint;
 

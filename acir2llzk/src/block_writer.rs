@@ -1,15 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
-use acir::{circuit::opcodes::FunctionInput, AcirField, FieldElement};
+use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
 use llzk::{
     builder::{EntryPoint, OpBuilder},
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
-        dialect::{array, constrain, felt, function, r#struct},
-        melior_dialects::arith,
         BlockLike, BlockRef, FuncDefOpRef, IntegerAttribute, LlzkContext, Location, Operation,
         OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type, Value,
         ValueLike,
+        dialect::{array, constrain, felt, function, r#struct},
+        melior_dialects::arith,
     },
 };
 

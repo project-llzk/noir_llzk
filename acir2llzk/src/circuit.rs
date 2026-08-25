@@ -1,34 +1,34 @@
 use std::collections::{BTreeSet, HashSet};
 
 use acir::{
+    FieldElement,
     circuit::{
-        brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
         Circuit, Opcode, Program,
+        brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
     },
     native_types::Expression,
-    FieldElement,
 };
 use llzk::{
     attributes::NamedAttribute,
     builder::OpBuilder,
     prelude::{
-        dialect::r#struct, BlockRef, LlzkContext, Location, PublicAttribute, StructDefOpRef,
-        StructType, Type,
+        BlockRef, LlzkContext, Location, PublicAttribute, StructDefOpRef, StructType, Type,
+        dialect::r#struct,
     },
 };
 
 use crate::{
+    Error,
     blackboxes::build_blackbox_handler,
     block_writer::BlockWriter,
     brillig::{BrilligRegistry, BrilligRegistryKey},
     opcodes::{
+        TranslatedOpcode,
         assert_zero::AssertZero,
         brillig_call::BrilligCall,
         call::Call,
         memory_ops::{self, MemoryInit},
-        TranslatedOpcode,
     },
-    Error,
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].

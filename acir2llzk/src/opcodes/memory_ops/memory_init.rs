@@ -4,7 +4,7 @@ use acir::native_types::Witness;
 use llzk::{
     builder::OpBuilder,
     dialect::array::ArrayType,
-    prelude::{dialect::r#struct, LlzkContext, Location, Type, Value},
+    prelude::{LlzkContext, Location, Type, Value, dialect::r#struct},
 };
 
 use crate::{block_writer::BlockWriter, error::Error, opcodes::OpcodeEmitter};

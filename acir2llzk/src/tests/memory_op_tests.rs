@@ -1,14 +1,14 @@
 use acir::{
-    circuit::opcodes::{BlockId, BlockType, MemOp},
-    circuit::Opcode,
-    native_types::{Expression, Witness},
     AcirField, FieldElement,
+    circuit::Opcode,
+    circuit::opcodes::{BlockId, BlockType, MemOp},
+    native_types::{Expression, Witness},
 };
 use llzk::prelude::{
-    verify_operation_with_diags, LlzkContext, LlzkModuleBuilder, Location, OperationLike,
+    LlzkContext, LlzkModuleBuilder, Location, OperationLike, verify_operation_with_diags,
 };
 
-use crate::{tests::count_occurrences, FIELD_NAME};
+use crate::{FIELD_NAME, tests::count_occurrences};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 

@@ -1,12 +1,12 @@
 use acir::{
-    circuit::opcodes::{BlockId, BlockType},
-    circuit::Opcode,
-    native_types::Witness,
     FieldElement,
+    circuit::Opcode,
+    circuit::opcodes::{BlockId, BlockType},
+    native_types::Witness,
 };
 use llzk::prelude::{LlzkContext, LlzkModuleBuilder, StructType};
 
-use crate::{tests::print_and_verify_module, FIELD_NAME};
+use crate::{FIELD_NAME, tests::print_and_verify_module};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 
