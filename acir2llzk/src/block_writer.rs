@@ -7,9 +7,9 @@ use llzk::{
     prelude::{
         dialect::{array, constrain, felt, function, r#struct},
         melior_dialects::arith,
-        BlockLike, BlockRef, FeltType, FuncDefOpRef, IntegerAttribute, LlzkContext, Location,
-        Operation, OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type,
-        Value, ValueLike,
+        BlockLike, BlockRef, FuncDefOpRef, IntegerAttribute, LlzkContext, Location, Operation,
+        OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type, Value,
+        ValueLike,
     },
 };
 
@@ -17,7 +17,6 @@ use crate::{
     common::{as_value, field_to_felt_const},
     error::Error,
     writer::Writer,
-    FIELD_NAME,
 };
 
 /// Shared LLZK block writer that manages witness reads and emits operations

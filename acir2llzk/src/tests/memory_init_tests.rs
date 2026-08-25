@@ -4,7 +4,7 @@ use acir::{
     native_types::Witness,
     FieldElement,
 };
-use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, StructType};
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, StructType};
 
 use crate::{tests::print_and_verify_module, FIELD_NAME};
 

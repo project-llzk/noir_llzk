@@ -12,8 +12,8 @@ use llzk::{
     attributes::NamedAttribute,
     builder::OpBuilder,
     prelude::{
-        dialect::r#struct, BlockRef, FeltType, LlzkContext, Location, PublicAttribute,
-        StructDefOpRef, StructType, Type,
+        dialect::r#struct, BlockRef, LlzkContext, Location, PublicAttribute, StructDefOpRef,
+        StructType, Type,
     },
 };
 
@@ -28,7 +28,7 @@ use crate::{
         memory_ops::{self, MemoryInit},
         TranslatedOpcode,
     },
-    Error, FIELD_NAME,
+    Error,
 };
 
 /// Translates a single ACIR [`Circuit`] into an LLZK [`StructDefOp`].

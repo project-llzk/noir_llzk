@@ -1,14 +1,14 @@
-use acir::circuit::Opcode;
-use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement};
-use llzk::prelude::StructType;
+use acir::{
+    circuit::Opcode,
+    native_types::{Expression, Witness},
+    AcirField, FieldElement,
+};
 use llzk::prelude::{
-    dialect::constrain, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
-    StructDefOpLike, StructDefOpRef,
+    dialect::constrain, LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike,
+    StructDefOpRef, StructType,
 };
 
-use crate::tests::print_and_verify_module;
-use crate::FIELD_NAME;
+use crate::{tests::print_and_verify_module, FIELD_NAME};
 
 use super::{make_circuit_with_opcodes, translate_single_circuit};
 

@@ -1,17 +1,17 @@
-use acir::circuit::Opcode;
-use acir::native_types::{Expression, Witness};
-use acir::{AcirField, FieldElement};
-use llzk::prelude::dialect::r#struct;
+use acir::{
+    circuit::Opcode,
+    native_types::{Expression, Witness},
+    AcirField, FieldElement,
+};
 use llzk::prelude::{
-    LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike, StructDefOpLike,
+    dialect::r#struct, LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike,
     StructDefOpRef, StructType,
 };
 
 use super::{
     make_circuit_with_opcodes, mul_constraint, print_and_verify_module, translate_single_circuit,
 };
-use crate::FIELD_NAME;
-use crate::{tests::TestConfig, Driver};
+use crate::{tests::TestConfig, Driver, FIELD_NAME};
 
 /// Count `struct.writem` operations in the compute function.
 fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {

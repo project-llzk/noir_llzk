@@ -1,6 +1,6 @@
 use llzk::prelude::{
-    BlockLike, LlzkContext, LlzkModuleBuilder, Location, OperationLike, RegionLike,
-    StructDefOpLike, StructType,
+    BlockLike, LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike,
+    StructType,
 };
 
 use super::{
