@@ -1,14 +1,14 @@
-use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::circuit::Opcode;
+use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{Module, OperationLike, WalkOrder, WalkResult};
 
-use crate::tests::TestConfig;
 use crate::Driver;
+use crate::tests::TestConfig;
 use crate::{
     blackboxes::{grumpkin::multi_scalar_mul::SCALAR_TOTAL_BITS, registry::BlackboxFunction},
-    opcodes::{grumpkin::multi_scalar_mul, OpcodeEmitter},
+    opcodes::{OpcodeEmitter, grumpkin::multi_scalar_mul},
     tests::{
         count_occurrences, make_circuit_with_opcodes, multi_scalar_mul_blackbox,
         translate_single_circuit_module,

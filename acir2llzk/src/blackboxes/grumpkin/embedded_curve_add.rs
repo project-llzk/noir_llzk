@@ -2,8 +2,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::{BlockInsertPointLike, OpBuilder},
     prelude::{
-        dialect::{bool, function},
         BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Type,
+        dialect::{bool, function},
     },
 };
 

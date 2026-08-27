@@ -4,8 +4,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{felt, function},
         BlockLike, BlockRef, LlzkContext, Location, Value,
+        dialect::{felt, function},
     },
 };
 

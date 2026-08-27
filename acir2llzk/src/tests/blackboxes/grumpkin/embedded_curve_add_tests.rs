@@ -1,12 +1,12 @@
 use llzk::prelude::{Module, OperationLike, WalkOrder, WalkResult};
 
-use crate::blackboxes::registry::BlackboxFunction;
-use crate::opcodes::{grumpkin::embedded_curve_add, OpcodeEmitter};
-use crate::tests::{
-    count_occurrences, embedded_curve_add_blackbox, make_circuit, make_circuit_with_opcodes,
-    translate_single_circuit_module, TestConfig,
-};
 use crate::Driver;
+use crate::blackboxes::registry::BlackboxFunction;
+use crate::opcodes::{OpcodeEmitter, grumpkin::embedded_curve_add};
+use crate::tests::{
+    TestConfig, count_occurrences, embedded_curve_add_blackbox, make_circuit,
+    make_circuit_with_opcodes, translate_single_circuit_module,
+};
 
 fn translate_embedded_curve_add_module<'d>(
     driver: &'d Driver,

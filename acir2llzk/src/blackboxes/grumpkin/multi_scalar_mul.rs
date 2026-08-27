@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
-    circuit::{opcodes::BlackBoxFuncCall, Opcode, Program},
     AcirField, FieldElement,
+    brillig::{BlackBoxOp, Opcode as BrilligOpcode},
+    circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{bool, function},
         BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Type, Value,
+        dialect::{bool, function},
     },
 };
 

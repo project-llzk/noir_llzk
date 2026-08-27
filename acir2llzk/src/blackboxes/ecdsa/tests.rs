@@ -14,8 +14,8 @@ use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, module::LlzkModuleBuilder},
     prelude::{
-        dialect, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
-        OperationLike, RegionLike, Type, Value, WalkOrder, WalkResult,
+        BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module, OperationLike,
+        RegionLike, Type, Value, WalkOrder, WalkResult, dialect,
     },
 };
 use llzk_interpreter::{Felt, Interpreter, Value as InterpValue};
