@@ -4,8 +4,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        BlockLike, BlockRef, LlzkContext, Location, Value,
         dialect::{felt, function},
+        BlockLike, BlockRef, LlzkContext, Location, Value,
     },
 };
 
@@ -119,6 +119,17 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
         as_value(felt::add(self.builder(), self.location, lhs, rhs)?)
     }
 
+    fn emit_adds<'a: 'v, 'v>(
+        &'a self,
+        sumands: impl IntoIterator<Item = Value<'c, 'v>>,
+    ) -> Result<Value<'c, 'v>, Error> {
+        sumands
+            .into_iter()
+            .try_fold(self.emit_constant(&fe("0"))?, |acc, value| {
+                self.emit_add(acc, value)
+            })
+    }
+
     fn emit_mul<'a: 'v, 'v>(
         &'a self,
         lhs: Value<'c, 'v>,
@@ -128,18 +139,37 @@ impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
     }
 
     fn emit_external_matrix<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
-        let t0 = self.emit_add(state[0], state[1])?;
-        let t1 = self.emit_add(state[2], state[3])?;
-        let t2 = self.emit_add(self.emit_add(state[1], state[2])?, t1)?;
-        let t3 = self.emit_add(self.emit_add(state[3], state[3])?, t0)?;
-        let t1_2 = self.emit_add(t1, t1)?;
-        let t1_4 = self.emit_add(t1_2, t1_2)?;
-        state[3] = self.emit_add(t1_4, t3)?;
-        let t0_2 = self.emit_add(t0, t0)?;
-        let t0_4 = self.emit_add(t0_2, t0_2)?;
-        state[1] = self.emit_add(t0_4, t2)?;
-        state[0] = self.emit_add(t3, state[1])?;
-        state[2] = self.emit_add(t2, state[3])?;
+        // These are the equations this function is meant to represent:
+        // s0' = 3 * s3 + 5 * (s0 + s1) + 2 * s1 + s2
+        // s1' = 4 * (s0 + s1) + 2 * s1 + s2 + s3
+        // s2' = 3 * s1 + 2 * s3 + s0 + 5 * (s2 + s3)
+        // s3' = 2 * s3 + s0 + s1 + 4 * (s2 + s3)
+        //
+        // And they are implemented as follows:
+        // t0 := s0 + s1
+        // t1 := s2 + s3
+        // t2 := 2 * s1
+        // t3 := 2 * s3
+        // s0' := 3*s3 + 5*t0 + t2 + s2
+        // s1' := 4*t0 + t2 + s2 + s3
+        // s2' := 3*s1 + t3 + s0 + 5*t1
+        // s3' := t3 + s0 + s1 + 4*t1
+        let [s0, s1, s2, s3] = *state;
+        let (two, three, four, five) = (
+            self.emit_constant(&fe("2"))?,
+            self.emit_constant(&fe("3"))?,
+            self.emit_constant(&fe("4"))?,
+            self.emit_constant(&fe("5"))?,
+        );
+        let t0 = self.emit_add(s0, s1)?;
+        let t1 = self.emit_add(s2, s3)?;
+        let t2 = self.emit_mul(two, s1)?;
+        let t3 = self.emit_mul(two, s3)?;
+
+        state[0] = self.emit_adds([self.emit_mul(three, s3)?, self.emit_mul(five, t0)?, t2, s2])?;
+        state[1] = self.emit_adds([self.emit_mul(four, t0)?, t2, s2, s3])?;
+        state[2] = self.emit_adds([self.emit_mul(three, s1)?, t3, s0, self.emit_mul(five, t1)?])?;
+        state[3] = self.emit_adds([t3, s0, s1, self.emit_mul(four, t1)?])?;
 
         Ok(())
     }
