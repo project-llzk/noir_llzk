@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    AcirField, FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    AcirField, FieldElement,
 };
 use llzk::prelude::Value;
 
@@ -12,7 +12,7 @@ use crate::{
     blackboxes::{
         grumpkin::{
             common::{
-                EmbeddedPointValue, emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate,
+                emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate, EmbeddedPointValue,
             },
             multi_scalar_mul::{SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS},
         },
@@ -21,7 +21,7 @@ use crate::{
     block_writer::BlockWriter,
     common::emit_gated_eq,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, validate_constant_fits},
+    opcodes::{collect_input_witness, validate_constant_fits, OpcodeEmitter},
     writer::Writer,
 };
 
@@ -39,7 +39,8 @@ pub(crate) struct MultiScalarMul<'a> {
 
 impl OpcodeEmitter for MultiScalarMul<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
-        let mut witnesses = BTreeSet::from([self.outputs.0.0, self.outputs.1.0, self.outputs.2.0]);
+        let mut witnesses =
+            BTreeSet::from([self.outputs.0 .0, self.outputs.1 .0, self.outputs.2 .0]);
 
         for input in self.points.iter().chain(self.scalars.iter()) {
             collect_input_witness(&mut witnesses, input);
@@ -63,12 +64,12 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let output_y = helper_call.result(1)?.into();
         let output_infinite = helper_call.result(2)?.into();
 
-        writer.write_member(&format!("w{}", self.outputs.0.0), output_x)?;
-        writer.write_member(&format!("w{}", self.outputs.1.0), output_y)?;
-        writer.write_member(&format!("w{}", self.outputs.2.0), output_infinite)?;
-        writer.mark_known(self.outputs.0.0, output_x);
-        writer.mark_known(self.outputs.1.0, output_y);
-        writer.mark_known(self.outputs.2.0, output_infinite);
+        writer.write_member(&format!("w{}", self.outputs.0 .0), output_x)?;
+        writer.write_member(&format!("w{}", self.outputs.1 .0), output_y)?;
+        writer.write_member(&format!("w{}", self.outputs.2 .0), output_infinite)?;
+        writer.mark_known(self.outputs.0 .0, output_x);
+        writer.mark_known(self.outputs.1 .0, output_y);
+        writer.mark_known(self.outputs.2 .0, output_infinite);
         Ok(())
     }
 
@@ -78,20 +79,20 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let scalar_inputs = emit_scalar_inputs(writer, self.scalars)?;
         let scalar_bits = emit_scalar_decompositions(writer, num_points)?;
         let predicate = writer.emit_blackbox_input(self.predicate)?;
-        let output_x = writer.read_witness(self.outputs.0.0)?;
-        let output_y = writer.read_witness(self.outputs.1.0)?;
-        let output_infinite = writer.read_witness(self.outputs.2.0)?;
+        let output_x = writer.read_witness(self.outputs.0 .0)?;
+        let output_y = writer.read_witness(self.outputs.1 .0)?;
+        let output_infinite = writer.read_witness(self.outputs.2 .0)?;
 
         let one = writer.emit_constant(&FieldElement::one())?;
         let zero = writer.emit_constant(&FieldElement::zero())?;
         let (_, predicate_gate) = emit_predicate_gate(writer, predicate)?;
 
-        for &(x, y, is_infinite) in &points {
-            emit_gated_boolean(writer, predicate_gate, is_infinite, one, zero)?;
-            let finite_gate = writer.insert_neg(is_infinite)?;
+        for &point in &points {
+            emit_gated_boolean(writer, predicate_gate, point.inf(), one, zero)?;
+            let finite_gate = writer.insert_neg(point.inf())?;
             let finite_gate = writer.insert_add(one, finite_gate)?;
             let finite_gate = writer.insert_mul(predicate_gate, finite_gate)?;
-            emit_gated_on_curve(writer, finite_gate, x, y)?;
+            emit_gated_on_curve(writer, finite_gate, point.x(), point.y())?;
         }
 
         for ((lo, hi), bits) in scalar_inputs.iter().zip(&scalar_bits) {
@@ -138,7 +139,7 @@ fn emit_points<'c, 'b>(
         .0
         .iter()
         .map(|chunk| {
-            Ok((
+            Ok(EmbeddedPointValue::new(
                 writer.emit_blackbox_input(&chunk[0])?,
                 writer.emit_blackbox_input(&chunk[1])?,
                 writer.emit_blackbox_input(&chunk[2])?,
@@ -316,8 +317,8 @@ impl MultiScalarMul<'_> {
     ) -> Result<llzk::prelude::OperationRef<'c, 'b>, Error> {
         let num_points = points.len();
         let mut args = Vec::with_capacity(num_points * (3 + SCALAR_TOTAL_BITS) + 1);
-        for &(x, y, infinite) in points {
-            args.extend([x, y, infinite]);
+        for &point in points {
+            args.extend([point.x(), point.y(), point.inf()]);
         }
         for bits in scalar_bits {
             args.extend(bits.iter().copied());

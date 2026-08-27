@@ -6,8 +6,8 @@ use llzk::builder::{OpBuilder, OpBuilderLike as _};
 use llzk::dialect::felt::FeltConstAttribute;
 use llzk::prelude::OperationLike;
 use llzk::prelude::{
-    Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
-    melior_dialects::scf,
+    melior_dialects::scf, Block, BlockLike, LlzkContext, Location, OperationRef, Region,
+    RegionLike, Type, Value,
 };
 use num_bigint::BigUint;
 
@@ -209,23 +209,24 @@ pub(crate) fn constrain_bool<'c, 'b>(
     Ok(())
 }
 
-pub(crate) fn build_yielding_region<'c, 'a, const N: usize, F>(
+pub(crate) fn build_yielding_region<'c, 'a, const N: usize, F, R>(
     location: Location<'c>,
     build: F,
 ) -> Result<Region<'c>, Error>
 where
-    F: FnOnce(&OpBuilder<'c, '_>) -> Result<[Value<'c, 'a>; N], Error>,
+    R: Into<[Value<'c, 'a>; N]>,
+    F: FnOnce(&OpBuilder<'c, '_>) -> Result<R, Error>,
 {
     let region = Region::new();
     let block = region.append_block(Block::new(&[]));
     let context = location.context();
     let builder = OpBuilder::at_block_end(unsafe { context.to_ref() }, block);
     let values = build(&builder)?;
-    block.append_operation(scf::r#yield(&values, location));
+    block.append_operation(scf::r#yield(&values.into(), location));
     Ok(region)
 }
 
-pub(crate) fn append_if_with_results<'c: 'a, 'a, const N: usize, Then, Else>(
+pub(crate) fn append_if_with_results<'c: 'a, 'a, const N: usize, Then, Else, ThenR, ElseR>(
     builder: &OpBuilder<'c, '_>,
     location: Location<'c>,
     condition: Value<'c, 'a>,
@@ -234,8 +235,10 @@ pub(crate) fn append_if_with_results<'c: 'a, 'a, const N: usize, Then, Else>(
     else_build: Else,
 ) -> Result<[Value<'c, 'a>; N], Error>
 where
-    Then: FnOnce(&OpBuilder<'c, '_>) -> Result<[Value<'c, 'a>; N], Error>,
-    Else: FnOnce(&OpBuilder<'c, '_>) -> Result<[Value<'c, 'a>; N], Error>,
+    ThenR: Into<[Value<'c, 'a>; N]>,
+    ElseR: Into<[Value<'c, 'a>; N]>,
+    Then: FnOnce(&OpBuilder<'c, '_>) -> Result<ThenR, Error>,
+    Else: FnOnce(&OpBuilder<'c, '_>) -> Result<ElseR, Error>,
 {
     let then_region = build_yielding_region(location, then_build)?;
     let else_region = build_yielding_region(location, else_build)?;
@@ -245,7 +248,7 @@ where
     collect_results(result_op)
 }
 
-pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else>(
+pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else, ThenR, ElseR>(
     writer: &BlockWriter<'c, 'a>,
     condition: Value<'c, 'a>,
     result_types: &[Type<'c>; N],
@@ -253,8 +256,10 @@ pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else>(
     else_build: Else,
 ) -> Result<[Value<'c, 'a>; N], Error>
 where
-    Then: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<[Value<'c, 'a>; N], Error>,
-    Else: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<[Value<'c, 'a>; N], Error>,
+    ThenR: Into<[Value<'c, 'a>; N]>,
+    ElseR: Into<[Value<'c, 'a>; N]>,
+    Then: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<ThenR, Error>,
+    Else: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<ElseR, Error>,
 {
     let location = writer.location();
     let then_region = build_yielding_region(location, then_build)?;

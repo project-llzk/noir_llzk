@@ -14,8 +14,8 @@ use llzk::{
     builder::OpBuilder,
     dialect::{empty_region, module::LlzkModuleBuilder},
     prelude::{
-        Block, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
-        OperationLike, RegionLike, Type, Value, WalkOrder, WalkResult, dialect,
+        dialect, BlockLike, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
+        OperationLike, RegionLike, Type, Value, WalkOrder, WalkResult,
     },
 };
 use llzk_interpreter::{Felt, Interpreter, Value as InterpValue};
@@ -27,7 +27,6 @@ fn build_test_module<'c>(context: &'c LlzkContext) -> Module<'c> {
     let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
-    let inputs = vec![(felt_ty, location); 2 * LIMBS];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -44,8 +43,7 @@ fn build_test_module<'c>(context: &'c LlzkContext) -> Module<'c> {
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let lhs = block_args::<LIMBS>(block, 0).expect("block args");
     let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -67,7 +65,7 @@ fn limbs_of(value: &BigUint) -> [InterpValue; LIMBS] {
 fn run_mul(a: &BigUint, b: &BigUint) -> BigUint {
     let context = LlzkContext::new();
     let module = build_test_module(&context);
-    assert!(module.as_operation().verify(), "module should verify");
+    llzk::operation::verify_operation_with_diags(&module.as_operation()).unwrap();
 
     let mut args = Vec::with_capacity(2 * LIMBS);
     args.extend(limbs_of(a));
@@ -163,7 +161,6 @@ fn build_test_module_barrett<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 2 * LIMBS];
     let output_types = vec![felt_ty; LIMBS];
-    let inputs = vec![(felt_ty, location); 2 * LIMBS];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -180,8 +177,7 @@ fn build_test_module_barrett<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let lhs = block_args::<LIMBS>(block, 0).expect("block args");
     let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -278,7 +274,6 @@ fn build_test_module_inverse<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; LIMBS];
     let output_types = vec![felt_ty; LIMBS];
-    let inputs = vec![(felt_ty, location); LIMBS];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -295,8 +290,7 @@ fn build_test_module_inverse<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let a: [Value; LIMBS] = block_args::<LIMBS>(block, 0).expect("block args");
     let result =
@@ -406,7 +400,6 @@ fn build_test_module_jacobian_double<'c>(context: &'c LlzkContext) -> Module<'c>
     let felt_ty = Type::from(context.felt_type());
     let input_types = vec![felt_ty; 3 * LIMBS];
     let output_types = vec![felt_ty; 3 * LIMBS];
-    let inputs = vec![(felt_ty, location); 3 * LIMBS];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -423,8 +416,7 @@ fn build_test_module_jacobian_double<'c>(context: &'c LlzkContext) -> Module<'c>
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let x = block_args::<LIMBS>(block, 0).expect("block args");
     let y = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -504,7 +496,6 @@ fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<
     // 3 Jacobian limbs + 2 affine limbs = 5 * LIMBS inputs.
     let input_types = vec![felt_ty; 5 * LIMBS];
     let output_types = vec![felt_ty; 3 * LIMBS];
-    let inputs = vec![(felt_ty, location); 5 * LIMBS];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -521,8 +512,7 @@ fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let p1x = block_args::<LIMBS>(block, 0).expect("block args");
     let p1y = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -617,7 +607,6 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     let input_types = vec![felt_ty; 33];
     // Outputs: Rx (4) + Ry (4) + is_infinity (1) = 9 felts.
     let output_types = vec![felt_ty; 9];
-    let inputs = vec![(felt_ty, location); 33];
 
     let builder = OpBuilder::at_block_end(context, module.body());
     let function_type = FunctionType::new(context, &input_types, &output_types);
@@ -634,8 +623,7 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let block = function.region(0).unwrap().append_block(block);
+    let block = function.region(0).unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let take = |offset: usize| -> [Value; LIMBS] {
         block_args::<LIMBS>(block, offset).expect("block args")

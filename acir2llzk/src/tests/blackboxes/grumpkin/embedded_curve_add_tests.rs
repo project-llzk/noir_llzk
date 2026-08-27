@@ -1,12 +1,12 @@
 use llzk::prelude::{Module, OperationLike, WalkOrder, WalkResult};
 
-use crate::Driver;
 use crate::blackboxes::registry::BlackboxFunction;
-use crate::opcodes::{OpcodeEmitter, grumpkin::embedded_curve_add};
+use crate::opcodes::{grumpkin::embedded_curve_add, OpcodeEmitter};
 use crate::tests::{
-    TestConfig, count_occurrences, embedded_curve_add_blackbox, make_circuit,
-    make_circuit_with_opcodes, translate_single_circuit_module,
+    count_occurrences, embedded_curve_add_blackbox, make_circuit, make_circuit_with_opcodes,
+    translate_single_circuit_module, TestConfig,
 };
+use crate::Driver;
 
 fn translate_embedded_curve_add_module<'d>(
     driver: &'d Driver,
@@ -111,11 +111,6 @@ fn embedded_curve_add_emits_shared_helper_and_calls_it_from_wrappers() {
         ir.matches(&format!("function.call @{helper_name}")).count(),
         2,
         "compute and constrain should each call the shared helper once"
-    );
-    assert_eq!(
-        count_ops_by_name(&module, "bool.not"),
-        1,
-        "the shared helper should only negate the first point infinity check"
     );
     assert_eq!(
         count_ops_by_name(&module, "bool.or"),

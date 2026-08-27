@@ -1,14 +1,14 @@
-use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::circuit::Opcode;
 use acir::native_types::Witness;
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{Module, OperationLike, WalkOrder, WalkResult};
 
-use crate::Driver;
 use crate::tests::TestConfig;
+use crate::Driver;
 use crate::{
     blackboxes::{grumpkin::multi_scalar_mul::SCALAR_TOTAL_BITS, registry::BlackboxFunction},
-    opcodes::{OpcodeEmitter, grumpkin::multi_scalar_mul},
+    opcodes::{grumpkin::multi_scalar_mul, OpcodeEmitter},
     tests::{
         count_occurrences, make_circuit_with_opcodes, multi_scalar_mul_blackbox,
         translate_single_circuit_module,
@@ -120,10 +120,6 @@ fn multi_scalar_mul_does_not_collapse_any_infinity_case_to_infinity() {
         count_ops_by_name(&module, "bool.or"),
         0,
         "MSM should handle O+P / P+O with dedicated branches instead of collapsing any infinity case"
-    );
-    assert!(
-        count_ops_by_name(&module, "bool.not") > 0,
-        "MSM should retain explicit infinity-branch handling for the accumulator path"
     );
 }
 

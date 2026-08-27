@@ -2,8 +2,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        LlzkContext, Location, Type, Value,
         dialect::{bool, felt},
+        LlzkContext, Location, Type, Value,
     },
 };
 
@@ -19,8 +19,216 @@ use crate::{
 
 const GRUMPKIN_B: i128 = -17;
 
-pub(crate) type AffinePointValue<'c, 'a> = (Value<'c, 'a>, Value<'c, 'a>);
-pub(crate) type EmbeddedPointValue<'c, 'a> = (Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>);
+#[derive(Clone, Copy)]
+pub(crate) struct AffinePointValue<'c, 'a>(Value<'c, 'a>, Value<'c, 'a>);
+
+impl<'c, 'a> AffinePointValue<'c, 'a> {
+    pub(crate) fn x(&self) -> Value<'c, 'a> {
+        self.0
+    }
+
+    pub(crate) fn y(&self) -> Value<'c, 'a> {
+        self.1
+    }
+}
+
+impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
+    pub(crate) fn add<'b>(
+        self,
+        other: Self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+    ) -> Result<EmbeddedPointValue<'c, 'b>, Error>
+    where
+        'c: 'b,
+    {
+        let zero = append_felt_constant(builder, context, location, &FieldElement::zero())?;
+        let felt_type = Type::from(context.felt_type());
+
+        let result_types = [felt_type, felt_type, felt_type];
+        append_if_with_results(
+            builder,
+            location,
+            as_value(bool::eq(builder, location, self.x(), other.x())?)?,
+            &result_types,
+            |builder| {
+                append_if_with_results(
+                    builder,
+                    location,
+                    as_value(bool::eq(builder, location, self.y(), other.y())?)?,
+                    &result_types,
+                    |builder| {
+                        append_if_with_results(
+                            builder,
+                            location,
+                            as_value(bool::eq(builder, location, self.y(), zero)?)?,
+                            &result_types,
+                            |builder| EmbeddedPointValue::infinity(builder, context, location),
+                            |builder| self.formula(other, builder, context, location, true),
+                        )
+                    },
+                    |builder| EmbeddedPointValue::infinity(builder, context, location),
+                )
+            },
+            |builder| self.formula(other, builder, context, location, false),
+        )
+        .map(Into::into)
+    }
+
+    pub(crate) fn formula<'b>(
+        self,
+        other: Self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+        is_doubling: bool,
+    ) -> Result<EmbeddedPointValue<'c, 'b>, Error>
+    where
+        'c: 'b,
+    {
+        let lambda = if is_doubling {
+            as_value(felt::div(
+                builder,
+                location,
+                as_value(felt::mul(
+                    builder,
+                    location,
+                    append_felt_constant(builder, context, location, &FieldElement::from(3_u128))?,
+                    as_value(felt::mul(builder, location, self.x(), self.x())?)?,
+                )?)?,
+                as_value(felt::mul(
+                    builder,
+                    location,
+                    append_felt_constant(builder, context, location, &FieldElement::from(2_u128))?,
+                    self.y(),
+                )?)?,
+            )?)?
+        } else {
+            as_value(felt::div(
+                builder,
+                location,
+                as_value(felt::sub(builder, location, other.y(), self.y())?)?,
+                as_value(felt::sub(builder, location, other.x(), self.x())?)?,
+            )?)?
+        };
+
+        let output_x = as_value(felt::sub(
+            builder,
+            location,
+            as_value(felt::mul(builder, location, lambda, lambda)?)?,
+            as_value(felt::add(
+                builder,
+                location,
+                self.x(),
+                if is_doubling { self.x() } else { other.x() },
+            )?)?,
+        )?)?;
+        Ok(EmbeddedPointValue::new(
+            output_x,
+            as_value(felt::sub(
+                builder,
+                location,
+                as_value(felt::mul(
+                    builder,
+                    location,
+                    lambda,
+                    as_value(felt::sub(builder, location, self.x(), output_x)?)?,
+                )?)?,
+                self.y(),
+            )?)?,
+            append_felt_constant(builder, context, location, &FieldElement::zero())?,
+        ))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct EmbeddedPointValue<'c, 'a>(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>);
+
+impl<'c, 'a> EmbeddedPointValue<'c, 'a> {
+    pub(crate) fn new(x: Value<'c, 'a>, y: Value<'c, 'a>, inf: Value<'c, 'a>) -> Self {
+        Self(x, y, inf)
+    }
+
+    pub(crate) fn x(&self) -> Value<'c, 'a> {
+        self.0
+    }
+
+    pub(crate) fn y(&self) -> Value<'c, 'a> {
+        self.1
+    }
+
+    pub(crate) fn inf(&self) -> Value<'c, 'a> {
+        self.2
+    }
+}
+
+impl<'c: 'a, 'a> EmbeddedPointValue<'c, 'a> {
+    pub(crate) fn infinity(
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+    ) -> Result<Self, Error> {
+        let zero = append_felt_constant(builder, context, location, &FieldElement::zero())?;
+        Ok(Self(
+            zero,
+            zero,
+            append_felt_constant(builder, context, location, &FieldElement::one())?,
+        ))
+    }
+
+    pub(crate) fn add(
+        self,
+        other: Self,
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+    ) -> Result<Self, Error> {
+        let felt_type = Type::from(context.felt_type());
+        let result_types = [felt_type, felt_type, felt_type];
+
+        let zero = append_felt_constant(builder, context, location, &FieldElement::zero())?;
+
+        Ok(append_if_with_results(
+            builder,
+            location,
+            as_value(bool::eq(builder, location, self.inf(), zero)?)?,
+            &result_types,
+            |builder| {
+                append_if_with_results(
+                    builder,
+                    location,
+                    as_value(bool::eq(builder, location, other.inf(), zero)?)?,
+                    &result_types,
+                    |builder| {
+                        AffinePointValue::from(self).add(other.into(), builder, context, location)
+                    },
+                    |_| Ok(self),
+                )
+            },
+            |_| Ok(other),
+        )?
+        .into())
+    }
+}
+
+impl<'c, 'a> From<EmbeddedPointValue<'c, 'a>> for [Value<'c, 'a>; 3] {
+    fn from(p: EmbeddedPointValue<'c, 'a>) -> Self {
+        [p.x(), p.y(), p.inf()]
+    }
+}
+
+impl<'c, 'a> From<[Value<'c, 'a>; 3]> for EmbeddedPointValue<'c, 'a> {
+    fn from(p: [Value<'c, 'a>; 3]) -> Self {
+        Self(p[0], p[1], p[2])
+    }
+}
+
+impl<'c, 'a> From<EmbeddedPointValue<'c, 'a>> for AffinePointValue<'c, 'a> {
+    fn from(p: EmbeddedPointValue<'c, 'a>) -> Self {
+        Self(p.x(), p.y())
+    }
+}
 
 pub(crate) fn emit_gated_on_curve<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
@@ -95,179 +303,4 @@ pub(crate) fn emit_predicate_gate<'c, 'b>(
         },
     )?;
     Ok((predicate_is_true, predicate_gate))
-}
-
-pub(crate) fn emit_finite_curve_add_result<'c: 'a, 'a>(
-    builder: &OpBuilder<'c, '_>,
-    context: &'c LlzkContext,
-    location: Location<'c>,
-    input1: AffinePointValue<'c, '_>,
-    input2: AffinePointValue<'c, '_>,
-) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
-    let (input1_x, input1_y) = input1;
-    let (input2_x, input2_y) = input2;
-    let felt_type = Type::from(context.felt_type());
-
-    let x_equal = as_value(bool::eq(builder, location, input1_x, input2_x)?)?;
-
-    let result_types = [felt_type, felt_type, felt_type];
-    append_if_with_results(
-        builder,
-        location,
-        x_equal,
-        &result_types,
-        |builder| {
-            let y_equal = as_value(bool::eq(builder, location, input1_y, input2_y)?)?;
-
-            append_if_with_results(
-                builder,
-                location,
-                y_equal,
-                &result_types,
-                |builder| {
-                    let zero =
-                        append_felt_constant(builder, context, location, &FieldElement::zero())?;
-                    let y_is_zero = as_value(bool::eq(builder, location, input1_y, zero)?)?;
-                    append_if_with_results(
-                        builder,
-                        location,
-                        y_is_zero,
-                        &result_types,
-                        |builder| {
-                            emit_infinity_point(builder, context, location).map(point_to_array)
-                        },
-                        |builder| {
-                            emit_affine_curve_formula(
-                                builder,
-                                context,
-                                location,
-                                (input1_x, input1_y),
-                                (input2_x, input2_y),
-                                true,
-                            )
-                            .map(point_to_array)
-                        },
-                    )
-                },
-                |builder| emit_infinity_point(builder, context, location).map(point_to_array),
-            )
-        },
-        |builder| {
-            emit_affine_curve_formula(
-                builder,
-                context,
-                location,
-                (input1_x, input1_y),
-                (input2_x, input2_y),
-                false,
-            )
-            .map(point_to_array)
-        },
-    )
-    .map(point_from_array)
-}
-
-pub(crate) fn emit_curve_add_result<'c: 'a, 'a>(
-    builder: &OpBuilder<'c, '_>,
-    context: &'c LlzkContext,
-    location: Location<'c>,
-    input1: EmbeddedPointValue<'c, 'a>,
-    input2: EmbeddedPointValue<'c, 'a>,
-) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
-    let (input1_x, input1_y, input1_infinite) = input1;
-    let (input2_x, input2_y, input2_infinite) = input2;
-    let felt_type = Type::from(context.felt_type());
-    let result_types = [felt_type, felt_type, felt_type];
-
-    let zero = append_felt_constant(builder, context, location, &FieldElement::zero())?;
-
-    let input1_is_finite = as_value(bool::eq(builder, location, input1_infinite, zero)?)?;
-    let input2_is_finite = as_value(bool::eq(builder, location, input2_infinite, zero)?)?;
-    let input1_is_infinite = as_value(bool::not(builder, location, input1_is_finite)?)?;
-
-    let result = append_if_with_results(
-        builder,
-        location,
-        input1_is_infinite,
-        &result_types,
-        |_| Ok([input2.0, input2.1, input2.2]),
-        |builder| {
-            append_if_with_results(
-                builder,
-                location,
-                input2_is_finite,
-                &result_types,
-                |_| Ok([input1.0, input1.1, input1.2]),
-                |builder| {
-                    emit_finite_curve_add_result(
-                        builder,
-                        context,
-                        location,
-                        (input1_x, input1_y),
-                        (input2_x, input2_y),
-                    )
-                    .map(point_to_array)
-                },
-            )
-        },
-    )?;
-    Ok((result[0], result[1], result[2]))
-}
-
-pub(crate) fn emit_affine_curve_formula<'c: 'a, 'a>(
-    builder: &OpBuilder<'c, '_>,
-    context: &'c LlzkContext,
-    location: Location<'c>,
-    input1: AffinePointValue<'c, '_>,
-    input2: AffinePointValue<'c, '_>,
-    is_doubling: bool,
-) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
-    let (input1_x, input1_y) = input1;
-    let (input2_x, input2_y) = input2;
-
-    let lambda = if is_doubling {
-        let three = append_felt_constant(builder, context, location, &FieldElement::from(3_u128))?;
-        let two = append_felt_constant(builder, context, location, &FieldElement::from(2_u128))?;
-        let x_sq = as_value(felt::mul(builder, location, input1_x, input1_x)?)?;
-        let numerator = as_value(felt::mul(builder, location, three, x_sq)?)?;
-        let denominator = as_value(felt::mul(builder, location, two, input1_y)?)?;
-        as_value(felt::div(builder, location, numerator, denominator)?)?
-    } else {
-        let dy = as_value(felt::sub(builder, location, input2_y, input1_y)?)?;
-        let dx = as_value(felt::sub(builder, location, input2_x, input1_x)?)?;
-        as_value(felt::div(builder, location, dy, dx)?)?
-    };
-
-    let lambda_sq = as_value(felt::mul(builder, location, lambda, lambda)?)?;
-    let x_sum = if is_doubling {
-        as_value(felt::add(builder, location, input1_x, input1_x)?)?
-    } else {
-        as_value(felt::add(builder, location, input1_x, input2_x)?)?
-    };
-    let output_x = as_value(felt::sub(builder, location, lambda_sq, x_sum)?)?;
-    let x_diff = as_value(felt::sub(builder, location, input1_x, output_x)?)?;
-    let lambda_times_diff = as_value(felt::mul(builder, location, lambda, x_diff)?)?;
-    let output_y = as_value(felt::sub(builder, location, lambda_times_diff, input1_y)?)?;
-    let output_infinite = append_felt_constant(builder, context, location, &FieldElement::zero())?;
-
-    Ok((output_x, output_y, output_infinite))
-}
-
-pub(crate) fn emit_infinity_point<'c: 'a, 'a>(
-    builder: &OpBuilder<'c, '_>,
-    context: &'c LlzkContext,
-    location: Location<'c>,
-) -> Result<(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>), Error> {
-    let zero_x = append_felt_constant(builder, context, location, &FieldElement::zero())?;
-    let zero_y = append_felt_constant(builder, context, location, &FieldElement::zero())?;
-    let one_inf = append_felt_constant(builder, context, location, &FieldElement::one())?;
-    Ok((zero_x, zero_y, one_inf))
-}
-
-pub(crate) fn point_to_array<'c, 'a>(point: EmbeddedPointValue<'c, 'a>) -> [Value<'c, 'a>; 3] {
-    [point.0, point.1, point.2]
-}
-
-pub(crate) fn point_from_array<'c, 'a>(point: [Value<'c, 'a>; 3]) -> EmbeddedPointValue<'c, 'a> {
-    (point[0], point[1], point[2])
 }
