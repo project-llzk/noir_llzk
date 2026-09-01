@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::prelude::{Block, BlockLike, FeltType, Location, Operation, Type, Value, dialect};
+use llzk::prelude::{dialect, Block, BlockLike, FeltType, Location, Operation, Type, Value};
 
-use crate::{FIELD_NAME, error::Error};
+use crate::{error::Error, FIELD_NAME};
 
 pub(in crate::blackboxes) fn append_felt_constant<'c, 'a>(
     block: &'a Block<'c>,
@@ -204,7 +204,8 @@ pub(in crate::blackboxes) fn emit_message_words<'c, 'a>(
     bytes: &[Value<'c, 'a>],
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
     let mut words = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
+    debug_assert!(bytes.len().is_multiple_of(4));
+    for chunk in bytes.as_chunks::<4>().0 {
         let b0 = chunk[0];
         let b1 = emit_shl(cache, chunk[1], 8)?;
         let b2 = emit_shl(cache, chunk[2], 16)?;

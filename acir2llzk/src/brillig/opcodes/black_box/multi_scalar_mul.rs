@@ -60,7 +60,7 @@ pub(super) fn emit_multi_scalar_mul(
 
     let two = ctx.writer.emit_constant(&FieldElement::from(2u128))?;
     let mut bits: Vec<Value<'_, '_>> = Vec::with_capacity(num_points * SCALAR_TOTAL_BITS);
-    for chunk in scalar_felts.chunks_exact(SCALAR_LIMBS) {
+    for chunk in scalar_felts.as_chunks::<SCALAR_LIMBS>().0 {
         let lo = chunk[0];
         let hi = chunk[1];
         bits.extend(emit_limb_decomp(ctx.writer, lo, two, SCALAR_LOW_BITS)?);
