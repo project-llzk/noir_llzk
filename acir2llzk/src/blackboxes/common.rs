@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use acir::FieldElement;
-use llzk::prelude::{dialect, Block, BlockLike, FeltType, Location, Operation, Type, Value};
+use llzk::prelude::{Block, BlockLike, FeltType, Location, Operation, Type, Value, dialect};
 
-use crate::{error::Error, FIELD_NAME};
+use crate::{FIELD_NAME, error::Error};
 
 pub(in crate::blackboxes) fn append_felt_constant<'c, 'a>(
     block: &'a Block<'c>,
