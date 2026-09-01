@@ -10,10 +10,10 @@ use std::{
 };
 
 use acir2llzk::{
-    config::{Config, OutputFormat},
     Driver, Error, FIELD_NAME,
+    config::{Config, OutputFormat},
 };
-use clap::{error::ErrorKind, Parser};
+use clap::{Parser, error::ErrorKind};
 
 fn main_impl() -> Result<(), Error> {
     let config = Cli::new()?;
