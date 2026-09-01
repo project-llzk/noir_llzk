@@ -6,15 +6,15 @@ use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    dialect, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
     OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttribute, Type, Value, ValueLike,
+    SymbolRefAttribute, Type, Value, ValueLike, dialect,
 };
 
+use crate::FIELD_NAME;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 use crate::writer::Writer;
-use crate::FIELD_NAME;
 
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).

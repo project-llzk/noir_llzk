@@ -1,16 +1,16 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
-    circuit::Opcode,
     FieldElement,
+    circuit::Opcode,
+    circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
 };
 
 use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        collect_input_witness, constrain_input_width, input_needs_range_check, OpcodeEmitter,
+        OpcodeEmitter, collect_input_witness, constrain_input_width, input_needs_range_check,
     },
 };
 
