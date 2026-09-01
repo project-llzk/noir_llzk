@@ -8,9 +8,9 @@ use clap::ValueEnum;
 #[derive(ValueEnum, Debug, Copy, Clone, Default)]
 pub enum OutputFormat {
     /// Emit the LLZK IR in plain text.
-    #[default]
     Assembly,
     /// Emit the LLZK IR in binary format.
+    #[default]
     Bytecode,
 }
 
