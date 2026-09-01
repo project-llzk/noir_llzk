@@ -42,9 +42,9 @@ endif
 
 lint:
 ifeq ($(UNAME_S),Darwin)
-	./scripts/build-macos.sh clippy -p acir2llzk --all-targets --features e2e -- -D warnings
+	./scripts/build-macos.sh clippy -p acir2llzk --all-targets --all-features -- -D warnings
 else
-	cargo clippy -p acir2llzk --all-targets --features e2e -- -D warnings
+	cargo clippy -p acir2llzk --all-targets --all-features -- -D warnings
 endif
 
 fmt:
