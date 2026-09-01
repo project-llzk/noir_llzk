@@ -1,16 +1,16 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use crate::{
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, constrain_input_width, emit_blackbox_input},
+    opcodes::{collect_input_witness, constrain_input_width, OpcodeEmitter},
     writer::Writer,
 };
 
@@ -30,8 +30,8 @@ impl OpcodeEmitter for And<'_> {
     }
 
     fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
-        let lhs = emit_blackbox_input(writer, self.lhs)?;
-        let rhs = emit_blackbox_input(writer, self.rhs)?;
+        let lhs = writer.emit_blackbox_input(self.lhs)?;
+        let rhs = writer.emit_blackbox_input(self.rhs)?;
 
         let result = writer.insert_felt_bit_and(lhs, rhs)?;
 
@@ -42,8 +42,8 @@ impl OpcodeEmitter for And<'_> {
 
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let output = writer.read_witness(self.output.0)?;
-        let lhs = emit_blackbox_input(writer, self.lhs)?;
-        let rhs = emit_blackbox_input(writer, self.rhs)?;
+        let lhs = writer.emit_blackbox_input(self.lhs)?;
+        let rhs = writer.emit_blackbox_input(self.rhs)?;
 
         constrain_input_width(writer, self.lhs, lhs, self.num_bits)?;
         constrain_input_width(writer, self.rhs, rhs, self.num_bits)?;

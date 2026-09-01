@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    AcirField, FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    AcirField, FieldElement,
 };
 use llzk::prelude::Value;
 
@@ -12,7 +12,7 @@ use crate::{
     blackboxes::{
         grumpkin::{
             common::{
-                EmbeddedPointValue, emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate,
+                emit_gated_boolean, emit_gated_on_curve, emit_predicate_gate, EmbeddedPointValue,
             },
             multi_scalar_mul::{SCALAR_HIGH_BITS, SCALAR_LOW_BITS, SCALAR_TOTAL_BITS},
         },
@@ -21,7 +21,7 @@ use crate::{
     block_writer::BlockWriter,
     common::emit_gated_eq,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input, validate_constant_fits},
+    opcodes::{collect_input_witness, validate_constant_fits, OpcodeEmitter},
     writer::Writer,
 };
 
@@ -39,7 +39,8 @@ pub(crate) struct MultiScalarMul<'a> {
 
 impl OpcodeEmitter for MultiScalarMul<'_> {
     fn get_witnesses(&self) -> BTreeSet<u32> {
-        let mut witnesses = BTreeSet::from([self.outputs.0.0, self.outputs.1.0, self.outputs.2.0]);
+        let mut witnesses =
+            BTreeSet::from([self.outputs.0 .0, self.outputs.1 .0, self.outputs.2 .0]);
 
         for input in self.points.iter().chain(self.scalars.iter()) {
             collect_input_witness(&mut witnesses, input);
@@ -57,18 +58,18 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
             .iter()
             .map(|&(lo, hi)| emit_scalar_bits_from_limbs(writer, lo, hi))
             .collect::<Result<Vec<_>, _>>()?;
-        let predicate = emit_blackbox_input(writer, self.predicate)?;
+        let predicate = writer.emit_blackbox_input(self.predicate)?;
         let helper_call = self.call_helper(writer, &points, &scalar_bits, predicate)?;
         let output_x = helper_call.result(0)?.into();
         let output_y = helper_call.result(1)?.into();
         let output_infinite = helper_call.result(2)?.into();
 
-        writer.write_member(&format!("w{}", self.outputs.0.0), output_x)?;
-        writer.write_member(&format!("w{}", self.outputs.1.0), output_y)?;
-        writer.write_member(&format!("w{}", self.outputs.2.0), output_infinite)?;
-        writer.mark_known(self.outputs.0.0, output_x);
-        writer.mark_known(self.outputs.1.0, output_y);
-        writer.mark_known(self.outputs.2.0, output_infinite);
+        writer.write_member(&format!("w{}", self.outputs.0 .0), output_x)?;
+        writer.write_member(&format!("w{}", self.outputs.1 .0), output_y)?;
+        writer.write_member(&format!("w{}", self.outputs.2 .0), output_infinite)?;
+        writer.mark_known(self.outputs.0 .0, output_x);
+        writer.mark_known(self.outputs.1 .0, output_y);
+        writer.mark_known(self.outputs.2 .0, output_infinite);
         Ok(())
     }
 
@@ -77,10 +78,10 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let points = emit_points(writer, self.points)?;
         let scalar_inputs = emit_scalar_inputs(writer, self.scalars)?;
         let scalar_bits = emit_scalar_decompositions(writer, num_points)?;
-        let predicate = emit_blackbox_input(writer, self.predicate)?;
-        let output_x = writer.read_witness(self.outputs.0.0)?;
-        let output_y = writer.read_witness(self.outputs.1.0)?;
-        let output_infinite = writer.read_witness(self.outputs.2.0)?;
+        let predicate = writer.emit_blackbox_input(self.predicate)?;
+        let output_x = writer.read_witness(self.outputs.0 .0)?;
+        let output_y = writer.read_witness(self.outputs.1 .0)?;
+        let output_infinite = writer.read_witness(self.outputs.2 .0)?;
 
         let one = writer.emit_constant(&FieldElement::one())?;
         let zero = writer.emit_constant(&FieldElement::zero())?;
@@ -139,9 +140,9 @@ fn emit_points<'c, 'b>(
         .iter()
         .map(|chunk| {
             Ok((
-                emit_blackbox_input(writer, &chunk[0])?,
-                emit_blackbox_input(writer, &chunk[1])?,
-                emit_blackbox_input(writer, &chunk[2])?,
+                writer.emit_blackbox_input(&chunk[0])?,
+                writer.emit_blackbox_input(&chunk[1])?,
+                writer.emit_blackbox_input(&chunk[2])?,
             ))
         })
         .collect()
@@ -159,8 +160,8 @@ fn emit_scalar_inputs<'c, 'b>(
         .iter()
         .map(|chunk| {
             Ok((
-                emit_blackbox_input(writer, &chunk[0])?,
-                emit_blackbox_input(writer, &chunk[1])?,
+                writer.emit_blackbox_input(&chunk[0])?,
+                writer.emit_blackbox_input(&chunk[1])?,
             ))
         })
         .collect()

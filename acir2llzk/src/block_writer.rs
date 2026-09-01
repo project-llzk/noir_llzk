@@ -1,19 +1,20 @@
 use std::collections::{HashMap, HashSet};
 
+use acir::circuit::opcodes::FunctionInput;
 use acir::{AcirField, FieldElement};
 use llzk::builder::{EntryPoint, OpBuilder};
 use llzk::dialect::array::{ArrayCtor, ArrayType};
 use llzk::prelude::melior_dialects::arith;
 use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
+    dialect, BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
     OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttribute, Type, Value, ValueLike, dialect,
+    SymbolRefAttribute, Type, Value, ValueLike,
 };
 
-use crate::FIELD_NAME;
 use crate::common::field_to_felt_const;
 use crate::error::Error;
 use crate::writer::Writer;
+use crate::FIELD_NAME;
 
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).
@@ -349,7 +350,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         self.witness_cache.insert(w_idx, val);
     }
 
-    // ── Caching helpers ─────────────────────────────────────────────────
+    // ── Helpers ─────────────────────────────────────────────────
 
     /// Returns a `felt.constant` value for the given field element, emitting
     /// the operation at most once per distinct value per block.
@@ -361,5 +362,33 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         let val = self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)?;
         self.constant_cache.insert(*fe, val);
         Ok(val)
+    }
+
+    /// Emits the LLZK value for an ACIR [`FunctionInput`]: either a witness read
+    /// or a felt constant.
+    pub(crate) fn emit_blackbox_input(
+        &mut self,
+        input: &FunctionInput<FieldElement>,
+    ) -> Result<Value<'c, 'a>, Error> {
+        match input {
+            FunctionInput::Witness(w) => self.read_witness(w.0),
+            FunctionInput::Constant(c) => self.emit_constant(c),
+        }
+    }
+
+    pub fn emit_blackbox_inputs<'i>(
+        &mut self,
+        inputs: impl IntoIterator<Item = &'i FunctionInput<FieldElement>>,
+    ) -> Result<Vec<Value<'c, 'a>>, Error> {
+        inputs
+            .into_iter()
+            .map(|i| self.emit_blackbox_input(i))
+            .collect()
+    }
+
+    /// Emits a felt constant equal to `2^num_bits`
+    pub(crate) fn emit_range_upper_bound(&mut self, num_bits: u32) -> Result<Value<'c, 'a>, Error> {
+        let bound = FieldElement::from(2u128).pow(&FieldElement::from(num_bits as u128));
+        self.emit_constant(&bound)
     }
 }

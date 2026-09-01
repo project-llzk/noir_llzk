@@ -3,10 +3,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use crate::{
@@ -15,8 +15,8 @@ use crate::{
     common::constrain_bool,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_input_witness, constrain_inputs_width, emit_blackbox_input,
-        validate_byte_input, validate_constant_fits,
+        collect_input_witness, constrain_inputs_width, validate_byte_input, validate_constant_fits,
+        OpcodeEmitter,
     },
     writer::Writer,
 };
@@ -45,7 +45,7 @@ impl<'a> Ecdsa<'a> {
             .chain(self.hashed_message.iter())
             .chain(std::iter::once(self.predicate))
         {
-            args.push(emit_blackbox_input(writer, input)?);
+            args.push(writer.emit_blackbox_input(input)?);
         }
         Ok(args)
     }
@@ -84,7 +84,7 @@ impl OpcodeEmitter for Ecdsa<'_> {
             .chain(self.signature.iter())
             .chain(self.hashed_message.iter());
         constrain_inputs_width(writer, all_inputs, 8)?;
-        let predicate_val = emit_blackbox_input(writer, self.predicate)?;
+        let predicate_val = writer.emit_blackbox_input(self.predicate)?;
         constrain_bool(writer, predicate_val)?;
         let args = self.helper_args(writer)?;
         let call = writer.call_blackbox_function(self.helper, &args)?;

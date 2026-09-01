@@ -14,7 +14,7 @@ pub(crate) mod sha256;
 
 use std::collections::BTreeSet;
 
-use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput, native_types::Witness};
+use acir::{circuit::opcodes::FunctionInput, native_types::Witness, AcirField, FieldElement};
 use llzk::prelude::{LlzkContext, OperationRef, StructDefOp, Value};
 
 use crate::writer::Writer;
@@ -64,18 +64,6 @@ pub(crate) type TranslatedOpcode<'a> = Box<dyn OpcodeEmitter + 'a>;
 
 // ── Shared helpers for blackbox opcodes ────────────────────────────────
 
-/// Emits the LLZK value for an ACIR [`FunctionInput`]: either a witness read
-/// or a felt constant.
-pub(crate) fn emit_blackbox_input<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
-    input: &FunctionInput<FieldElement>,
-) -> Result<Value<'c, 'b>, Error> {
-    match input {
-        FunctionInput::Witness(w) => writer.read_witness(w.0),
-        FunctionInput::Constant(c) => writer.emit_constant(c),
-    }
-}
-
 pub(crate) fn validate_constant_fits(
     input: &FunctionInput<FieldElement>,
     num_bits: u32,
@@ -118,15 +106,6 @@ pub(crate) fn input_needs_range_check(
     }
 }
 
-/// Emits a felt constant equal to `2^num_bits`
-pub(crate) fn emit_range_upper_bound<'c, 'b>(
-    writer: &mut BlockWriter<'c, 'b>,
-    num_bits: u32,
-) -> Result<Value<'c, 'b>, Error> {
-    let bound = FieldElement::from(2u128).pow(&FieldElement::from(num_bits as u128));
-    writer.emit_constant(&bound)
-}
-
 /// Constrains `value` to fit within `num_bits` when the ACIR input requires it.
 pub(crate) fn constrain_input_width<'c, 'b>(
     writer: &mut BlockWriter<'c, 'b>,
@@ -138,7 +117,7 @@ pub(crate) fn constrain_input_width<'c, 'b>(
         return Ok(());
     }
 
-    let bound = emit_range_upper_bound(writer, num_bits)?;
+    let bound = writer.emit_range_upper_bound(num_bits)?;
     let in_range = writer.insert_bool_lt(value, bound)?;
     writer.insert_constrain_bool_true(in_range)
 }
@@ -153,7 +132,7 @@ where
     I: IntoIterator<Item = &'a FunctionInput<FieldElement>>,
 {
     for input in inputs {
-        let value = emit_blackbox_input(writer, input)?;
+        let value = writer.emit_blackbox_input(input)?;
         constrain_input_width(writer, input, value, num_bits)?;
     }
     Ok(())
@@ -221,10 +200,7 @@ pub(crate) fn emit_padded_byte_inputs<'c, 'b>(
     inputs: &[FunctionInput<FieldElement>],
     capacity: usize,
 ) -> Result<Vec<Value<'c, 'b>>, Error> {
-    let mut values = inputs
-        .iter()
-        .map(|input| emit_blackbox_input(writer, input))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut values = writer.emit_blackbox_inputs(inputs)?;
     let zero = writer.emit_constant(&FieldElement::zero())?;
     values.resize(capacity, zero);
     Ok(values)

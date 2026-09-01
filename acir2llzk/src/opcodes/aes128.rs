@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use acir::{
-    FieldElement,
-    circuit::Opcode,
     circuit::opcodes::{BlackBoxFuncCall, FunctionInput},
+    circuit::Opcode,
     native_types::Witness,
+    FieldElement,
 };
 
 use crate::{
@@ -12,8 +12,8 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
-        emit_blackbox_input, validate_byte_input, write_digest_outputs,
+        collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
+        validate_byte_input, write_digest_outputs, OpcodeEmitter,
     },
     writer::Writer,
 };
@@ -63,7 +63,7 @@ impl Aes128Encrypt<'_> {
             .iter()
             .chain(self.iv.iter())
             .chain(self.key.iter())
-            .map(|input| emit_blackbox_input(writer, input))
+            .map(|input| writer.emit_blackbox_input(input))
             .collect::<Result<Vec<_>, _>>()?;
         writer.call_blackbox_function(
             BlackboxFunction::Aes128Encrypt {
