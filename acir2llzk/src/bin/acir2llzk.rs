@@ -5,22 +5,32 @@ use std::{
     fs::File,
     io::{self, Read, Write},
     path::PathBuf,
+    process::exit,
     str::FromStr,
 };
 
 use acir2llzk::{
-    Driver, Error, FIELD_NAME,
     config::{Config, OutputFormat},
+    Driver, Error, FIELD_NAME,
 };
-use clap::Parser;
+use clap::{error::ErrorKind, Parser};
 
-fn main() -> Result<(), Error> {
+fn main_impl() -> Result<(), Error> {
     let config = Cli::new()?;
     let driver = Driver::new(&config);
 
     let acir_program = driver.load_program()?;
     let llzk_module = driver.translate(&acir_program)?;
     driver.dump_llzk_ir(&llzk_module)
+}
+
+fn main() {
+    let Err(err) = main_impl() else {
+        return;
+    };
+
+    eprintln!("{err}");
+    exit(1);
 }
 
 /// Possible options for the input file.
@@ -75,9 +85,6 @@ struct Args {
     /// Output LLZK file.
     #[arg(short, long, default_value = "-")]
     output: Output,
-    /// Field name used for all felt types and constants.
-    #[arg(long, default_value = FIELD_NAME)]
-    field: String,
     /// Format of the resulting LLZK IR.
     #[arg(long)]
     emit: Option<OutputFormat>,
@@ -94,8 +101,19 @@ struct Cli {
 
 impl Cli {
     /// Creates a new instance.
+    ///
+    /// If the user passed `--version` or `--help` exits with `std::process::exit(0)`.
     pub fn new() -> Result<Self, Error> {
-        let args = Args::try_parse()?;
+        let args = match Args::try_parse() {
+            Err(err)
+                if err.kind() == ErrorKind::DisplayHelp
+                    || err.kind() == ErrorKind::DisplayVersion =>
+            {
+                eprintln!("{err}");
+                exit(0);
+            }
+            args => args?,
+        };
         Ok(Self { args })
     }
 }
@@ -119,7 +137,7 @@ impl Config for Cli {
 
     /// Returns the name of the field.
     fn field_name(&self) -> &str {
-        &self.args.field
+        FIELD_NAME
     }
 
     /// Returns the format in which to print the LLZK output.
