@@ -1,12 +1,12 @@
-use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+use acir::circuit::Opcode;
 use acir::circuit::{Circuit, Program, PublicInputs};
 use acir::native_types::{Expression, Witness};
 use acir::{AcirField, FieldElement};
 use llzk::prelude::{
-    BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module, OperationLike,
-    OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType, TypeAttribute,
-    llzk_module,
+    llzk_module, BlockLike, BlockRef, FlatSymbolRefAttribute, LlzkContext, Location, Module,
+    OperationLike, OperationMutLike, OperationRef, StructDefOp, StructDefOpRef, StructType,
+    TypeAttribute,
 };
 use llzk_sys::MAIN_ATTR_NAME;
 
@@ -32,11 +32,11 @@ pub(crate) struct TestConfig;
 
 impl Config for TestConfig {
     fn input_reader(&self) -> std::io::Result<Box<dyn std::io::Read>> {
-        todo!()
+        unimplemented!()
     }
 
     fn output_writer(&self) -> std::io::Result<Box<dyn std::io::Write>> {
-        todo!()
+        unimplemented!()
     }
 
     fn field_name(&self) -> &str {
@@ -44,7 +44,7 @@ impl Config for TestConfig {
     }
 
     fn output_format(&self) -> crate::config::OutputFormat {
-        todo!()
+        unimplemented!()
     }
 
     fn source_language(&self) -> &str {
