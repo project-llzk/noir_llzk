@@ -10,10 +10,10 @@ use std::{
 };
 
 use acir2llzk::{
-    Driver, Error, FIELD_NAME,
     config::{Config, OutputFormat},
+    Driver, Error, FIELD_NAME,
 };
-use clap::{Parser, error::ErrorKind};
+use clap::{error::ErrorKind, Parser};
 
 fn main_impl() -> Result<(), Error> {
     let config = Cli::new()?;
@@ -89,7 +89,7 @@ struct Args {
     #[arg(long)]
     emit: Option<OutputFormat>,
     /// Name of the source language (i.e. Noir)
-    #[arg(long, default_value = "ACIR")]
+    #[arg(short, long, default_value = "ACIR")]
     language: String,
 }
 
