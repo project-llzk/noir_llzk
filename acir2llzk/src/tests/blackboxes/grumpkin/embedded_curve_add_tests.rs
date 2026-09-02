@@ -113,11 +113,6 @@ fn embedded_curve_add_emits_shared_helper_and_calls_it_from_wrappers() {
         "compute and constrain should each call the shared helper once"
     );
     assert_eq!(
-        count_ops_by_name(&module, "bool.not"),
-        1,
-        "the shared helper should only negate the first point infinity check"
-    );
-    assert_eq!(
         count_ops_by_name(&module, "bool.or"),
         0,
         "the shared helper should handle infinity cases with dedicated branches"

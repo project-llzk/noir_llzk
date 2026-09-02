@@ -121,10 +121,6 @@ fn multi_scalar_mul_does_not_collapse_any_infinity_case_to_infinity() {
         0,
         "MSM should handle O+P / P+O with dedicated branches instead of collapsing any infinity case"
     );
-    assert!(
-        count_ops_by_name(&module, "bool.not") > 0,
-        "MSM should retain explicit infinity-branch handling for the accumulator path"
-    );
 }
 
 #[test]

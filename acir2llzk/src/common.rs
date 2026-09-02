@@ -2,14 +2,15 @@ use std::collections::BTreeSet;
 
 use acir::native_types::Expression;
 use acir::{AcirField, FieldElement};
+use llzk::builder::{OpBuilder, OpBuilderLike as _};
 use llzk::dialect::felt::FeltConstAttribute;
+use llzk::prelude::OperationLike;
 use llzk::prelude::{
     Block, BlockLike, LlzkContext, Location, OperationRef, Region, RegionLike, Type, Value,
     melior_dialects::scf,
 };
 use num_bigint::BigUint;
 
-use crate::FIELD_NAME;
 use crate::block_writer::BlockWriter;
 use crate::error::Error;
 use crate::writer::Writer;
@@ -21,7 +22,7 @@ pub(crate) fn field_to_felt_const<'c>(
 ) -> FeltConstAttribute<'c> {
     let bytes = fe.to_le_bytes();
     let biguint = BigUint::from_bytes_le(&bytes);
-    FeltConstAttribute::from_biguint(context, &biguint, Some(FIELD_NAME))
+    FeltConstAttribute::from_biguint(context, &biguint, context.field())
 }
 
 /// Returns `true` if the predicate expression is a trivial constant `1`
@@ -208,23 +209,25 @@ pub(crate) fn constrain_bool<'c, 'b>(
     Ok(())
 }
 
-pub(crate) fn build_yielding_region<'c, const N: usize, F>(
+pub(crate) fn build_yielding_region<'c, 'a, const N: usize, F, R>(
     location: Location<'c>,
     build: F,
 ) -> Result<Region<'c>, Error>
 where
-    F: for<'a> FnOnce(&'a Block<'c>) -> Result<[Value<'c, 'a>; N], Error>,
+    R: Into<[Value<'c, 'a>; N]>,
+    F: FnOnce(&OpBuilder<'c, '_>) -> Result<R, Error>,
 {
     let region = Region::new();
-    let block = Block::new(&[]);
-    let values = build(&block)?;
-    block.append_operation(scf::r#yield(&values, location));
-    region.append_block(block);
+    let block = region.append_block(Block::new(&[]));
+    let context = location.context();
+    let builder = OpBuilder::at_block_end(unsafe { context.to_ref() }, block);
+    let values = build(&builder)?;
+    block.append_operation(scf::r#yield(&values.into(), location));
     Ok(region)
 }
 
-pub(crate) fn append_if_with_results<'c, 'a, const N: usize, Then, Else>(
-    block: &'a Block<'c>,
+pub(crate) fn append_if_with_results<'c: 'a, 'a, const N: usize, Then, Else, ThenR, ElseR>(
+    builder: &OpBuilder<'c, '_>,
     location: Location<'c>,
     condition: Value<'c, 'a>,
     result_types: &[Type<'c>; N],
@@ -232,22 +235,20 @@ pub(crate) fn append_if_with_results<'c, 'a, const N: usize, Then, Else>(
     else_build: Else,
 ) -> Result<[Value<'c, 'a>; N], Error>
 where
-    Then: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
-    Else: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+    ThenR: Into<[Value<'c, 'a>; N]>,
+    ElseR: Into<[Value<'c, 'a>; N]>,
+    Then: FnOnce(&OpBuilder<'c, '_>) -> Result<ThenR, Error>,
+    Else: FnOnce(&OpBuilder<'c, '_>) -> Result<ElseR, Error>,
 {
     let then_region = build_yielding_region(location, then_build)?;
     let else_region = build_yielding_region(location, else_build)?;
-    let result_op = block.append_operation(scf::r#if(
-        condition,
-        result_types,
-        then_region,
-        else_region,
-        location,
-    ));
+    let result_op = builder.insert(location, |_, location| {
+        scf::r#if(condition, result_types, then_region, else_region, location)
+    });
     collect_results(result_op)
 }
 
-pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else>(
+pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else, ThenR, ElseR>(
     writer: &BlockWriter<'c, 'a>,
     condition: Value<'c, 'a>,
     result_types: &[Type<'c>; N],
@@ -255,8 +256,10 @@ pub(crate) fn insert_if_with_results<'c, 'a, const N: usize, Then, Else>(
     else_build: Else,
 ) -> Result<[Value<'c, 'a>; N], Error>
 where
-    Then: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
-    Else: for<'r> FnOnce(&'r Block<'c>) -> Result<[Value<'c, 'r>; N], Error>,
+    ThenR: Into<[Value<'c, 'a>; N]>,
+    ElseR: Into<[Value<'c, 'a>; N]>,
+    Then: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<ThenR, Error>,
+    Else: for<'l> FnOnce(&OpBuilder<'c, 'l>) -> Result<ElseR, Error>,
 {
     let location = writer.location();
     let then_region = build_yielding_region(location, then_build)?;
@@ -271,7 +274,7 @@ where
     collect_results(result_op)
 }
 
-fn collect_results<'c, 'a, const N: usize>(
+fn collect_results<'c: 'a, 'a, const N: usize>(
     op: OperationRef<'c, 'a>,
 ) -> Result<[Value<'c, 'a>; N], Error> {
     let mut values = Vec::with_capacity(N);
@@ -292,4 +295,14 @@ pub(crate) fn collect_witnesses(expr: &Expression<FieldElement>) -> BTreeSet<u32
         witnesses.insert(w_k.0);
     }
     witnesses
+}
+
+/// Transforms the given operation into a value representing its result.
+///
+/// # Panics
+///
+/// If the operation has any number of results different to 1.
+pub(crate) fn as_value<'c, 'v>(op: OperationRef<'c, 'v>) -> Result<Value<'c, 'v>, Error> {
+    assert_eq!(op.result_count(), 1);
+    Ok(Value::from(op.result(0)?))
 }

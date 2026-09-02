@@ -15,10 +15,12 @@ pub(crate) mod sha256;
 use std::collections::BTreeSet;
 
 use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput, native_types::Witness};
-use llzk::prelude::{LlzkContext, OperationRef, StructDefOp, Value};
+use llzk::{
+    builder::OpBuilder,
+    prelude::{LlzkContext, OperationRef, Value},
+};
 
-use crate::writer::Writer;
-use crate::{block_writer::BlockWriter, error::Error};
+use crate::{block_writer::BlockWriter, error::Error, writer::Writer};
 
 /// Trait implemented by each ACIR opcode's translator.
 ///
@@ -39,7 +41,7 @@ pub(crate) trait OpcodeEmitter {
     fn emit_member<'c>(
         &self,
         _context: &'c LlzkContext,
-        _struct_def: &StructDefOp<'c>,
+        _builder: &OpBuilder<'c, '_>,
     ) -> Result<(), Error> {
         Ok(())
     }

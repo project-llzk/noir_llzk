@@ -14,19 +14,23 @@ use acir::{
     FieldElement,
     circuit::brillig::{BrilligBytecode, BrilligFunctionId},
 };
-use llzk::prelude::{
-    Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
-    OperationLike, RegionLike, Type, Value, dialect,
+use llzk::{
+    builder::{BlockInsertPointLike, OpBuilder},
+    dialect::empty_region,
+    prelude::{
+        Block, BlockLike, FeltType, FuncDefOpLike, FunctionType, LlzkContext, Location, Module,
+        RegionLike, Type, Value, dialect::function,
+    },
 };
 
-use crate::brillig_writer::BrilligWriter;
-use crate::error::Error;
-use crate::{FIELD_NAME, brillig::translator::TranslationCtx};
+use crate::{
+    FIELD_NAME, brillig::translator::TranslationCtx, brillig_writer::BrilligWriter, error::Error,
+};
 
-use super::cfg::Cfg;
-use super::memory::precompute_calldata_copy_params;
-use super::structured_translator::BrilligFunctionEmitter;
-use super::structurer::structure_function;
+use super::{
+    cfg::Cfg, memory::precompute_calldata_copy_params,
+    structured_translator::BrilligFunctionEmitter, structurer::structure_function,
+};
 
 /// Identifies a single shape variant of a Brillig function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -110,22 +114,34 @@ pub(crate) fn emit_brillig_functions<'c>(
         registry.entries.iter().collect();
     entries.sort_by_key(|(k, _)| (k.id.0, k.input_count, k.output_count));
 
+    let builder = OpBuilder::new(context, module.body().at_end());
     for (key, entry) in entries {
         let name = BrilligRegistry::function_name(*key);
         let input_types = vec![felt_ty; key.input_count];
         let output_types = vec![felt_ty; key.output_count];
         let func_type = FunctionType::new(context, &input_types, &output_types);
-        let func = dialect::function::def(location, &name, func_type, &[], None)?;
+        let func = function::def(
+            &builder,
+            location,
+            &name,
+            func_type,
+            &[],
+            None,
+            empty_region,
+        )?;
         func.set_allow_witness_attr(true);
         func.set_allow_non_native_field_ops_attr(true);
 
         let arg_sig: Vec<(Type<'c>, Location<'c>)> =
             (0..key.input_count).map(|_| (felt_ty, location)).collect();
-        let body_block = Block::new(&arg_sig);
+        let func_body = func.body()?;
+        let body_block = func_body
+            .first_block()
+            .unwrap_or_else(|| func_body.append_block(Block::new(&arg_sig)));
         let calldata: Vec<Value<'c, '_>> = (0..key.input_count)
             .map(|i| body_block.argument(i).unwrap().into())
             .collect();
-        let mut writer = BrilligWriter::new(context, &body_block);
+        let mut writer = BrilligWriter::new(context, body_block);
         let cfg = Cfg::build(&entry.bytecode.bytecode)?;
         let structured = structure_function(&cfg)?;
 
@@ -143,9 +159,11 @@ pub(crate) fn emit_brillig_functions<'c>(
         let ctx = TranslationCtx::new(&mut writer, &calldata, Some(calldata_copy_params));
         let returns = emitter.translate(&structured, ctx, key.output_count)?;
 
-        body_block.append_operation(dialect::function::r#return(location, &returns));
-        func.region(0)?.append_block(body_block);
-        module.body().append_operation(func.into());
+        function::r#return(
+            &OpBuilder::at_block_end(context, body_block),
+            location,
+            &returns,
+        );
     }
 
     Ok(())

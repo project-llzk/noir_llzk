@@ -5,20 +5,21 @@ use acir::{
     brillig::{BlackBoxOp, Opcode as BrilligOpcode},
     circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, Region,
-    RegionLike, Value, dialect, melior_dialects::scf,
+use llzk::{
+    builder::OpBuilder,
+    prelude::{
+        BlockLike, BlockRef, FuncDefOpLike, LlzkContext, Location, Type, Value,
+        dialect::{bool, function},
+    },
 };
 
 use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
-    common::append_if_with_results,
+    blackboxes::common::{append_felt_constant, create_helper_function},
+    common::{append_if_with_results, as_value},
     error::Error,
 };
 
-use super::common::{
-    EmbeddedPointValue, emit_curve_add_result, emit_infinity_point, point_to_array,
-};
+use super::common::EmbeddedPointValue;
 
 pub(crate) const SCALAR_LOW_BITS: usize = 128;
 pub(crate) const SCALAR_HIGH_BITS: usize = 126;
@@ -38,134 +39,207 @@ pub(crate) fn used_arities(program: &Program<FieldElement>) -> BTreeSet<usize> {
     acir_arities.chain(brillig_arities).collect()
 }
 
-pub(crate) fn multi_scalar_mul_helper_name(num_points: usize) -> String {
+pub(in crate::blackboxes) fn multi_scalar_mul_helper_name(num_points: usize) -> String {
     format!("multi_scalar_mul_{num_points}")
 }
 
-pub(crate) fn emit_multi_scalar_mul_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
+/// Computes the offsets to the input arguments of the helper from the number of points.
+///
+/// The layout is as follows:
+/// ```text
+/// | points: num_points * 3 | scalar_bits: num_points * SCALAR_TOTAL_BITS | predicate: 1 |
+/// ```
+#[derive(Clone, Copy)]
+struct HelperInputOffsets {
     num_points: usize,
-) -> Result<FuncDefOp<'c>, Error> {
-    let location = Location::unknown(context);
-    let felt = felt_type(context);
-    let num_inputs = num_points * 3 + num_points * SCALAR_TOTAL_BITS + 1;
-    let inputs = vec![(felt, location); num_inputs];
-    let input_types = vec![felt; num_inputs];
-    let function_type = FunctionType::new(context, &input_types, &[felt, felt, felt]);
-    let helper_name = multi_scalar_mul_helper_name(num_points);
-    let function = dialect::function::def(location, &helper_name, function_type, &[], None)?;
-    function.set_allow_non_native_field_ops_attr(true);
-
-    let block = Block::new(&inputs);
-    let points = (0..num_points)
-        .map(|index| {
-            let base = index * 3;
-            Ok((
-                block.argument(base)?.into(),
-                block.argument(base + 1)?.into(),
-                block.argument(base + 2)?.into(),
-            ))
-        })
-        .collect::<Result<Vec<EmbeddedPointValue<'c, '_>>, Error>>()?;
-    let scalar_bits_offset = num_points * 3;
-    let scalar_bits = (0..num_points)
-        .map(|index| {
-            (0..SCALAR_TOTAL_BITS)
-                .map(|bit_index| {
-                    block.argument(scalar_bits_offset + index * SCALAR_TOTAL_BITS + bit_index)
-                })
-                .map(|arg| arg.map(Into::into).map_err(Error::from))
-                .collect::<Result<Vec<Value<'c, '_>>, Error>>()
-        })
-        .collect::<Result<Vec<Vec<Value<'c, '_>>>, Error>>()?;
-    let predicate: Value<'c, '_> = block.argument(num_inputs - 1)?.into();
-
-    let one = append_felt_constant(&block, context, location, &FieldElement::one())?;
-    let predicate_is_true =
-        append_op_with_result(&block, dialect::bool::eq(location, predicate, one)?)?;
-    let result_types = [felt, felt, felt];
-    let [output_x, output_y, output_infinite] = append_if_with_results(
-        &block,
-        location,
-        predicate_is_true,
-        &result_types,
-        |then_block| {
-            emit_multi_scalar_mul_result(then_block, context, location, &points, &scalar_bits)
-                .map(point_to_array)
-        },
-        |else_block| emit_infinity_point(else_block, context, location).map(point_to_array),
-    )?;
-    block.append_operation(dialect::function::r#return(
-        location,
-        &[output_x, output_y, output_infinite],
-    ));
-    function.region(0)?.append_block(block);
-    Ok(function)
 }
 
-fn emit_multi_scalar_mul_result<'c, 'a, 'v>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
+impl HelperInputOffsets {
+    fn new(num_points: usize) -> Self {
+        Self { num_points }
+    }
+
+    fn num_inputs(self) -> usize {
+        self.predicate_offset() + 1
+    }
+
+    fn predicate_offset(self) -> usize {
+        self.scalar_bits_offset() + self.num_points * SCALAR_TOTAL_BITS
+    }
+
+    fn scalar_bits_offset(self) -> usize {
+        self.num_points * 3
+    }
+
+    /// Helper function for building objects of type `R` that represent the
+    /// points part of the helper's inputs.
+    ///
+    /// Handles the computation of the offsets for each triple of inputs and
+    /// then passes it to the callback for creating the object.
+    fn points<R>(
+        self,
+        mut f: impl FnMut(usize, usize, usize) -> Result<R, Error>,
+    ) -> Result<Vec<R>, Error> {
+        (0..self.num_points)
+            .map(|index| {
+                let base = index * 3;
+                f(base, base + 1, base + 2)
+            })
+            .collect()
+    }
+
+    /// Helper function for building objects of type `R` that represent the
+    /// scalar bits part of the helper's inputs.
+    ///
+    /// Handles the computation of the offset to each bit of each scalar and
+    /// then passes it to the callback for creating the object.
+    ///
+    /// The returned objects are grouped in a [`SCALAR_TOTAL_BITS`] by `num_points` matrix,
+    /// where each row represents one scalar value.
+    fn scalar_bits<R>(
+        self,
+        mut f: impl FnMut(usize) -> Result<R, Error>,
+    ) -> Result<Vec<Vec<R>>, Error> {
+        (0..self.num_points)
+            .map(|index| {
+                (0..SCALAR_TOTAL_BITS)
+                    .map(|bit_index| {
+                        f(self.scalar_bits_offset() + index * SCALAR_TOTAL_BITS + bit_index)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+}
+
+struct HelperInputs<'c, 'v> {
+    points: Vec<EmbeddedPointValue<'c, 'v>>,
+    scalar_bits: Vec<Vec<Value<'c, 'v>>>,
+    predicate: Value<'c, 'v>,
+}
+
+impl<'c, 'v> HelperInputs<'c, 'v> {
+    fn collect_points_input(
+        block: BlockRef<'c, 'v>,
+        offsets: HelperInputOffsets,
+    ) -> Result<Vec<EmbeddedPointValue<'c, 'v>>, Error> {
+        offsets.points(|p0, p1, p2| {
+            Ok(EmbeddedPointValue::new(
+                block.argument(p0)?.into(),
+                block.argument(p1)?.into(),
+                block.argument(p2)?.into(),
+            ))
+        })
+    }
+
+    fn collect_scalar_bits(
+        block: BlockRef<'c, 'v>,
+        offsets: HelperInputOffsets,
+    ) -> Result<Vec<Vec<Value<'c, 'v>>>, Error> {
+        offsets.scalar_bits(|index| Ok(block.argument(index)?.into()))
+    }
+
+    fn new(block: BlockRef<'c, 'v>, offsets: HelperInputOffsets) -> Result<Self, Error> {
+        Ok(Self {
+            points: Self::collect_points_input(block, offsets)?,
+            scalar_bits: Self::collect_scalar_bits(block, offsets)?,
+            predicate: block.argument(offsets.predicate_offset())?.into(),
+        })
+    }
+}
+
+pub(in crate::blackboxes) fn emit_multi_scalar_mul_helper<'c>(
+    context: &'c LlzkContext,
+    parent: BlockRef<'c, '_>,
+    num_points: usize,
+) -> Result<(), Error> {
+    let location = Location::unknown(context);
+    let felt = Type::from(context.felt_type());
+    let offsets = HelperInputOffsets::new(num_points);
+
+    let (function, block) = create_helper_function(
+        context,
+        parent,
+        location,
+        &multi_scalar_mul_helper_name(num_points),
+        offsets.num_inputs(),
+        3,
+    )?;
+    function.set_allow_non_native_field_ops_attr(true);
+    let builder = OpBuilder::at_block_end(context, block);
+    let inputs = HelperInputs::new(block, offsets)?;
+
+    let one = append_felt_constant(&builder, context, location, &FieldElement::one())?;
+    let output = append_if_with_results(
+        &builder,
+        location,
+        as_value(bool::eq(&builder, location, inputs.predicate, one)?)?,
+        &[felt, felt, felt],
+        |builder| {
+            emit_multi_scalar_mul_result(
+                builder,
+                context,
+                location,
+                &inputs.points,
+                &inputs.scalar_bits,
+            )
+        },
+        |builder| EmbeddedPointValue::infinity(builder, context, location),
+    )?;
+    function::r#return(&builder, location, &output);
+    Ok(())
+}
+
+fn emit_multi_scalar_mul_result<'c: 'a, 'a>(
+    builder: &OpBuilder<'c, '_>,
+    context: &'c LlzkContext,
     location: Location<'c>,
-    points: &[EmbeddedPointValue<'c, 'v>],
-    scalar_bits: &[Vec<Value<'c, 'v>>],
+    points: &[EmbeddedPointValue<'c, 'a>],
+    scalar_bits: &[Vec<Value<'c, 'a>>],
 ) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
     debug_assert_eq!(points.len(), scalar_bits.len());
 
-    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(block, context, location)?;
-    for (&point, bits) in points.iter().zip(scalar_bits) {
-        let scaled = emit_scalar_mul_result(block, context, location, point, bits)?;
-        acc = emit_curve_add_result(block, context, location, acc, scaled)?;
-    }
-    Ok(acc)
+    points.iter().zip(scalar_bits).try_fold(
+        EmbeddedPointValue::infinity(builder, context, location)?,
+        |acc, (&point, bits)| {
+            acc.add(
+                point.scalar_mul(bits, builder, context, location)?,
+                builder,
+                context,
+                location,
+            )
+        },
+    )
 }
 
-fn emit_scalar_mul_result<'c, 'a, 'v>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    point: EmbeddedPointValue<'c, 'v>,
-    scalar_bits: &[Value<'c, 'v>],
-) -> Result<EmbeddedPointValue<'c, 'a>, Error> {
-    let felt = felt_type(context);
-    let result_types = [felt, felt, felt];
-    let one = append_felt_constant(block, context, location, &FieldElement::one())?;
-    let mut acc: EmbeddedPointValue<'c, 'a> = emit_infinity_point(block, context, location)?;
+impl<'c: 'a, 'a> EmbeddedPointValue<'c, 'a> {
+    fn scalar_mul(
+        self,
+        scalar_bits: &[Value<'c, 'a>],
+        builder: &OpBuilder<'c, '_>,
+        context: &'c LlzkContext,
+        location: Location<'c>,
+    ) -> Result<Self, Error> {
+        let felt = Type::from(context.felt_type());
+        let result_types = [felt, felt, felt];
+        let one = append_felt_constant(builder, context, location, &FieldElement::one())?;
 
-    for &bit in scalar_bits.iter().rev() {
-        acc = emit_curve_add_result(block, context, location, acc, acc)?;
-        let bit_is_one = append_op_with_result(block, dialect::bool::eq(location, bit, one)?)?;
-        let current_acc = acc;
-
-        let then_region = Region::new();
-        let then_block = Block::new(&[]);
-        let added = emit_curve_add_result(&then_block, context, location, current_acc, point)?;
-        then_block.append_operation(scf::r#yield(&[added.0, added.1, added.2], location));
-        then_region.append_block(then_block);
-
-        let else_region = Region::new();
-        let else_block = Block::new(&[]);
-        else_block.append_operation(scf::r#yield(
-            &[current_acc.0, current_acc.1, current_acc.2],
-            location,
-        ));
-        else_region.append_block(else_block);
-
-        let result = block.append_operation(scf::r#if(
-            bit_is_one,
-            &result_types,
-            then_region,
-            else_region,
-            location,
-        ));
-        acc = (
-            result.result(0)?.into(),
-            result.result(1)?.into(),
-            result.result(2)?.into(),
-        );
+        scalar_bits.iter().rev().try_fold(
+            EmbeddedPointValue::infinity(builder, context, location)?,
+            |acc, &bit| {
+                let acc = acc.add(acc, builder, context, location)?;
+                Ok(append_if_with_results(
+                    builder,
+                    location,
+                    as_value(bool::eq(builder, location, bit, one)?)?,
+                    &result_types,
+                    |builder| acc.add(self, builder, context, location),
+                    |_| Ok(acc),
+                )?
+                .into())
+            },
+        )
     }
-
-    Ok(acc)
 }
 
 fn multi_scalar_mul_arity(opcode: &Opcode<FieldElement>) -> Option<usize> {

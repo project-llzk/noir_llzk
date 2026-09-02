@@ -1,20 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
-use acir::circuit::opcodes::FunctionInput;
-use acir::{AcirField, FieldElement};
-use llzk::builder::{EntryPoint, OpBuilder};
-use llzk::dialect::array::{ArrayCtor, ArrayType};
-use llzk::prelude::melior_dialects::arith;
-use llzk::prelude::{
-    BlockLike, BlockRef, FeltType, IntegerAttribute, LlzkContext, Location, Operation,
-    OperationLike, OperationRef, RegionLike, StructDefOp, StructDefOpLike, StructType,
-    SymbolRefAttribute, Type, Value, ValueLike, dialect,
+use acir::{AcirField, FieldElement, circuit::opcodes::FunctionInput};
+use llzk::{
+    builder::{EntryPoint, OpBuilder},
+    dialect::array::{ArrayCtor, ArrayType},
+    prelude::{
+        BlockLike, BlockRef, FuncDefOpRef, IntegerAttribute, LlzkContext, Location, Operation,
+        OperationLike, OperationRef, RegionLike, StructType, SymbolRefAttribute, Type, Value,
+        ValueLike,
+        dialect::{array, constrain, felt, function, r#struct},
+        melior_dialects::arith,
+    },
 };
 
-use crate::FIELD_NAME;
-use crate::common::field_to_felt_const;
-use crate::error::Error;
-use crate::writer::Writer;
+use crate::{
+    common::{as_value, field_to_felt_const},
+    error::Error,
+    writer::Writer,
+};
 
 /// Shared LLZK block writer that manages witness reads and emits operations
 /// into a single block (either `@compute` or `@constrain`).
@@ -112,12 +115,9 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Creates a writer targeting the `@compute` function of the given struct.
     pub(crate) fn for_compute(
         context: &'c LlzkContext,
-        struct_def: &StructDefOp<'c>,
+        compute: FuncDefOpRef<'c, 'a>,
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
-        let compute = struct_def
-            .compute_func()
-            .expect("Struct should have @compute");
         let block = compute.region(0)?.first_block().unwrap();
 
         // The first operation in compute is `struct.new`, its result is %self.
@@ -131,12 +131,9 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     /// Creates a writer targeting the `@constrain` function of the given struct.
     pub(crate) fn for_constrain(
         context: &'c LlzkContext,
-        struct_def: &StructDefOp<'c>,
+        constrain: FuncDefOpRef<'c, 'a>,
         input_witnesses: &[u32],
     ) -> Result<Self, Error> {
-        let constrain = struct_def
-            .constrain_func()
-            .expect("Struct should have @constrain");
         let block = constrain.region(0)?.first_block().unwrap();
 
         // @constrain argument 0 is %self — inputs start at argument 1.
@@ -156,12 +153,12 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     /// Emits `felt.neg value`.
     pub(crate) fn insert_neg(&self, value: Value<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::felt::neg(self.location, value)?)
+        as_value(felt::neg(&self.builder(), self.location, value)?)
     }
 
     /// Emits `constrain.eq lhs, rhs`.
     pub(crate) fn insert_constrain_eq(&self, lhs: Value<'c, 'a>, rhs: Value<'c, 'a>) {
-        self.insert_op(dialect::constrain::eq(self.location, lhs, rhs));
+        constrain::eq(&self.builder(), self.location, lhs, rhs);
     }
 
     /// Constrains an i1 condition to be true.
@@ -174,12 +171,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
 
     /// Writes `val` into the `name` member of `%self` before the return terminator.
     pub(crate) fn write_member(&self, name: &str, val: Value<'c, 'a>) -> Result<(), Error> {
-        self.insert_op(dialect::r#struct::writem(
-            self.location,
-            self.self_value,
-            name,
-            val,
-        )?);
+        r#struct::writem(&self.builder(), self.location, self.self_value, name, val)?;
         Ok(())
     }
 
@@ -194,7 +186,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
     pub(crate) fn insert_new_array(&self, len: usize) -> Result<Value<'c, 'a>, Error> {
         let array_type = ArrayType::new_with_dims(self.felt_type(), &[len as i64]);
         let builder = OpBuilder::new(self.context, self.insertion_point());
-        self.insert_op_with_result(dialect::array::new(
+        as_value(array::new(
             &builder,
             self.location,
             array_type,
@@ -224,7 +216,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         indices: &[Value<'c, 'a>],
         value: Value<'c, 'a>,
     ) {
-        self.insert_op(dialect::array::write(self.location, array, indices, value));
+        array::write(&self.builder(), self.location, array, indices, value);
     }
 
     /// Emits `array.read array[idx]`, returning the felt-typed element.
@@ -236,7 +228,8 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         array: Value<'c, 'a>,
         idx: Value<'c, 'a>,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::array::read(
+        as_value(array::read(
+            &self.builder(),
             self.location,
             self.felt_type(),
             array,
@@ -272,14 +265,14 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         args: &[Value<'c, 'a>],
         result_types: &[Type<'c>],
     ) -> Result<OperationRef<'c, 'a>, Error> {
-        let call_op = dialect::function::call(
+        let call_op = function::call(
             &OpBuilder::new(self.context, self.insertion_point()),
             self.location,
             SymbolRefAttribute::new_from_str(self.context, parent, &[func]),
             args,
             result_types,
         )?;
-        Ok(self.insert_op(call_op.into()))
+        Ok(call_op.into())
     }
 
     /// Reads a felt-typed member of `from` by `name`.
@@ -291,7 +284,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         from: Value<'c, 'a>,
         name: &str,
     ) -> Result<Value<'c, 'a>, Error> {
-        let felt_type: Type<'c> = FeltType::with_field(self.context, FIELD_NAME).into();
+        let felt_type: Type<'c> = self.context.felt_type().into();
         self.read_member(felt_type, from, name)
     }
 
@@ -302,7 +295,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
         from: Value<'c, 'a>,
         name: &str,
     ) -> Result<Value<'c, 'a>, Error> {
-        self.insert_op_with_result(dialect::r#struct::readm(
+        as_value(r#struct::readm(
             &OpBuilder::new(self.context, self.insertion_point()),
             self.location,
             ty,
@@ -359,7 +352,7 @@ impl<'c, 'a> BlockWriter<'c, 'a> {
             return Ok(val);
         }
         let attr = field_to_felt_const(self.context, fe);
-        let val = self.insert_op_with_result(dialect::felt::constant(self.location, attr)?)?;
+        let val = as_value(felt::constant(&self.builder(), self.location, attr)?)?;
         self.constant_cache.insert(*fe, val);
         Ok(val)
     }
