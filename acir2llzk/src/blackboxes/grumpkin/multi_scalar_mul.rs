@@ -71,6 +71,11 @@ impl HelperInputOffsets {
         self.num_points * 3
     }
 
+    /// Helper function for building objects of type `R` that represent the
+    /// points part of the helper's inputs.
+    ///
+    /// Handles the computation of the offsets for each triple of inputs and
+    /// then passes it to the callback for creating the object.
     fn points<R>(
         self,
         mut f: impl FnMut(usize, usize, usize) -> Result<R, Error>,
@@ -83,6 +88,14 @@ impl HelperInputOffsets {
             .collect()
     }
 
+    /// Helper function for building objects of type `R` that represent the
+    /// scalar bits part of the helper's inputs.
+    ///
+    /// Handles the computation of the offset to each bit of each scalar and
+    /// then passes it to the callback for creating the object.
+    ///
+    /// The returned objects are grouped in a [`SCALAR_TOTAL_BITS`] by `num_points` matrix,
+    /// where each row represents one scalar value.
     fn scalar_bits<R>(
         self,
         mut f: impl FnMut(usize) -> Result<R, Error>,

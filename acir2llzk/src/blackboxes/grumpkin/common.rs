@@ -19,6 +19,7 @@ use crate::{
 
 const GRUMPKIN_B: i128 = -17;
 
+/// Wrapper around a tuple of SSA values that together represent an affine point.
 #[derive(Clone, Copy)]
 pub(crate) struct AffinePointValue<'c, 'a>(Value<'c, 'a>, Value<'c, 'a>);
 
@@ -33,6 +34,15 @@ impl<'c, 'a> AffinePointValue<'c, 'a> {
 }
 
 impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
+    /// Computes the elliptic-curve sum of two finite affine points.
+    ///
+    /// Handles the exceptional cases of affine addition, including point doubling
+    /// and addition of inverse points. Returns the point at infinity when the points
+    /// are inverses, or when doubling a point with y-coordinate zero.
+    /// Otherwise, emits the appropriate affine addition or doubling formula (see
+    /// [`formula`](AffinePointValue::formula) for more details).
+    ///
+    /// Both input points are assumed to be finite and valid points on the curve.
     pub(crate) fn add<'b>(
         self,
         other: Self,
@@ -76,6 +86,28 @@ impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
         .map(Into::into)
     }
 
+    /// Emits the non-exceptional affine elliptic-curve addition or doubling formula.
+    ///
+    /// The caller must handle point-at-infinity and vertical-line cases.
+    ///
+    /// The emitted IR represents the following equations for a new non-infinite point `(x',
+    /// y')` given two points `(x1, y1)` and `(x2, y2)`, represented by `self` and `other` respectively.
+    ///
+    /// When `is_doubling == true`:
+    ///
+    /// ```
+    /// λ  = (3 * x1^2) / (2 * y1)
+    /// x' = λ^2 - 2 * x1
+    /// y' = λ(x1 - x') - y1
+    /// ```
+    ///
+    /// When `is_doubling == false`:
+    ///
+    /// ```
+    /// λ = (y2 - y1) / (x2 - x1)
+    /// x' = λ^2 - x1 + x2
+    /// y' = λ(x1 - x') - y1
+    /// ```
     pub(crate) fn formula<'b>(
         self,
         other: Self,
@@ -142,6 +174,7 @@ impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
     }
 }
 
+/// Wrapper around a triple of SSA values that together represent a point embedded in a curve.
 #[derive(Clone, Copy)]
 pub(crate) struct EmbeddedPointValue<'c, 'a>(Value<'c, 'a>, Value<'c, 'a>, Value<'c, 'a>);
 
@@ -164,6 +197,7 @@ impl<'c, 'a> EmbeddedPointValue<'c, 'a> {
 }
 
 impl<'c: 'a, 'a> EmbeddedPointValue<'c, 'a> {
+    /// Emits IR representing an infinite point.
     pub(crate) fn infinity(
         builder: &OpBuilder<'c, '_>,
         context: &'c LlzkContext,
@@ -177,6 +211,21 @@ impl<'c: 'a, 'a> EmbeddedPointValue<'c, 'a> {
         ))
     }
 
+    /// Emits IR representing the addition between two embedded points.
+    ///
+    /// The IR corresponds to the following pseudo-code, where `self`
+    /// is `p1 = (x1, y1, i1)`, `other` is `p2 = (x2, y2, i2)`, and
+    /// [`AffinePointValue::add`] is `(+)`.
+    ///
+    /// ```
+    /// if i1 == 0:
+    ///   if i2 == 0:
+    ///     yield (x1, y1) (+) (x2, y2)
+    ///   else:
+    ///     yield p1
+    /// else:
+    ///   yield p2
+    /// ```
     pub(crate) fn add(
         self,
         other: Self,
