@@ -154,7 +154,6 @@
                 ## Bail out of pipes where any command fails
                 set -uo pipefail
                 ${createFileCheckSymlink}
-                # ${setupWritableNoirHome}
                 export PATH="${noirCli}/bin:$PATH"
                 echo "Welcome to the noir-to-llzk devshell!"
                 echo "Using $(command -v nargo)"
