@@ -2,8 +2,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        LlzkContext, Location, Type, Value,
         dialect::{bool, felt},
+        LlzkContext, Location, Type, Value,
     },
 };
 
@@ -95,7 +95,7 @@ impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
     ///
     /// When `is_doubling == true`:
     ///
-    /// ```
+    /// ```text
     /// λ  = (3 * x1^2) / (2 * y1)
     /// x' = λ^2 - 2 * x1
     /// y' = λ(x1 - x') - y1
@@ -103,7 +103,7 @@ impl<'c: 'a, 'a> AffinePointValue<'c, 'a> {
     ///
     /// When `is_doubling == false`:
     ///
-    /// ```
+    /// ```text
     /// λ = (y2 - y1) / (x2 - x1)
     /// x' = λ^2 - x1 + x2
     /// y' = λ(x1 - x') - y1
@@ -217,7 +217,7 @@ impl<'c: 'a, 'a> EmbeddedPointValue<'c, 'a> {
     /// is `p1 = (x1, y1, i1)`, `other` is `p2 = (x2, y2, i2)`, and
     /// [`AffinePointValue::add`] is `(+)`.
     ///
-    /// ```
+    /// ```text
     /// if i1 == 0:
     ///   if i2 == 0:
     ///     yield (x1, y1) (+) (x2, y2)
