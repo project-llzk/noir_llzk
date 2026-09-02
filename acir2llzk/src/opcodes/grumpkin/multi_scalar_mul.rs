@@ -21,7 +21,7 @@ use crate::{
     block_writer::BlockWriter,
     common::emit_gated_eq,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input, validate_constant_fits},
+    opcodes::{OpcodeEmitter, collect_input_witness, validate_constant_fits},
     writer::Writer,
 };
 
@@ -57,7 +57,7 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
             .iter()
             .map(|&(lo, hi)| emit_scalar_bits_from_limbs(writer, lo, hi))
             .collect::<Result<Vec<_>, _>>()?;
-        let predicate = emit_blackbox_input(writer, self.predicate)?;
+        let predicate = writer.emit_blackbox_input(self.predicate)?;
         let helper_call = self.call_helper(writer, &points, &scalar_bits, predicate)?;
         let output_x = helper_call.result(0)?.into();
         let output_y = helper_call.result(1)?.into();
@@ -77,7 +77,7 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let points = emit_points(writer, self.points)?;
         let scalar_inputs = emit_scalar_inputs(writer, self.scalars)?;
         let scalar_bits = emit_scalar_decompositions(writer, num_points)?;
-        let predicate = emit_blackbox_input(writer, self.predicate)?;
+        let predicate = writer.emit_blackbox_input(self.predicate)?;
         let output_x = writer.read_witness(self.outputs.0.0)?;
         let output_y = writer.read_witness(self.outputs.1.0)?;
         let output_infinite = writer.read_witness(self.outputs.2.0)?;
@@ -86,12 +86,12 @@ impl OpcodeEmitter for MultiScalarMul<'_> {
         let zero = writer.emit_constant(&FieldElement::zero())?;
         let (_, predicate_gate) = emit_predicate_gate(writer, predicate)?;
 
-        for &(x, y, is_infinite) in &points {
-            emit_gated_boolean(writer, predicate_gate, is_infinite, one, zero)?;
-            let finite_gate = writer.insert_neg(is_infinite)?;
+        for &point in &points {
+            emit_gated_boolean(writer, predicate_gate, point.inf(), one, zero)?;
+            let finite_gate = writer.insert_neg(point.inf())?;
             let finite_gate = writer.insert_add(one, finite_gate)?;
             let finite_gate = writer.insert_mul(predicate_gate, finite_gate)?;
-            emit_gated_on_curve(writer, finite_gate, x, y)?;
+            emit_gated_on_curve(writer, finite_gate, point.x(), point.y())?;
         }
 
         for ((lo, hi), bits) in scalar_inputs.iter().zip(&scalar_bits) {
@@ -138,10 +138,10 @@ fn emit_points<'c, 'b>(
         .0
         .iter()
         .map(|chunk| {
-            Ok((
-                emit_blackbox_input(writer, &chunk[0])?,
-                emit_blackbox_input(writer, &chunk[1])?,
-                emit_blackbox_input(writer, &chunk[2])?,
+            Ok(EmbeddedPointValue::new(
+                writer.emit_blackbox_input(&chunk[0])?,
+                writer.emit_blackbox_input(&chunk[1])?,
+                writer.emit_blackbox_input(&chunk[2])?,
             ))
         })
         .collect()
@@ -159,8 +159,8 @@ fn emit_scalar_inputs<'c, 'b>(
         .iter()
         .map(|chunk| {
             Ok((
-                emit_blackbox_input(writer, &chunk[0])?,
-                emit_blackbox_input(writer, &chunk[1])?,
+                writer.emit_blackbox_input(&chunk[0])?,
+                writer.emit_blackbox_input(&chunk[1])?,
             ))
         })
         .collect()
@@ -316,8 +316,8 @@ impl MultiScalarMul<'_> {
     ) -> Result<llzk::prelude::OperationRef<'c, 'b>, Error> {
         let num_points = points.len();
         let mut args = Vec::with_capacity(num_points * (3 + SCALAR_TOTAL_BITS) + 1);
-        for &(x, y, infinite) in points {
-            args.extend([x, y, infinite]);
+        for &point in points {
+            args.extend([point.x(), point.y(), point.inf()]);
         }
         for bits in scalar_bits {
             args.extend(bits.iter().copied());

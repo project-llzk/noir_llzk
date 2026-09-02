@@ -1,18 +1,21 @@
+use ::llzk::{
+    builder::OpBuilder,
+    prelude::{
+        LlzkContext, Location, StructType, SymbolRefAttribute, Type, Value,
+        dialect::{r#struct, *},
+    },
+};
 use acir::{
     AcirField as _, FieldElement,
     circuit::Circuit,
     native_types::{Expression, Witness},
 };
-use llzk::builder::OpBuilder;
-use llzk::prelude::{
-    Block, BlockLike, LlzkContext, Location, Operation, Region, RegionLike as _, StructDefOp,
-    StructDefOpLike, StructType, SymbolRefAttribute, Type, Value, dialect, melior_dialects::scf,
-};
 
 use crate::{
     block_writer::BlockWriter,
     common::{
-        collect_witnesses, constrain_bool, emit_expression, emit_gated_eq, is_trivial_predicate,
+        append_if_with_results, as_value, collect_witnesses, constrain_bool, emit_expression,
+        emit_gated_eq, is_trivial_predicate,
     },
     error::Error,
     opcodes::OpcodeEmitter,
@@ -20,8 +23,6 @@ use crate::{
 };
 
 pub(crate) struct Call<'p> {
-    /// Position of this opcode in the caller's opcode list — used as the subcircuit suffix.
-    index: usize,
     /// Callee circuit index in the program (from `AcirFunctionId.0`).
     callee_id: u32,
     /// Caller witness indices passed positionally as callee input parameters.
@@ -33,6 +34,8 @@ pub(crate) struct Call<'p> {
     callee: &'p Circuit<FieldElement>,
 
     predicate: &'p Expression<FieldElement>,
+    callee_name: String,
+    member_name: String,
 }
 
 impl<'p> Call<'p> {
@@ -45,13 +48,22 @@ impl<'p> Call<'p> {
         predicate: &'p Expression<FieldElement>,
     ) -> Self {
         Self {
-            index,
             callee_id,
             inputs,
             outputs,
             callee,
             predicate,
+            callee_name: format!("Circuit{}", callee_id),
+            member_name: format!("subcircuit_{}", index),
         }
+    }
+
+    fn callee_name(&self) -> &str {
+        &self.callee_name
+    }
+
+    fn member_name(&self) -> &str {
+        &self.member_name
     }
 }
 
@@ -71,16 +83,17 @@ impl<'p> OpcodeEmitter for Call<'p> {
     fn emit_member<'c>(
         &self,
         context: &'c LlzkContext,
-        struct_def: &StructDefOp<'c>,
+        builder: &OpBuilder<'c, '_>,
     ) -> Result<(), Error> {
-        let member = dialect::r#struct::member(
+        r#struct::member(
+            builder,
             Location::unknown(context),
-            &format!("subcircuit_{}", self.index),
-            StructType::from_str(context, &format!("Circuit{}", self.callee_id)),
+            self.member_name(),
+            StructType::from_str(context, self.callee_name()),
+            false,
             false,
             false,
         )?;
-        struct_def.body().append_operation(member.into());
         Ok(())
     }
 
@@ -102,14 +115,14 @@ impl<'p> OpcodeEmitter for Call<'p> {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct.
-        let callee_struct_type = writer.struct_type(&callee_name);
+        let callee_struct_type = writer.struct_type(self.callee_name());
         let callee_val: Value<'c, 'b> = writer
             .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
             .result(0)?
             .into();
 
         // Store callee struct as subcircuit member.
-        writer.write_member(&format!("subcircuit_{}", self.index), callee_val)?;
+        writer.write_member(self.member_name(), callee_val)?;
 
         let pred_val = if is_trivial_predicate(self.predicate) {
             None
@@ -141,8 +154,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
     /// 4. Constrains output witnesses against callee return values, gated by the predicate.
     fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
         let trivial = is_trivial_predicate(self.predicate);
-        let callee_name = format!("Circuit{}", self.callee_id);
-        let callee_struct_type = writer.struct_type(&callee_name);
+        let callee_struct_type = writer.struct_type(self.callee_name());
         let context = writer.context();
         let location = writer.location();
 
@@ -157,7 +169,7 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Read the stored subcomponent from %self.
         let callee_val: Value<'c, 'b> =
-            writer.read_self_member(callee_struct_type, &format!("subcircuit_{}", self.index))?;
+            writer.read_self_member(callee_struct_type, self.member_name())?;
 
         // Build args: callee struct first, then caller input witnesses.
         let mut arg_vals = vec![callee_val];
@@ -167,42 +179,38 @@ impl<'p> OpcodeEmitter for Call<'p> {
 
         // Define constrain function for inner circuit.
         // Call it conditionally based on predicate value.
-        let call_op: Operation<'c> = dialect::function::call(
-            &OpBuilder::new(context, writer.insertion_point()),
-            location,
-            SymbolRefAttribute::new_from_str(context, &callee_name, &["constrain"]),
-            &arg_vals,
-            &[] as &[Type<'c>],
-        )?
-        .into();
+        // The creation is wrapped in a closure since the insertion point could vary.
+        let call_op_fn = |builder: &OpBuilder| -> Result<(), Error> {
+            function::call(
+                builder,
+                location,
+                SymbolRefAttribute::new_from_str(context, self.callee_name(), &["constrain"]),
+                &arg_vals,
+                &[] as &[Type<'c>],
+            )?;
+            Ok(())
+        };
 
+        let builder = OpBuilder::new(context, writer.insertion_point());
         match pred_val {
             None => {
-                writer.insert_op(call_op);
+                call_op_fn(&builder)?;
             }
             Some(p) => {
                 let one = writer.emit_constant(&FieldElement::one())?;
-                let pred_is_one =
-                    writer.insert_op_with_result(dialect::bool::eq(location, p, one)?)?;
+                let pred_is_one = as_value(bool::eq(&builder, location, p, one)?)?;
 
-                let then_region = Region::new();
-                let then_block = Block::new(&[]);
-                then_block.append_operation(call_op);
-                then_block.append_operation(scf::r#yield(&[], location));
-                then_region.append_block(then_block);
-
-                let else_region = Region::new();
-                let else_block = Block::new(&[]);
-                else_block.append_operation(scf::r#yield(&[], location));
-                else_region.append_block(else_block);
-
-                writer.insert_op(scf::r#if(
+                append_if_with_results(
+                    &builder,
+                    location,
                     pred_is_one,
                     &[],
-                    then_region,
-                    else_region,
-                    location,
-                ));
+                    |builder| {
+                        call_op_fn(builder)?;
+                        Ok([])
+                    },
+                    |_| Ok([]),
+                )?;
             }
         }
 

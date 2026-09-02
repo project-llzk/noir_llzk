@@ -1,10 +1,10 @@
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
-    Value, dialect,
+use llzk::{
+    builder::OpBuilder,
+    prelude::{BlockRef, FuncDefOpLike, LlzkContext, Location, Value, dialect::function},
 };
 
 use crate::{
-    blackboxes::common::{ConstantCache, block_args, emit_and, emit_rotl64, emit_xor, felt_type},
+    blackboxes::common::{WordArithEmitter, block_args, create_helper_function},
     error::Error,
 };
 
@@ -50,34 +50,35 @@ const ROT_OFFSETS: [[u32; LANE_DIM]; LANE_DIM] = [
 ];
 
 pub(in crate::blackboxes) fn emit_keccak_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
-) -> Result<FuncDefOp<'c>, Error> {
+    context: &'c LlzkContext,
+    block: BlockRef<'c, '_>,
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
-    let inputs = vec![(felt, location); KECCAK_STATE_WORDS];
-    let input_types = vec![felt; KECCAK_STATE_WORDS];
-    let output_types = vec![felt; KECCAK_STATE_WORDS];
-    let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(location, KECCAK_HELPER_NAME, function_type, &[], None)?;
+    let (function, block) = create_helper_function(
+        context,
+        block,
+        location,
+        KECCAK_HELPER_NAME,
+        KECCAK_STATE_WORDS,
+        KECCAK_STATE_WORDS,
+    )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let state: [Value<'c, '_>; KECCAK_STATE_WORDS] = block_args(&block, 0)?;
+    let state: [Value<'c, '_>; KECCAK_STATE_WORDS] = block_args(block, 0)?;
 
-    let mut cache = ConstantCache::new(&block, context, location);
+    let mut cache = WordArithEmitter::new(block, context, location);
     let outputs = emit_keccak_permutation(&mut cache, &state)?;
-    block.append_operation(dialect::function::r#return(location, &outputs));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    function::r#return(&OpBuilder::at_block_end(context, block), location, &outputs);
+    Ok(())
 }
 
 #[allow(clippy::needless_range_loop)]
-fn emit_keccak_permutation<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_keccak_permutation<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     state: &[Value<'c, 'a>],
 ) -> Result<Vec<Value<'c, 'a>>, Error> {
     let mut a: [[Value<'c, 'a>; LANE_DIM]; LANE_DIM] = {
-        let zero = cache.u64(0)?;
+        let zero = emitter.u64(0)?;
         [[zero; LANE_DIM]; LANE_DIM]
     };
     for y in 0..LANE_DIM {
@@ -87,7 +88,7 @@ fn emit_keccak_permutation<'c, 'a>(
     }
 
     for round in 0..KECCAK_ROUNDS {
-        a = emit_round(cache, a, round)?;
+        a = emit_round(emitter, a, round)?;
     }
 
     let mut out = Vec::with_capacity(KECCAK_STATE_WORDS);
@@ -100,38 +101,38 @@ fn emit_keccak_permutation<'c, 'a>(
 }
 
 #[allow(clippy::needless_range_loop)]
-fn emit_round<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_round<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     mut a: [[Value<'c, 'a>; LANE_DIM]; LANE_DIM],
     round: usize,
 ) -> Result<[[Value<'c, 'a>; LANE_DIM]; LANE_DIM], Error> {
-    let mask = cache.u64_mask()?;
+    let mask = emitter.u64_mask()?;
 
-    let mut c = [cache.u64(0)?; LANE_DIM];
+    let mut c = [emitter.u64(0)?; LANE_DIM];
     for x in 0..LANE_DIM {
         c[x] = a[x][0];
         for y in 1..LANE_DIM {
-            c[x] = emit_xor(cache.block, cache.location, c[x], a[x][y])?;
+            c[x] = emitter.emit_xor(c[x], a[x][y])?;
         }
     }
-    let mut d = [cache.u64(0)?; LANE_DIM];
+    let mut d = [emitter.u64(0)?; LANE_DIM];
     for x in 0..LANE_DIM {
-        let rot = emit_rotl64(cache, c[(x + 1) % LANE_DIM], 1)?;
-        d[x] = emit_xor(cache.block, cache.location, c[(x + 4) % LANE_DIM], rot)?;
+        let rot = emitter.emit_rotl64(c[(x + 1) % LANE_DIM], 1)?;
+        d[x] = emitter.emit_xor(c[(x + 4) % LANE_DIM], rot)?;
     }
     for x in 0..LANE_DIM {
         for y in 0..LANE_DIM {
-            a[x][y] = emit_xor(cache.block, cache.location, a[x][y], d[x])?;
+            a[x][y] = emitter.emit_xor(a[x][y], d[x])?;
         }
     }
 
-    let mut b = [[cache.u64(0)?; LANE_DIM]; LANE_DIM];
+    let mut b = [[emitter.u64(0)?; LANE_DIM]; LANE_DIM];
     for x in 0..LANE_DIM {
         for y in 0..LANE_DIM {
             let rotated = if ROT_OFFSETS[y][x] == 0 {
                 a[x][y]
             } else {
-                emit_rotl64(cache, a[x][y], ROT_OFFSETS[y][x])?
+                emitter.emit_rotl64(a[x][y], ROT_OFFSETS[y][x])?
             };
             b[y][(2 * x + 3 * y) % LANE_DIM] = rotated;
         }
@@ -140,27 +141,22 @@ fn emit_round<'c, 'a>(
     // χ: a[x][y] = b[x][y] ^ (~b[(x+1)%5][y] & b[(x+2)%5][y])
     for x in 0..LANE_DIM {
         for y in 0..LANE_DIM {
-            let not_b1 = emit_not(cache, b[(x + 1) % LANE_DIM][y], mask)?;
-            let and_val = emit_and(
-                cache.block,
-                cache.location,
-                not_b1,
-                b[(x + 2) % LANE_DIM][y],
-            )?;
-            a[x][y] = emit_xor(cache.block, cache.location, b[x][y], and_val)?;
+            let not_b1 = emit_not(emitter, b[(x + 1) % LANE_DIM][y], mask)?;
+            let and_val = emitter.emit_and(not_b1, b[(x + 2) % LANE_DIM][y])?;
+            a[x][y] = emitter.emit_xor(b[x][y], and_val)?;
         }
     }
 
-    let rc = cache.u64(RC[round])?;
-    a[0][0] = emit_xor(cache.block, cache.location, a[0][0], rc)?;
+    let rc = emitter.u64(RC[round])?;
+    a[0][0] = emitter.emit_xor(a[0][0], rc)?;
 
     Ok(a)
 }
 
-fn emit_not<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_not<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     value: Value<'c, 'a>,
     mask: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    emit_xor(cache.block, cache.location, value, mask)
+    emitter.emit_xor(value, mask)
 }

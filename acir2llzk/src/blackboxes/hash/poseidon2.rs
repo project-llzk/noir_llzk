@@ -1,10 +1,17 @@
+use std::array;
+
 use acir::{AcirField, FieldElement};
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FunctionType, Location, OperationLike, RegionLike, Value, dialect,
+use llzk::{
+    builder::OpBuilder,
+    prelude::{
+        BlockLike, BlockRef, LlzkContext, Location, Value,
+        dialect::{felt, function},
+    },
 };
 
 use crate::{
-    blackboxes::common::{append_felt_constant, append_op_with_result, felt_type},
+    blackboxes::common::{append_felt_constant, create_helper_function},
+    common::as_value,
     error::Error,
 };
 
@@ -15,146 +22,202 @@ const ROUNDS_P: usize = 56;
 const TOTAL_ROUNDS: usize = ROUNDS_F + ROUNDS_P;
 
 pub(in crate::blackboxes) fn emit_poseidon2_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
-) -> Result<FuncDefOp<'c>, Error> {
+    context: &'c LlzkContext,
+    block: BlockRef<'c, '_>,
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
-    let inputs = vec![(felt, location); STATE_WIDTH];
-    let function_type = FunctionType::new(context, &[felt; STATE_WIDTH], &[felt; STATE_WIDTH]);
-    let function =
-        dialect::function::def(location, POSEIDON2_HELPER_NAME, function_type, &[], None)?;
+    let (_, block) = create_helper_function(
+        context,
+        block,
+        location,
+        POSEIDON2_HELPER_NAME,
+        STATE_WIDTH,
+        STATE_WIDTH,
+    )?;
 
-    let block = Block::new(&inputs);
-    let state = (0..STATE_WIDTH)
-        .map(|i| block.argument(i).map(Into::into).map_err(Error::from))
-        .collect::<Result<Vec<Value<'c, '_>>, Error>>()?
-        .try_into()
-        .expect("STATE_WIDTH arguments");
-    let out = emit_poseidon2_permutation(&block, context, location, state)?;
-    block.append_operation(dialect::function::r#return(location, &out));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    Poseidon2Emitter::new(context, block, location).emit(block)
 }
 
-fn emit_poseidon2_permutation<'c, 'a>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
+struct Poseidon2Emitter<'c, 'l> {
+    context: &'c LlzkContext,
+    builder: OpBuilder<'c, 'l>,
     location: Location<'c>,
-    mut state: [Value<'c, 'a>; STATE_WIDTH],
-) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
-    let rc = round_constants();
-    let diag = internal_matrix_diagonal();
-    let full_half = ROUNDS_F / 2;
-    let partial_end = full_half + ROUNDS_P;
-
-    let diag_values: [Value<'c, 'a>; STATE_WIDTH] = diag
-        .iter()
-        .map(|d| append_felt_constant(block, context, location, d))
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .expect("STATE_WIDTH diagonal constants");
-
-    state = emit_external_matrix(block, location, state)?;
-
-    for round_rc in &rc[..full_half] {
-        state = emit_add_round_constants(block, context, location, state, round_rc)?;
-        state = emit_full_sbox(block, location, state)?;
-        state = emit_external_matrix(block, location, state)?;
-    }
-
-    for round_rc in &rc[full_half..partial_end] {
-        let rc0 = append_felt_constant(block, context, location, &round_rc[0])?;
-        state[0] = append_op_with_result(block, dialect::felt::add(location, state[0], rc0)?)?;
-        state[0] = emit_sbox(block, location, state[0])?;
-        state = emit_internal_matrix(block, location, state, &diag_values)?;
-    }
-
-    for round_rc in &rc[partial_end..] {
-        state = emit_add_round_constants(block, context, location, state, round_rc)?;
-        state = emit_full_sbox(block, location, state)?;
-        state = emit_external_matrix(block, location, state)?;
-    }
-
-    Ok(state)
 }
 
-fn emit_add_round_constants<'c, 'a>(
-    block: &'a Block<'c>,
-    context: &'c llzk::prelude::LlzkContext,
-    location: Location<'c>,
-    mut state: [Value<'c, 'a>; STATE_WIDTH],
-    constants: &[FieldElement; STATE_WIDTH],
-) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
-    for (s, rc) in state.iter_mut().zip(constants) {
-        let c = append_felt_constant(block, context, location, rc)?;
-        *s = append_op_with_result(block, dialect::felt::add(location, *s, c)?)?;
-    }
-    Ok(state)
-}
+type State<'c, 'v> = [Value<'c, 'v>; STATE_WIDTH];
 
-fn emit_sbox<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    x: Value<'c, 'a>,
-) -> Result<Value<'c, 'a>, Error> {
-    let x2 = append_op_with_result(block, dialect::felt::mul(location, x, x)?)?;
-    let x4 = append_op_with_result(block, dialect::felt::mul(location, x2, x2)?)?;
-    append_op_with_result(block, dialect::felt::mul(location, x4, x)?)
-}
-
-fn emit_full_sbox<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    mut state: [Value<'c, 'a>; STATE_WIDTH],
-) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
-    for s in &mut state {
-        *s = emit_sbox(block, location, *s)?;
-    }
-    Ok(state)
-}
-
-fn emit_external_matrix<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    state: [Value<'c, 'a>; STATE_WIDTH],
-) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
-    let [a, b, c, d] = state;
-
-    let t0 = append_op_with_result(block, dialect::felt::add(location, a, b)?)?;
-    let t1 = append_op_with_result(block, dialect::felt::add(location, c, d)?)?;
-    let b2 = append_op_with_result(block, dialect::felt::add(location, b, b)?)?;
-    let t2 = append_op_with_result(block, dialect::felt::add(location, b2, t1)?)?;
-    let d2 = append_op_with_result(block, dialect::felt::add(location, d, d)?)?;
-    let t3 = append_op_with_result(block, dialect::felt::add(location, d2, t0)?)?;
-    let t1_2 = append_op_with_result(block, dialect::felt::add(location, t1, t1)?)?;
-    let t1_4 = append_op_with_result(block, dialect::felt::add(location, t1_2, t1_2)?)?;
-    let t4 = append_op_with_result(block, dialect::felt::add(location, t1_4, t3)?)?;
-    let t0_2 = append_op_with_result(block, dialect::felt::add(location, t0, t0)?)?;
-    let t0_4 = append_op_with_result(block, dialect::felt::add(location, t0_2, t0_2)?)?;
-    let t5 = append_op_with_result(block, dialect::felt::add(location, t0_4, t2)?)?;
-    let t6 = append_op_with_result(block, dialect::felt::add(location, t3, t5)?)?;
-    let t7 = append_op_with_result(block, dialect::felt::add(location, t2, t4)?)?;
-
-    Ok([t6, t5, t7, t4])
-}
-
-fn emit_internal_matrix<'c, 'a>(
-    block: &'a Block<'c>,
-    location: Location<'c>,
-    state: [Value<'c, 'a>; STATE_WIDTH],
-    diag: &[Value<'c, 'a>; STATE_WIDTH],
-) -> Result<[Value<'c, 'a>; STATE_WIDTH], Error> {
-    let mut sum = state[0];
-    for &s in &state[1..] {
-        sum = append_op_with_result(block, dialect::felt::add(location, sum, s)?)?;
+impl<'c, 'l> Poseidon2Emitter<'c, 'l> {
+    fn new(context: &'c LlzkContext, block: BlockRef<'c, '_>, location: Location<'c>) -> Self {
+        debug_assert!(block.argument_count() == STATE_WIDTH);
+        Self {
+            context,
+            builder: OpBuilder::at_block_end(context, block),
+            location,
+        }
     }
 
-    let mut result = state;
-    for ((r, &s), &d) in result.iter_mut().zip(&state).zip(diag) {
-        let scaled = append_op_with_result(block, dialect::felt::mul(location, s, d)?)?;
-        *r = append_op_with_result(block, dialect::felt::add(location, scaled, sum)?)?;
+    fn builder(&self) -> &OpBuilder<'c, 'l> {
+        &self.builder
     }
-    Ok(result)
+
+    fn emit_constant(&self, value: &FieldElement) -> Result<Value<'c, '_>, Error> {
+        append_felt_constant(self.builder(), self.context, self.location, value)
+    }
+
+    fn emit(&self, block: BlockRef<'c, '_>) -> Result<(), Error> {
+        let mut state = array::from_fn(|i| block.argument(i).unwrap().into());
+        self.emit_permutation(&mut state)?;
+        function::r#return(self.builder(), self.location, &state);
+        Ok(())
+    }
+
+    fn emit_diag_values(&self) -> Result<State<'c, '_>, Error> {
+        Ok(internal_matrix_diagonal()
+            .iter()
+            .map(|d| self.emit_constant(d))
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .expect("STATE_WIDTH diagonal constants"))
+    }
+
+    fn emit_permutation<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
+        let rc = round_constants();
+        let full_half = ROUNDS_F / 2;
+        let partial_end = full_half + ROUNDS_P;
+
+        let diag_values = self.emit_diag_values()?;
+
+        self.emit_external_matrix(state)?;
+
+        for round_rc in &rc[..full_half] {
+            self.emit_add_round_constants(state, round_rc)?;
+            self.emit_full_sbox(state)?;
+            self.emit_external_matrix(state)?;
+        }
+
+        for round_rc in &rc[full_half..partial_end] {
+            let rc0 = self.emit_constant(&round_rc[0])?;
+            state[0] = self.emit_add(state[0], rc0)?;
+            self.emit_sbox(&mut state[0])?;
+            self.emit_internal_matrix(state, &diag_values)?;
+        }
+
+        for round_rc in &rc[partial_end..] {
+            self.emit_add_round_constants(state, round_rc)?;
+            self.emit_full_sbox(state)?;
+            self.emit_external_matrix(state)?;
+        }
+
+        Ok(())
+    }
+
+    fn emit_add<'a: 'v, 'v>(
+        &'a self,
+        lhs: Value<'c, 'v>,
+        rhs: Value<'c, 'v>,
+    ) -> Result<Value<'c, 'v>, Error> {
+        as_value(felt::add(self.builder(), self.location, lhs, rhs)?)
+    }
+
+    fn emit_adds<'a: 'v, 'v>(
+        &'a self,
+        sumands: impl IntoIterator<Item = Value<'c, 'v>>,
+    ) -> Result<Value<'c, 'v>, Error> {
+        sumands
+            .into_iter()
+            .try_fold(self.emit_constant(&fe("0"))?, |acc, value| {
+                self.emit_add(acc, value)
+            })
+    }
+
+    fn emit_mul<'a: 'v, 'v>(
+        &'a self,
+        lhs: Value<'c, 'v>,
+        rhs: Value<'c, 'v>,
+    ) -> Result<Value<'c, 'v>, Error> {
+        as_value(felt::mul(self.builder(), self.location, lhs, rhs)?)
+    }
+
+    fn emit_external_matrix<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
+        // These are the equations this function is meant to represent:
+        // s0' = 3 * s3 + 5 * (s0 + s1) + 2 * s1 + s2
+        // s1' = 4 * (s0 + s1) + 2 * s1 + s2 + s3
+        // s2' = 3 * s1 + 2 * s3 + s0 + 5 * (s2 + s3)
+        // s3' = 2 * s3 + s0 + s1 + 4 * (s2 + s3)
+        //
+        // And they are implemented as follows:
+        // t0 := s0 + s1
+        // t1 := s2 + s3
+        // t2 := 2 * s1
+        // t3 := 2 * s3
+        // s0' := 3*s3 + 5*t0 + t2 + s2
+        // s1' := 4*t0 + t2 + s2 + s3
+        // s2' := 3*s1 + t3 + s0 + 5*t1
+        // s3' := t3 + s0 + s1 + 4*t1
+        let [s0, s1, s2, s3] = *state;
+        let (two, three, four, five) = (
+            self.emit_constant(&fe("2"))?,
+            self.emit_constant(&fe("3"))?,
+            self.emit_constant(&fe("4"))?,
+            self.emit_constant(&fe("5"))?,
+        );
+        let t0 = self.emit_add(s0, s1)?;
+        let t1 = self.emit_add(s2, s3)?;
+        let t2 = self.emit_mul(two, s1)?;
+        let t3 = self.emit_mul(two, s3)?;
+
+        state[0] = self.emit_adds([self.emit_mul(three, s3)?, self.emit_mul(five, t0)?, t2, s2])?;
+        state[1] = self.emit_adds([self.emit_mul(four, t0)?, t2, s2, s3])?;
+        state[2] = self.emit_adds([self.emit_mul(three, s1)?, t3, s0, self.emit_mul(five, t1)?])?;
+        state[3] = self.emit_adds([t3, s0, s1, self.emit_mul(four, t1)?])?;
+
+        Ok(())
+    }
+
+    fn emit_add_round_constants<'a: 'v, 'v>(
+        &'a self,
+        state: &mut State<'c, 'v>,
+        constants: &[FieldElement; STATE_WIDTH],
+    ) -> Result<(), Error> {
+        for (s, rc) in state.iter_mut().zip(constants) {
+            let c = self.emit_constant(rc)?;
+            *s = self.emit_add(*s, c)?;
+        }
+        Ok(())
+    }
+
+    fn emit_sbox<'a: 'v, 'v>(&'a self, x: &mut Value<'c, 'v>) -> Result<(), Error> {
+        let x2 = self.emit_mul(*x, *x)?;
+        let x4 = self.emit_mul(x2, x2)?;
+        *x = self.emit_mul(x4, *x)?;
+        Ok(())
+    }
+
+    fn emit_full_sbox<'a: 'v, 'v>(&'a self, state: &mut State<'c, 'v>) -> Result<(), Error> {
+        state.iter_mut().try_for_each(|s| self.emit_sbox(s))
+    }
+
+    fn emit_internal_matrix<'v, 'a: 'v>(
+        &'a self,
+        state: &mut State<'c, 'v>,
+        diag: &State<'c, 'v>,
+    ) -> Result<(), Error>
+    where
+        'c: 'v,
+    {
+        let mut sum = state[0];
+        for &s in &state[1..] {
+            sum = self.emit_add(sum, s)?;
+        }
+
+        let mut result = *state;
+        for ((r, s), &d) in result.iter_mut().zip(*state).zip(diag) {
+            let scaled = self.emit_mul(s, d)?;
+            *r = self.emit_add(scaled, sum)?;
+        }
+        *state = result;
+        Ok(())
+    }
 }
 
 fn fe(hex: &str) -> FieldElement {

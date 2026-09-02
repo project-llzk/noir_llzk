@@ -13,7 +13,7 @@ use crate::{
     blackboxes::{hash::poseidon2::STATE_WIDTH, registry::BlackboxFunction},
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    opcodes::{OpcodeEmitter, collect_input_witness},
     writer::Writer,
 };
 
@@ -88,9 +88,9 @@ fn read_inputs<'c, 'b>(
     inputs: &[FunctionInput<FieldElement>],
 ) -> Result<[Value<'c, 'b>; STATE_WIDTH], Error> {
     Ok([
-        emit_blackbox_input(writer, &inputs[0])?,
-        emit_blackbox_input(writer, &inputs[1])?,
-        emit_blackbox_input(writer, &inputs[2])?,
-        emit_blackbox_input(writer, &inputs[3])?,
+        writer.emit_blackbox_input(&inputs[0])?,
+        writer.emit_blackbox_input(&inputs[1])?,
+        writer.emit_blackbox_input(&inputs[2])?,
+        writer.emit_blackbox_input(&inputs[3])?,
     ])
 }

@@ -5,40 +5,42 @@ use acir::{
     brillig::{BlackBoxOp, Opcode as BrilligOpcode},
     circuit::{Opcode, Program, opcodes::BlackBoxFuncCall},
 };
-use llzk::prelude::{FuncDefOp, LlzkContext, Type};
+use llzk::prelude::{BlockRef, LlzkContext, Type};
 
 use crate::error::Error;
 
-use super::cipher::aes128::{aes128_helper_name, emit_aes128_helper};
-use super::common::felt_type;
-use super::ecdsa::{
-    ECDSA_SECP256K1_COMPUTE_HELPER_NAME, ECDSA_SECP256K1_INV_MOD_N_HELPER_NAME,
-    ECDSA_SECP256K1_INV_MOD_P_HELPER_NAME, ECDSA_SECP256K1_MUL_MOD_N_HELPER_NAME,
-    ECDSA_SECP256K1_MUL_MOD_P_HELPER_NAME, ECDSA_SECP256R1_COMPUTE_HELPER_NAME,
-    ECDSA_SECP256R1_INV_MOD_N_HELPER_NAME, ECDSA_SECP256R1_INV_MOD_P_HELPER_NAME,
-    ECDSA_SECP256R1_MUL_MOD_N_HELPER_NAME, ECDSA_SECP256R1_MUL_MOD_P_HELPER_NAME,
-    emit_secp256k1_compute_helper, emit_secp256k1_inv_mod_n_helper,
-    emit_secp256k1_inv_mod_p_helper, emit_secp256k1_mul_mod_n_helper,
-    emit_secp256k1_mul_mod_p_helper, emit_secp256r1_compute_helper,
-    emit_secp256r1_inv_mod_n_helper, emit_secp256r1_inv_mod_p_helper,
-    emit_secp256r1_mul_mod_n_helper, emit_secp256r1_mul_mod_p_helper,
-};
-use super::grumpkin::embedded_curve_add::{
-    EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper,
-};
-use super::grumpkin::multi_scalar_mul::{
-    emit_multi_scalar_mul_helper, multi_scalar_mul_helper_name, used_arities,
-};
-use super::hash::{
-    blake2s::{
-        BLAKE2S_DIGEST_BYTES, blake2s_helper_name, blake2s_num_blocks_for_len, emit_blake2s_helper,
+use super::{
+    cipher::aes128::{aes128_helper_name, emit_aes128_helper},
+    ecdsa::{
+        ECDSA_SECP256K1_COMPUTE_HELPER_NAME, ECDSA_SECP256K1_INV_MOD_N_HELPER_NAME,
+        ECDSA_SECP256K1_INV_MOD_P_HELPER_NAME, ECDSA_SECP256K1_MUL_MOD_N_HELPER_NAME,
+        ECDSA_SECP256K1_MUL_MOD_P_HELPER_NAME, ECDSA_SECP256R1_COMPUTE_HELPER_NAME,
+        ECDSA_SECP256R1_INV_MOD_N_HELPER_NAME, ECDSA_SECP256R1_INV_MOD_P_HELPER_NAME,
+        ECDSA_SECP256R1_MUL_MOD_N_HELPER_NAME, ECDSA_SECP256R1_MUL_MOD_P_HELPER_NAME,
+        emit_secp256k1_compute_helper, emit_secp256k1_inv_mod_n_helper,
+        emit_secp256k1_inv_mod_p_helper, emit_secp256k1_mul_mod_n_helper,
+        emit_secp256k1_mul_mod_p_helper, emit_secp256r1_compute_helper,
+        emit_secp256r1_inv_mod_n_helper, emit_secp256r1_inv_mod_p_helper,
+        emit_secp256r1_mul_mod_n_helper, emit_secp256r1_mul_mod_p_helper,
     },
-    blake3::{
-        BLAKE3_DIGEST_BYTES, blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper,
+    grumpkin::{
+        embedded_curve_add::{EMBEDDED_CURVE_ADD_HELPER_NAME, emit_embedded_curve_add_helper},
+        multi_scalar_mul::{
+            emit_multi_scalar_mul_helper, multi_scalar_mul_helper_name, used_arities,
+        },
     },
-    keccak::{KECCAK_HELPER_NAME, KECCAK_STATE_WORDS, emit_keccak_helper},
-    poseidon2::{POSEIDON2_HELPER_NAME, emit_poseidon2_helper},
-    sha256::{SHA256_HELPER_NAME, SHA256_STATE_WORDS, emit_sha256_helper},
+    hash::{
+        blake2s::{
+            BLAKE2S_DIGEST_BYTES, blake2s_helper_name, blake2s_num_blocks_for_len,
+            emit_blake2s_helper,
+        },
+        blake3::{
+            BLAKE3_DIGEST_BYTES, blake3_helper_name, blake3_num_blocks_for_len, emit_blake3_helper,
+        },
+        keccak::{KECCAK_HELPER_NAME, KECCAK_STATE_WORDS, emit_keccak_helper},
+        poseidon2::{POSEIDON2_HELPER_NAME, emit_poseidon2_helper},
+        sha256::{SHA256_HELPER_NAME, SHA256_STATE_WORDS, emit_sha256_helper},
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,33 +95,37 @@ impl BlackboxFunction {
         }
     }
 
-    pub(crate) fn emit<'c>(self, context: &'c LlzkContext) -> Result<FuncDefOp<'c>, Error> {
+    pub(crate) fn emit<'c>(
+        self,
+        context: &'c LlzkContext,
+        block: BlockRef<'c, '_>,
+    ) -> Result<(), Error> {
         match self {
-            Self::EmbeddedCurveAdd => emit_embedded_curve_add_helper(context),
+            Self::EmbeddedCurveAdd => emit_embedded_curve_add_helper(context, block),
             Self::MultiScalarMul { num_points } => {
-                emit_multi_scalar_mul_helper(context, num_points)
+                emit_multi_scalar_mul_helper(context, block, num_points)
             }
-            Self::Poseidon2Permutation => emit_poseidon2_helper(context),
-            Self::Blake2s { num_blocks } => emit_blake2s_helper(context, num_blocks),
-            Self::Blake3 { num_blocks } => emit_blake3_helper(context, num_blocks),
-            Self::Sha256Compression => emit_sha256_helper(context),
-            Self::Keccakf1600 => emit_keccak_helper(context),
-            Self::Aes128Encrypt { num_inputs } => emit_aes128_helper(context, num_inputs),
-            Self::EcdsaSecp256k1MulModP => emit_secp256k1_mul_mod_p_helper(context),
-            Self::EcdsaSecp256k1MulModN => emit_secp256k1_mul_mod_n_helper(context),
-            Self::EcdsaSecp256r1MulModP => emit_secp256r1_mul_mod_p_helper(context),
-            Self::EcdsaSecp256r1MulModN => emit_secp256r1_mul_mod_n_helper(context),
-            Self::EcdsaSecp256k1InvModP => emit_secp256k1_inv_mod_p_helper(context),
-            Self::EcdsaSecp256k1InvModN => emit_secp256k1_inv_mod_n_helper(context),
-            Self::EcdsaSecp256r1InvModP => emit_secp256r1_inv_mod_p_helper(context),
-            Self::EcdsaSecp256r1InvModN => emit_secp256r1_inv_mod_n_helper(context),
-            Self::EcdsaSecp256k1Compute => emit_secp256k1_compute_helper(context),
-            Self::EcdsaSecp256r1Compute => emit_secp256r1_compute_helper(context),
+            Self::Poseidon2Permutation => emit_poseidon2_helper(context, block),
+            Self::Blake2s { num_blocks } => emit_blake2s_helper(context, block, num_blocks),
+            Self::Blake3 { num_blocks } => emit_blake3_helper(context, block, num_blocks),
+            Self::Sha256Compression => emit_sha256_helper(context, block),
+            Self::Keccakf1600 => emit_keccak_helper(context, block),
+            Self::Aes128Encrypt { num_inputs } => emit_aes128_helper(context, block, num_inputs),
+            Self::EcdsaSecp256k1MulModP => emit_secp256k1_mul_mod_p_helper(context, block),
+            Self::EcdsaSecp256k1MulModN => emit_secp256k1_mul_mod_n_helper(context, block),
+            Self::EcdsaSecp256r1MulModP => emit_secp256r1_mul_mod_p_helper(context, block),
+            Self::EcdsaSecp256r1MulModN => emit_secp256r1_mul_mod_n_helper(context, block),
+            Self::EcdsaSecp256k1InvModP => emit_secp256k1_inv_mod_p_helper(context, block),
+            Self::EcdsaSecp256k1InvModN => emit_secp256k1_inv_mod_n_helper(context, block),
+            Self::EcdsaSecp256r1InvModP => emit_secp256r1_inv_mod_p_helper(context, block),
+            Self::EcdsaSecp256r1InvModN => emit_secp256r1_inv_mod_n_helper(context, block),
+            Self::EcdsaSecp256k1Compute => emit_secp256k1_compute_helper(context, block),
+            Self::EcdsaSecp256r1Compute => emit_secp256r1_compute_helper(context, block),
         }
     }
 
     pub(crate) fn result_types<'c>(self, context: &'c LlzkContext) -> Vec<Type<'c>> {
-        let felt = felt_type(context);
+        let felt = Type::from(context.felt_type());
         match self {
             Self::EmbeddedCurveAdd | Self::MultiScalarMul { .. } => vec![felt; 3],
             Self::Poseidon2Permutation => vec![felt; 4],

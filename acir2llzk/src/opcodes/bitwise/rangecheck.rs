@@ -10,8 +10,7 @@ use crate::{
     block_writer::BlockWriter,
     error::Error,
     opcodes::{
-        OpcodeEmitter, collect_input_witness, constrain_input_width, emit_blackbox_input,
-        input_needs_range_check,
+        OpcodeEmitter, collect_input_witness, constrain_input_width, input_needs_range_check,
     },
 };
 
@@ -31,7 +30,7 @@ impl OpcodeEmitter for Rangecheck<'_> {
         if !input_needs_range_check(self.input, self.num_bits)? {
             return Ok(());
         }
-        let val = emit_blackbox_input(writer, self.input)?;
+        let val = writer.emit_blackbox_input(self.input)?;
         constrain_input_width(writer, self.input, val, self.num_bits)
     }
 }

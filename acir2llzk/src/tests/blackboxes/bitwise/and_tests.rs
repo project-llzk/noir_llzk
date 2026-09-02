@@ -2,21 +2,19 @@ use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
 use acir::native_types::Witness;
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 
 use crate::tests::{
     and_blackbox, count_occurrences, make_circuit_with_opcodes, translate_single_circuit,
-    wrap_struct_in_module,
 };
 
 /// Witness-to-witness AND range-checks both operands.
 #[test]
 fn and_witness_inputs_emits_correct_ops_and_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, 8, 2)]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("and_witness_inputs:\n{ir}");
@@ -66,6 +64,7 @@ fn and_witness_inputs_emits_correct_ops_and_verifies() {
 #[test]
 fn and_constant_inputs_emits_felt_constants_and_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
 
     let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
         lhs: FunctionInput::Constant(FieldElement::from(0xFFu128)),
@@ -74,9 +73,7 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
         output: Witness(0),
     });
     let circuit = make_circuit_with_opcodes(0, &[], &[], &[], vec![opcode]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("and_constant_inputs:\n{ir}");
@@ -99,6 +96,7 @@ fn and_constant_inputs_emits_felt_constants_and_verifies() {
 #[test]
 fn and_mixed_witness_and_constant_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
 
     let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::AND {
         lhs: FunctionInput::Witness(Witness(0)),
@@ -107,9 +105,7 @@ fn and_mixed_witness_and_constant_verifies() {
         output: Witness(1),
     });
     let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("and_mixed:\n{ir}");
@@ -152,10 +148,9 @@ fn and_mixed_witness_and_constant_verifies() {
 #[test]
 fn and_zero_bits_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, 0, 2)]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("and_zero_bits:\n{ir}");
@@ -168,11 +163,11 @@ fn and_zero_bits_verifies() {
 fn and_various_bit_widths_verify() {
     for num_bits in [1, 4, 16, 32, 64, 128] {
         let context = LlzkContext::new();
+        let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
         let circuit =
             make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![and_blackbox(0, 1, num_bits, 2)]);
-        let struct_def = translate_single_circuit(&context, circuit)
+        translate_single_circuit(&context, circuit, module.body())
             .unwrap_or_else(|e| panic!("translation failed for {num_bits} bits: {e}"));
-        let module = wrap_struct_in_module(&context, struct_def);
         assert!(
             module.as_operation().verify(),
             "module should verify for {num_bits}-bit AND"

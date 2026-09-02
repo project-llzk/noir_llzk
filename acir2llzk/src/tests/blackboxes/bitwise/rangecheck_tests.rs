@@ -1,21 +1,19 @@
 use acir::FieldElement;
 use acir::circuit::Opcode;
 use acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
-use llzk::prelude::{LlzkContext, OperationLike};
+use llzk::prelude::{LlzkContext, LlzkModuleBuilder, Location, OperationLike};
 
 use crate::tests::{
     count_occurrences, make_circuit_with_opcodes, range_blackbox, translate_single_circuit,
-    wrap_struct_in_module,
 };
 
 /// Witness rangecheck emits one comparison, casts it to felt, and constrains it to true.
 #[test]
 fn rangecheck_witness_input_emits_constraint_and_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![range_blackbox(0, 8)]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("rangecheck_witness_input:\n{ir}");
@@ -52,14 +50,13 @@ fn rangecheck_witness_input_emits_constraint_and_verifies() {
 #[test]
 fn rangecheck_constant_input_that_fits_emits_no_constraints() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE {
         input: FunctionInput::Constant(FieldElement::from(15u128)),
         num_bits: 8,
     });
     let circuit = make_circuit_with_opcodes(0, &[], &[], &[], vec![opcode]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("rangecheck_constant_fit:\n{ir}");
@@ -96,13 +93,14 @@ fn rangecheck_constant_input_that_fits_emits_no_constraints() {
 #[test]
 fn rangecheck_constant_input_that_does_not_fit_is_rejected() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let opcode = Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE {
         input: FunctionInput::Constant(FieldElement::from(256u128)),
         num_bits: 8,
     });
     let circuit = make_circuit_with_opcodes(0, &[], &[], &[], vec![opcode]);
-    let err =
-        translate_single_circuit(&context, circuit).expect_err("should reject oversized constant");
+    let err = translate_single_circuit(&context, circuit, module.body())
+        .expect_err("should reject oversized constant");
     let msg = format!("{err}");
     assert!(
         msg.contains("does not fit"),
@@ -114,10 +112,9 @@ fn rangecheck_constant_input_that_does_not_fit_is_rejected() {
 #[test]
 fn rangecheck_zero_bits_verifies() {
     let context = LlzkContext::new();
+    let module = LlzkModuleBuilder::create(Location::unknown(&context), Some("Noir"));
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![range_blackbox(0, 0)]);
-    let struct_def =
-        translate_single_circuit(&context, circuit).expect("translation should succeed");
-    let module = wrap_struct_in_module(&context, struct_def);
+    translate_single_circuit(&context, circuit, module.body()).expect("translation should succeed");
     let ir = format!("{}", module.as_operation());
 
     println!("rangecheck_zero_bits:\n{ir}");

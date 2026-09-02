@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     opcodes::{
         OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
-        emit_blackbox_input, validate_byte_input, write_digest_outputs,
+        validate_byte_input, write_digest_outputs,
     },
     writer::Writer,
 };
@@ -63,7 +63,7 @@ impl Aes128Encrypt<'_> {
             .iter()
             .chain(self.iv.iter())
             .chain(self.key.iter())
-            .map(|input| emit_blackbox_input(writer, input))
+            .map(|input| writer.emit_blackbox_input(input))
             .collect::<Result<Vec<_>, _>>()?;
         writer.call_blackbox_function(
             BlackboxFunction::Aes128Encrypt {

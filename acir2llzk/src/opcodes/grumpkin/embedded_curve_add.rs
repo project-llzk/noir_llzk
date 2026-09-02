@@ -12,7 +12,7 @@ use crate::{
     blackboxes::registry::BlackboxFunction,
     block_writer::BlockWriter,
     error::Error,
-    opcodes::{OpcodeEmitter, collect_input_witness, emit_blackbox_input},
+    opcodes::{OpcodeEmitter, collect_input_witness},
     writer::Writer,
 };
 
@@ -117,13 +117,13 @@ impl EmbeddedCurveAdd<'_> {
         writer: &mut BlockWriter<'c, 'b>,
     ) -> Result<EmbeddedCurveAddInputs<'c, 'b>, Error> {
         Ok(EmbeddedCurveAddInputs {
-            input1_x: emit_blackbox_input(writer, &self.input1[0])?,
-            input1_y: emit_blackbox_input(writer, &self.input1[1])?,
-            input1_infinite: emit_blackbox_input(writer, &self.input1[2])?,
-            input2_x: emit_blackbox_input(writer, &self.input2[0])?,
-            input2_y: emit_blackbox_input(writer, &self.input2[1])?,
-            input2_infinite: emit_blackbox_input(writer, &self.input2[2])?,
-            predicate: emit_blackbox_input(writer, self.predicate)?,
+            input1_x: writer.emit_blackbox_input(&self.input1[0])?,
+            input1_y: writer.emit_blackbox_input(&self.input1[1])?,
+            input1_infinite: writer.emit_blackbox_input(&self.input1[2])?,
+            input2_x: writer.emit_blackbox_input(&self.input2[0])?,
+            input2_y: writer.emit_blackbox_input(&self.input2[1])?,
+            input2_infinite: writer.emit_blackbox_input(&self.input2[2])?,
+            predicate: writer.emit_blackbox_input(self.predicate)?,
         })
     }
 

@@ -1,17 +1,17 @@
 use llzk::{
-    builder::{BlockInsertPointLike, OpBuilder},
+    builder::OpBuilder,
     dialect::array::{ArrayCtor, ArrayType},
     prelude::{
-        Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike,
-        RegionLike, Value, dialect,
+        BlockRef, FuncDefOpLike, LlzkContext, Location, Value,
+        dialect::{array, cast, felt, function},
     },
 };
 
 use crate::{
     blackboxes::common::{
-        ConstantCache, append_op_with_result, block_args, emit_and, emit_shl, emit_shr, emit_xor,
-        felt_type,
+        ConstantCache, WordArithEmitter, block_args, block_args_slice, create_helper_function,
     },
+    common::as_value,
     error::Error,
 };
 
@@ -30,40 +30,33 @@ pub(in crate::blackboxes) fn aes128_helper_name(num_inputs: usize) -> String {
 }
 
 pub(in crate::blackboxes) fn emit_aes128_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
+    context: &'c LlzkContext,
+    block: BlockRef<'c, '_>,
     num_inputs: usize,
-) -> Result<FuncDefOp<'c>, Error> {
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
     let total_inputs = num_inputs + AES_BLOCK_SIZE + AES_BLOCK_SIZE;
-    let inputs = vec![(felt, location); total_inputs];
-    let input_types = vec![felt; total_inputs];
-    let output_types = vec![felt; num_inputs];
-    let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(
+    let (function, block) = create_helper_function(
+        context,
+        block,
         location,
         &aes128_helper_name(num_inputs),
-        function_type,
-        &[],
-        None,
+        total_inputs,
+        num_inputs,
     )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let plaintext: Vec<Value<'c, '_>> = (0..num_inputs)
-        .map(|i| block.argument(i).map(Into::into))
-        .collect::<Result<Vec<_>, _>>()?;
-    let iv = block_args::<AES_BLOCK_SIZE>(&block, num_inputs)?;
-    let key = block_args::<AES_BLOCK_SIZE>(&block, num_inputs + AES_BLOCK_SIZE)?;
+    let plaintext = block_args_slice(block, 0..num_inputs)?;
+    let iv = block_args::<AES_BLOCK_SIZE>(block, num_inputs)?;
+    let key = block_args::<AES_BLOCK_SIZE>(block, num_inputs + AES_BLOCK_SIZE)?;
 
-    let mut cache = ConstantCache::new(&block, context, location);
-    let sbox_array = emit_sbox_array(&mut cache)?;
-    let round_keys = emit_key_expansion(&mut cache, &key, sbox_array)?;
-    let outputs = emit_cbc_encrypt(&mut cache, &plaintext, &iv, &round_keys, sbox_array)?;
+    let mut emitter = WordArithEmitter::new(block, context, location);
+    let sbox_array = emit_sbox_array(&mut emitter)?;
+    let round_keys = emit_key_expansion(&mut emitter, &key, sbox_array)?;
+    let outputs = emit_cbc_encrypt(&mut emitter, &plaintext, &iv, &round_keys, sbox_array)?;
 
-    block.append_operation(dialect::function::r#return(location, &outputs));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    function::r#return(&OpBuilder::at_block_end(context, block), location, &outputs);
+    Ok(())
 }
 
 // ── S-box ───────────────────────────────────────────────────────────────
@@ -92,85 +85,85 @@ const RCON: [u32; 10] = [
     0x1b000000, 0x36000000,
 ];
 
-fn emit_sbox_array<'c, 'a>(cache: &mut ConstantCache<'c, 'a>) -> Result<Value<'c, 'a>, Error> {
-    let felt = felt_type(cache.context);
-    let array_type = ArrayType::new_with_dims(felt, &[SBOX_SIZE as i64]);
-    let builder = OpBuilder::new(cache.context, cache.block.at_end());
-    let values = SBOX
-        .iter()
-        .map(|&byte| cache.u32(u32::from(byte)))
-        .collect::<Result<Vec<_>, _>>()?;
-    append_op_with_result(
-        cache.block,
-        dialect::array::new(
-            &builder,
-            cache.location,
-            array_type,
-            ArrayCtor::Values(&values),
-        ),
-    )
+fn emit_sbox_array<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
+) -> Result<Value<'c, 'a>, Error> {
+    let felt = emitter.context.felt_type();
+    let array_type = ArrayType::new_with_dims(felt.into(), &[SBOX_SIZE as i64]);
+    let values = emitter.u32s(SBOX)?;
+    as_value(array::new(
+        emitter.builder(),
+        emitter.location,
+        array_type,
+        ArrayCtor::Values(&values),
+    ))
 }
 
-fn emit_sbox_lookup<'c, 'a>(
-    cache: &ConstantCache<'c, 'a>,
+fn emit_sbox_lookup<'c: 'a, 'a>(
+    cache: &ConstantCache<'c, 'a, '_>,
     sbox_array: Value<'c, 'a>,
     input: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let idx = append_op_with_result(cache.block, dialect::cast::toindex(cache.location, input))?;
-    let felt = felt_type(cache.context);
-    append_op_with_result(
-        cache.block,
-        dialect::array::read(cache.location, felt, sbox_array, &[idx]),
-    )
+    let idx = as_value(cast::toindex(cache.builder(), cache.location, input, None))?;
+    let felt = cache.context.felt_type();
+    as_value(array::read(
+        cache.builder(),
+        cache.location,
+        felt.into(),
+        sbox_array,
+        &[idx],
+    ))
 }
 
 // ── Byte/word helpers ───────────────────────────────────────────────────
 
-fn emit_byte<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_byte<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     word: Value<'c, 'a>,
     pos: u32,
 ) -> Result<Value<'c, 'a>, Error> {
     let shifted = if pos == 0 {
         word
     } else {
-        emit_shr(cache, word, pos * 8)?
+        emitter.emit_shr(word, pos * 8)?
     };
-    let mask = cache.u32(BYTE_MASK)?;
-    emit_and(cache.block, cache.location, shifted, mask)
+    let mask = emitter.u32(BYTE_MASK)?;
+    emitter.emit_and(shifted, mask)
 }
 
-fn emit_pack_u32<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_pack_u32<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     bytes: [Value<'c, 'a>; AES_WORD_BYTES],
 ) -> Result<Value<'c, 'a>, Error> {
     let [b0, b1, b2, b3] = bytes;
-    let s0 = emit_shl(cache, b0, 24)?;
-    let s1 = emit_shl(cache, b1, 16)?;
-    let s2 = emit_shl(cache, b2, 8)?;
-    let r = emit_xor(cache.block, cache.location, s0, s1)?;
-    let r = emit_xor(cache.block, cache.location, r, s2)?;
-    emit_xor(cache.block, cache.location, r, b3)
+    let s0 = emitter.emit_shl(b0, 24)?;
+    let s1 = emitter.emit_shl(b1, 16)?;
+    let s2 = emitter.emit_shl(b2, 8)?;
+    let r = emitter.emit_xor(s0, s1)?;
+    let r = emitter.emit_xor(r, s2)?;
+    emitter.emit_xor(r, b3)
 }
 
 // ── xtime (GF(2^8) multiply by 2) ──────────────────────────────────────
 
-fn emit_xtime<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_xtime<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     value: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let shifted = emit_shl(cache, value, 1)?;
-    let byte_mask = cache.u32(BYTE_MASK)?;
-    let shifted = emit_and(cache.block, cache.location, shifted, byte_mask)?;
-    let high_bit = emit_shr(cache, value, 7)?;
-    let one = cache.u32(1)?;
-    let high_bit = emit_and(cache.block, cache.location, high_bit, one)?;
-    let reduction_const = cache.u32(GF_REDUCTION)?;
-    let reduction = append_op_with_result(
-        cache.block,
-        dialect::felt::mul(cache.location, high_bit, reduction_const)?,
-    )?;
-    emit_xor(cache.block, cache.location, shifted, reduction)
+    let shifted = emitter.emit_shl(value, 1)?;
+    let byte_mask = emitter.u32(BYTE_MASK)?;
+    let shifted = emitter.emit_and(shifted, byte_mask)?;
+    let high_bit = emitter.emit_shr(value, 7)?;
+    let one = emitter.u32(1)?;
+    let high_bit = emitter.emit_and(high_bit, one)?;
+    let reduction_const = emitter.u32(GF_REDUCTION)?;
+    let reduction = as_value(felt::mul(
+        emitter.builder(),
+        emitter.location,
+        high_bit,
+        reduction_const,
+    )?)?;
+    emitter.emit_xor(shifted, reduction)
 }
 
 // Precomputed GF(2^8) products of a byte b: [b*1, b*2, b*3]. MixColumns uses
@@ -183,13 +176,13 @@ struct GfProducts<'c, 'a> {
     x3: Value<'c, 'a>,
 }
 
-fn emit_gf_products<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
-    value: Value<'c, 'a>,
+fn emit_gf_products<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
+    x1: Value<'c, 'a>,
 ) -> Result<GfProducts<'c, 'a>, Error> {
-    let x2 = emit_xtime(cache, value)?;
-    let x3 = emit_xor(cache.block, cache.location, x2, value)?;
-    Ok(GfProducts { x1: value, x2, x3 })
+    let x2 = emit_xtime(emitter, x1)?;
+    let x3 = emitter.emit_xor(x2, x1)?;
+    Ok(GfProducts { x1, x2, x3 })
 }
 
 fn gf_pick<'c, 'a>(products: GfProducts<'c, 'a>, coeff: u8) -> Value<'c, 'a> {
@@ -206,38 +199,38 @@ fn gf_pick<'c, 'a>(products: GfProducts<'c, 'a>, coeff: u8) -> Value<'c, 'a> {
 // Computes 11 byte-form round keys (16 bytes each) from the 16-byte key.
 // Internally builds 44 u32 words for efficient wide XORs during expansion,
 // then extracts to bytes once so AddRoundKey can stay on byte state.
-fn emit_key_expansion<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_key_expansion<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     key: &[Value<'c, 'a>],
     sbox: Value<'c, 'a>,
 ) -> Result<Vec<[Value<'c, 'a>; AES_BLOCK_SIZE]>, Error> {
     let mut rk = Vec::with_capacity(AES128_EXPANDED_KEY_WORDS);
     for i in 0..AES_COLUMNS {
         rk.push(emit_pack_u32(
-            cache,
+            emitter,
             [key[4 * i], key[4 * i + 1], key[4 * i + 2], key[4 * i + 3]],
         )?);
     }
 
     for i in 0..AES128_ROUNDS {
         let temp = rk[3 + i * 4];
-        let byte2 = emit_byte(cache, temp, 2)?;
-        let b0 = emit_sbox_lookup(cache, sbox, byte2)?;
-        let byte1 = emit_byte(cache, temp, 1)?;
-        let b1 = emit_sbox_lookup(cache, sbox, byte1)?;
-        let byte0 = emit_byte(cache, temp, 0)?;
-        let b2 = emit_sbox_lookup(cache, sbox, byte0)?;
-        let byte3 = emit_byte(cache, temp, 3)?;
-        let b3 = emit_sbox_lookup(cache, sbox, byte3)?;
-        let sub_rot = emit_pack_u32(cache, [b0, b1, b2, b3])?;
-        let rcon = cache.u32(RCON[i])?;
-        let w = emit_xor(cache.block, cache.location, rk[i * 4], sub_rot)?;
-        let w = emit_xor(cache.block, cache.location, w, rcon)?;
+        let byte2 = emit_byte(emitter, temp, 2)?;
+        let b0 = emit_sbox_lookup(emitter, sbox, byte2)?;
+        let byte1 = emit_byte(emitter, temp, 1)?;
+        let b1 = emit_sbox_lookup(emitter, sbox, byte1)?;
+        let byte0 = emit_byte(emitter, temp, 0)?;
+        let b2 = emit_sbox_lookup(emitter, sbox, byte0)?;
+        let byte3 = emit_byte(emitter, temp, 3)?;
+        let b3 = emit_sbox_lookup(emitter, sbox, byte3)?;
+        let sub_rot = emit_pack_u32(emitter, [b0, b1, b2, b3])?;
+        let rcon = emitter.u32(RCON[i])?;
+        let w = emitter.emit_xor(rk[i * 4], sub_rot)?;
+        let w = emitter.emit_xor(w, rcon)?;
         rk.push(w);
         for j in 1..AES_COLUMNS {
             let prev = rk[i * 4 + j];
             let last = *rk.last().unwrap();
-            let w = emit_xor(cache.block, cache.location, prev, last)?;
+            let w = emitter.emit_xor(prev, last)?;
             rk.push(w);
         }
     }
@@ -247,10 +240,10 @@ fn emit_key_expansion<'c, 'a>(
         let mut bytes = [rk[0]; AES_BLOCK_SIZE];
         for col in 0..AES_COLUMNS {
             let word = rk[round * 4 + col];
-            bytes[4 * col] = emit_byte(cache, word, 3)?;
-            bytes[4 * col + 1] = emit_byte(cache, word, 2)?;
-            bytes[4 * col + 2] = emit_byte(cache, word, 1)?;
-            bytes[4 * col + 3] = emit_byte(cache, word, 0)?;
+            bytes[4 * col] = emit_byte(emitter, word, 3)?;
+            bytes[4 * col + 1] = emit_byte(emitter, word, 2)?;
+            bytes[4 * col + 2] = emit_byte(emitter, word, 1)?;
+            bytes[4 * col + 3] = emit_byte(emitter, word, 0)?;
         }
         round_keys.push(bytes);
     }
@@ -260,87 +253,87 @@ fn emit_key_expansion<'c, 'a>(
 // ── AES block encrypt ───────────────────────────────────────────────────
 
 // State layout: state[4 * col + row], i.e. byte index = row + 4*col (FIPS 197 §3.4).
-fn emit_aes_block_encrypt<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_aes_block_encrypt<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     block_bytes: &[Value<'c, 'a>; AES_BLOCK_SIZE],
     round_keys: &[[Value<'c, 'a>; AES_BLOCK_SIZE]],
     sbox: Value<'c, 'a>,
 ) -> Result<[Value<'c, 'a>; AES_BLOCK_SIZE], Error> {
-    let mut s = add_round_key(cache, block_bytes, &round_keys[0])?;
+    let mut s = add_round_key(emitter, block_bytes, &round_keys[0])?;
 
     for round_key in round_keys.iter().take(AES128_ROUNDS).skip(1) {
         let mut t = [s[0]; AES_BLOCK_SIZE];
         for col in 0..AES_COLUMNS {
-            let [r0, r1, r2, r3] = emit_mix_column(cache, sbox, &s, col)?;
+            let [r0, r1, r2, r3] = emit_mix_column(emitter, sbox, &s, col)?;
             t[4 * col] = r0;
             t[4 * col + 1] = r1;
             t[4 * col + 2] = r2;
             t[4 * col + 3] = r3;
         }
-        s = add_round_key(cache, &t, round_key)?;
+        s = add_round_key(emitter, &t, round_key)?;
     }
 
     let mut out = [s[0]; AES_BLOCK_SIZE];
     for col in 0..AES_COLUMNS {
-        let [b0, b1, b2, b3] = emit_sub_shift_column(cache, sbox, &s, col)?;
+        let [b0, b1, b2, b3] = emit_sub_shift_column(emitter, sbox, &s, col)?;
         out[4 * col] = b0;
         out[4 * col + 1] = b1;
         out[4 * col + 2] = b2;
         out[4 * col + 3] = b3;
     }
-    add_round_key(cache, &out, &round_keys[AES128_ROUNDS])
+    add_round_key(emitter, &out, &round_keys[AES128_ROUNDS])
 }
 
-fn add_round_key<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn add_round_key<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     state: &[Value<'c, 'a>; AES_BLOCK_SIZE],
     round_key: &[Value<'c, 'a>; AES_BLOCK_SIZE],
 ) -> Result<[Value<'c, 'a>; AES_BLOCK_SIZE], Error> {
     let mut out = [state[0]; AES_BLOCK_SIZE];
     for i in 0..AES_BLOCK_SIZE {
-        out[i] = emit_xor(cache.block, cache.location, state[i], round_key[i])?;
+        out[i] = emitter.emit_xor(state[i], round_key[i])?;
     }
     Ok(out)
 }
 
 // SubBytes + ShiftRows for one output column: pulls bytes from the diagonal
 // pre-shift positions and S-boxes each. state[4*c + r] is column c, row r.
-fn emit_sub_shift_column<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_sub_shift_column<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     sbox: Value<'c, 'a>,
     state: &[Value<'c, 'a>; AES_BLOCK_SIZE],
     col: usize,
 ) -> Result<[Value<'c, 'a>; AES_COLUMNS], Error> {
-    let s0 = emit_sbox_lookup(cache, sbox, state[4 * col])?;
-    let s1 = emit_sbox_lookup(cache, sbox, state[4 * ((col + 1) % AES_COLUMNS) + 1])?;
-    let s2 = emit_sbox_lookup(cache, sbox, state[4 * ((col + 2) % AES_COLUMNS) + 2])?;
-    let s3 = emit_sbox_lookup(cache, sbox, state[4 * ((col + 3) % AES_COLUMNS) + 3])?;
+    let s0 = emit_sbox_lookup(emitter, sbox, state[4 * col])?;
+    let s1 = emit_sbox_lookup(emitter, sbox, state[4 * ((col + 1) % AES_COLUMNS) + 1])?;
+    let s2 = emit_sbox_lookup(emitter, sbox, state[4 * ((col + 2) % AES_COLUMNS) + 2])?;
+    let s3 = emit_sbox_lookup(emitter, sbox, state[4 * ((col + 3) % AES_COLUMNS) + 3])?;
     Ok([s0, s1, s2, s3])
 }
 
-fn emit_mix_column<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_mix_column<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     sbox: Value<'c, 'a>,
     state: &[Value<'c, 'a>; AES_BLOCK_SIZE],
     col: usize,
 ) -> Result<[Value<'c, 'a>; AES_COLUMNS], Error> {
-    let state_bytes = emit_sub_shift_column(cache, sbox, state, col)?;
+    let state_bytes = emit_sub_shift_column(emitter, sbox, state, col)?;
     let products = [
-        emit_gf_products(cache, state_bytes[0])?,
-        emit_gf_products(cache, state_bytes[1])?,
-        emit_gf_products(cache, state_bytes[2])?,
-        emit_gf_products(cache, state_bytes[3])?,
+        emit_gf_products(emitter, state_bytes[0])?,
+        emit_gf_products(emitter, state_bytes[1])?,
+        emit_gf_products(emitter, state_bytes[2])?,
+        emit_gf_products(emitter, state_bytes[3])?,
     ];
     // MixColumns matrix: [2,3,1,1; 1,2,3,1; 1,1,2,3; 3,1,1,2]
-    let r0 = emit_mix_byte(cache, &products, [2, 3, 1, 1])?;
-    let r1 = emit_mix_byte(cache, &products, [1, 2, 3, 1])?;
-    let r2 = emit_mix_byte(cache, &products, [1, 1, 2, 3])?;
-    let r3 = emit_mix_byte(cache, &products, [3, 1, 1, 2])?;
+    let r0 = emit_mix_byte(emitter, &products, [2, 3, 1, 1])?;
+    let r1 = emit_mix_byte(emitter, &products, [1, 2, 3, 1])?;
+    let r2 = emit_mix_byte(emitter, &products, [1, 1, 2, 3])?;
+    let r3 = emit_mix_byte(emitter, &products, [3, 1, 1, 2])?;
     Ok([r0, r1, r2, r3])
 }
 
-fn emit_mix_byte<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_mix_byte<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     products: &[GfProducts<'c, 'a>; AES_COLUMNS],
     coeffs: [u8; AES_COLUMNS],
 ) -> Result<Value<'c, 'a>, Error> {
@@ -348,15 +341,15 @@ fn emit_mix_byte<'c, 'a>(
     let t1 = gf_pick(products[1], coeffs[1]);
     let t2 = gf_pick(products[2], coeffs[2]);
     let t3 = gf_pick(products[3], coeffs[3]);
-    let r = emit_xor(cache.block, cache.location, t0, t1)?;
-    let r = emit_xor(cache.block, cache.location, r, t2)?;
-    emit_xor(cache.block, cache.location, r, t3)
+    let r = emitter.emit_xor(t0, t1)?;
+    let r = emitter.emit_xor(r, t2)?;
+    emitter.emit_xor(r, t3)
 }
 
 // ── CBC encrypt ─────────────────────────────────────────────────────────
 
-fn emit_cbc_encrypt<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_cbc_encrypt<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     plaintext: &[Value<'c, 'a>],
     iv: &[Value<'c, 'a>],
     round_keys: &[[Value<'c, 'a>; AES_BLOCK_SIZE]],
@@ -371,14 +364,9 @@ fn emit_cbc_encrypt<'c, 'a>(
         let start = block_idx * AES_BLOCK_SIZE;
         let mut block = [prev_block[0]; AES_BLOCK_SIZE];
         for i in 0..AES_BLOCK_SIZE {
-            block[i] = emit_xor(
-                cache.block,
-                cache.location,
-                plaintext[start + i],
-                prev_block[i],
-            )?;
+            block[i] = emitter.emit_xor(plaintext[start + i], prev_block[i])?;
         }
-        let encrypted = emit_aes_block_encrypt(cache, &block, round_keys, sbox)?;
+        let encrypted = emit_aes_block_encrypt(emitter, &block, round_keys, sbox)?;
         ciphertext.extend_from_slice(&encrypted);
         prev_block = encrypted;
     }

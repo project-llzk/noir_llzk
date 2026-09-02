@@ -1,15 +1,11 @@
-use llzk::prelude::{
-    Block, BlockLike, FuncDefOp, FuncDefOpLike, FunctionType, Location, OperationLike, RegionLike,
-    Value, dialect,
+use llzk::{
+    builder::{BlockInsertPointLike as _, OpBuilder},
+    prelude::{BlockRef, FuncDefOpLike, LlzkContext, Location, Value, dialect::function},
 };
 
 use crate::{
-    blackboxes::common::{block_args, felt_type},
+    blackboxes::common::{WordArithEmitter, block_args, create_helper_function},
     error::Error,
-};
-
-use crate::blackboxes::common::{
-    ConstantCache, emit_and, emit_rotr, emit_shr, emit_wrapping_add, emit_wrapping_sum, emit_xor,
 };
 
 pub(crate) const SHA256_STATE_WORDS: usize = 8;
@@ -32,148 +28,149 @@ const K: [u32; 64] = [
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ];
 
-pub(in crate::blackboxes) fn emit_sha256_helper<'c>(
-    context: &'c llzk::prelude::LlzkContext,
-) -> Result<FuncDefOp<'c>, Error> {
+pub(in crate::blackboxes) fn emit_sha256_helper<'c, 'b>(
+    context: &'c LlzkContext,
+    block: BlockRef<'c, 'b>,
+) -> Result<(), Error> {
     let location = Location::unknown(context);
-    let felt = felt_type(context);
-    let inputs = vec![(felt, location); SHA256_HELPER_INPUTS];
-    let input_types = vec![felt; SHA256_HELPER_INPUTS];
-    let output_types = vec![felt; SHA256_STATE_WORDS];
-    let function_type = FunctionType::new(context, &input_types, &output_types);
-    let function = dialect::function::def(location, SHA256_HELPER_NAME, function_type, &[], None)?;
+    let (function, block) = create_helper_function(
+        context,
+        block,
+        location,
+        SHA256_HELPER_NAME,
+        SHA256_HELPER_INPUTS,
+        SHA256_STATE_WORDS,
+    )?;
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = Block::new(&inputs);
-    let msg: [Value<'c, '_>; SHA256_MESSAGE_WORDS] = block_args(&block, 0)?;
-    let state: [Value<'c, '_>; SHA256_STATE_WORDS] = block_args(&block, SHA256_MESSAGE_WORDS)?;
+    let msg: [Value<'c, '_>; SHA256_MESSAGE_WORDS] = block_args(block, 0)?;
+    let state: [Value<'c, '_>; SHA256_STATE_WORDS] = block_args(block, SHA256_MESSAGE_WORDS)?;
 
-    let mut cache = ConstantCache::new(&block, context, location);
-    let outputs = emit_sha256_compress(&mut cache, &msg, &state)?;
-    block.append_operation(dialect::function::r#return(location, &outputs));
-    function.region(0)?.append_block(block);
-    Ok(function)
+    let mut emitter = WordArithEmitter::new(block, context, location);
+    let outputs = emit_sha256_compress(&mut emitter, &msg, &state)?;
+    function::r#return(&OpBuilder::new(context, block.at_end()), location, &outputs);
+    Ok(())
 }
 
-fn emit_sha256_compress<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_sha256_compress<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     msg: &[Value<'c, 'a>; 16],
     state: &[Value<'c, 'a>; 8],
 ) -> Result<[Value<'c, 'a>; 8], Error> {
     let mut w = Vec::with_capacity(SHA256_SCHEDULE_WORDS);
     w.extend_from_slice(msg);
     for i in SHA256_MESSAGE_WORDS..SHA256_SCHEDULE_WORDS {
-        let s0 = emit_sigma0(cache, w[i - 15])?;
-        let s1 = emit_sigma1(cache, w[i - 2])?;
-        let wi = emit_wrapping_sum(cache, &[w[i - 16], s0, w[i - 7], s1])?;
+        let s0 = emit_sigma0(emitter, w[i - 15])?;
+        let s1 = emit_sigma1(emitter, w[i - 2])?;
+        let wi = emitter.emit_wrapping_sum(&[w[i - 16], s0, w[i - 7], s1])?;
         w.push(wi);
     }
 
     let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
 
     for i in 0..SHA256_SCHEDULE_WORDS {
-        let big_s1 = emit_big_sigma1(cache, e)?;
-        let ch = emit_ch(cache, e, f, g)?;
-        let ki = cache.u32(K[i])?;
-        let temp1 = emit_wrapping_sum(cache, &[h, big_s1, ch, ki, w[i]])?;
+        let big_s1 = emit_big_sigma1(emitter, e)?;
+        let ch = emit_ch(emitter, e, f, g)?;
+        let ki = emitter.u32(K[i])?;
+        let temp1 = emitter.emit_wrapping_sum(&[h, big_s1, ch, ki, w[i]])?;
 
-        let big_s0 = emit_big_sigma0(cache, a)?;
-        let maj = emit_maj(cache, a, b, c)?;
+        let big_s0 = emit_big_sigma0(emitter, a)?;
+        let maj = emit_maj(emitter, a, b, c)?;
 
         h = g;
         g = f;
         f = e;
-        e = emit_wrapping_add(cache, d, temp1)?;
+        e = emitter.emit_wrapping_add(d, temp1)?;
         d = c;
         c = b;
         b = a;
         // Fuse `temp2 = big_s0 + maj` into the final sum to save one mask per round.
-        a = emit_wrapping_sum(cache, &[temp1, big_s0, maj])?;
+        a = emitter.emit_wrapping_sum(&[temp1, big_s0, maj])?;
     }
 
     Ok([
-        emit_wrapping_add(cache, state[0], a)?,
-        emit_wrapping_add(cache, state[1], b)?,
-        emit_wrapping_add(cache, state[2], c)?,
-        emit_wrapping_add(cache, state[3], d)?,
-        emit_wrapping_add(cache, state[4], e)?,
-        emit_wrapping_add(cache, state[5], f)?,
-        emit_wrapping_add(cache, state[6], g)?,
-        emit_wrapping_add(cache, state[7], h)?,
+        emitter.emit_wrapping_add(state[0], a)?,
+        emitter.emit_wrapping_add(state[1], b)?,
+        emitter.emit_wrapping_add(state[2], c)?,
+        emitter.emit_wrapping_add(state[3], d)?,
+        emitter.emit_wrapping_add(state[4], e)?,
+        emitter.emit_wrapping_add(state[5], f)?,
+        emitter.emit_wrapping_add(state[6], g)?,
+        emitter.emit_wrapping_add(state[7], h)?,
     ])
 }
 
 // ── SHA-256 helper functions ────────────────────────────────────────────
 
 /// σ0(x) = ROTR(7, x) ^ ROTR(18, x) ^ SHR(3, x)
-fn emit_sigma0<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_sigma0<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     x: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let r7 = emit_rotr(cache, x, 7)?;
-    let r18 = emit_rotr(cache, x, 18)?;
-    let s3 = emit_shr(cache, x, 3)?;
-    let xor1 = emit_xor(cache.block, cache.location, r7, r18)?;
-    emit_xor(cache.block, cache.location, xor1, s3)
+    let r7 = emitter.emit_rotr(x, 7)?;
+    let r18 = emitter.emit_rotr(x, 18)?;
+    let s3 = emitter.emit_shr(x, 3)?;
+    let xor1 = emitter.emit_xor(r7, r18)?;
+    emitter.emit_xor(xor1, s3)
 }
 
 /// σ1(x) = ROTR(17, x) ^ ROTR(19, x) ^ SHR(10, x)
-fn emit_sigma1<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_sigma1<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     x: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let r17 = emit_rotr(cache, x, 17)?;
-    let r19 = emit_rotr(cache, x, 19)?;
-    let s10 = emit_shr(cache, x, 10)?;
-    let xor1 = emit_xor(cache.block, cache.location, r17, r19)?;
-    emit_xor(cache.block, cache.location, xor1, s10)
+    let r17 = emitter.emit_rotr(x, 17)?;
+    let r19 = emitter.emit_rotr(x, 19)?;
+    let s10 = emitter.emit_shr(x, 10)?;
+    let xor1 = emitter.emit_xor(r17, r19)?;
+    emitter.emit_xor(xor1, s10)
 }
 
 /// Σ0(x) = ROTR(2, x) ^ ROTR(13, x) ^ ROTR(22, x)
-fn emit_big_sigma0<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_big_sigma0<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     x: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let r2 = emit_rotr(cache, x, 2)?;
-    let r13 = emit_rotr(cache, x, 13)?;
-    let r22 = emit_rotr(cache, x, 22)?;
-    let xor1 = emit_xor(cache.block, cache.location, r2, r13)?;
-    emit_xor(cache.block, cache.location, xor1, r22)
+    let r2 = emitter.emit_rotr(x, 2)?;
+    let r13 = emitter.emit_rotr(x, 13)?;
+    let r22 = emitter.emit_rotr(x, 22)?;
+    let xor1 = emitter.emit_xor(r2, r13)?;
+    emitter.emit_xor(xor1, r22)
 }
 
 /// Σ1(x) = ROTR(6, x) ^ ROTR(11, x) ^ ROTR(25, x)
-fn emit_big_sigma1<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_big_sigma1<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     x: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let r6 = emit_rotr(cache, x, 6)?;
-    let r11 = emit_rotr(cache, x, 11)?;
-    let r25 = emit_rotr(cache, x, 25)?;
-    let xor1 = emit_xor(cache.block, cache.location, r6, r11)?;
-    emit_xor(cache.block, cache.location, xor1, r25)
+    let r6 = emitter.emit_rotr(x, 6)?;
+    let r11 = emitter.emit_rotr(x, 11)?;
+    let r25 = emitter.emit_rotr(x, 25)?;
+    let xor1 = emitter.emit_xor(r6, r11)?;
+    emitter.emit_xor(xor1, r25)
 }
 
 /// Ch(e, f, g) = (e AND f) XOR (NOT e AND g) = g XOR (e AND (f XOR g)).
-fn emit_ch<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_ch<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     e: Value<'c, 'a>,
     f: Value<'c, 'a>,
     g: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let f_xor_g = emit_xor(cache.block, cache.location, f, g)?;
-    let e_and = emit_and(cache.block, cache.location, e, f_xor_g)?;
-    emit_xor(cache.block, cache.location, g, e_and)
+    let f_xor_g = emitter.emit_xor(f, g)?;
+    let e_and = emitter.emit_and(e, f_xor_g)?;
+    emitter.emit_xor(g, e_and)
 }
 
 /// Maj(a, b, c) = (a AND b) XOR (a AND c) XOR (b AND c) = (a AND b) XOR (c AND (a XOR b)).
-fn emit_maj<'c, 'a>(
-    cache: &mut ConstantCache<'c, 'a>,
+fn emit_maj<'c: 'a, 'a>(
+    emitter: &mut WordArithEmitter<'c, 'a, '_>,
     a: Value<'c, 'a>,
     b: Value<'c, 'a>,
     c: Value<'c, 'a>,
 ) -> Result<Value<'c, 'a>, Error> {
-    let ab = emit_and(cache.block, cache.location, a, b)?;
-    let a_xor_b = emit_xor(cache.block, cache.location, a, b)?;
-    let c_and = emit_and(cache.block, cache.location, c, a_xor_b)?;
-    emit_xor(cache.block, cache.location, ab, c_and)
+    let ab = emitter.emit_and(a, b)?;
+    let a_xor_b = emitter.emit_xor(a, b)?;
+    let c_and = emitter.emit_and(c, a_xor_b)?;
+    emitter.emit_xor(ab, c_and)
 }

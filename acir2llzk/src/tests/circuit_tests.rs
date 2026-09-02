@@ -1,18 +1,21 @@
-use llzk::prelude::{BlockLike, LlzkContext, OperationLike, RegionLike, StructDefOpLike};
+use llzk::prelude::{
+    BlockLike, LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike,
+    StructType,
+};
 
 use super::{
     make_circuit, make_circuit_with_opcodes, make_program, mul_constraint, print_and_verify_module,
-    translate_single_circuit, verify_struct_in_module,
+    translate_single_circuit,
 };
-use crate::program::translate_program;
+use crate::{Driver, FIELD_NAME, tests::TestConfig};
 
 /// Circuit with 0 opcodes → valid LLZK that passes verify()
 #[test]
 fn zero_opcodes_verifies() {
-    let context = LlzkContext::new();
+    let driver = Driver::new(&TestConfig);
     let circuit = make_circuit(1, &[0, 1], &[], &[]);
     let program = make_program(vec![circuit]);
-    let module = translate_program(&context, &program, "ACIR").unwrap();
+    let module = driver.translate(&program).unwrap();
 
     print_and_verify_module(&module, "zero_opcodes_verifies");
 }
@@ -20,14 +23,14 @@ fn zero_opcodes_verifies() {
 /// translate_program with 3 circuits → module with 3 struct defs
 #[test]
 fn three_circuits_three_structs() {
-    let context = LlzkContext::new();
+    let driver = Driver::new(&TestConfig);
     let circuits = vec![
         make_circuit(1, &[0, 1], &[], &[]),
         make_circuit(2, &[0], &[1], &[2]),
         make_circuit(0, &[0], &[], &[]),
     ];
     let program = make_program(circuits);
-    let module = translate_program(&context, &program, "ACIR").unwrap();
+    let module = driver.translate(&program).unwrap();
 
     let ir = format!("{}", module.as_operation());
     println!("three_circuits_three_structs:\n{ir}");
@@ -42,10 +45,15 @@ fn three_circuits_three_structs() {
 /// Compute and constrain have correct number of parameters
 #[test]
 fn compute_constrain_parameter_counts() {
-    let context = LlzkContext::new();
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // 2 private + 1 public = 3 input params
     let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     let compute = struct_def.compute_func().expect("Should have @compute");
     let constrain = struct_def.constrain_func().expect("Should have @constrain");
@@ -66,7 +74,7 @@ fn compute_constrain_parameter_counts() {
         "Constrain should have 4 parameters (self + 3 inputs)"
     );
 
-    verify_struct_in_module(&context, struct_def, "compute_constrain_parameter_counts");
+    print_and_verify_module(&module, "compute_constrain_parameter_counts");
 }
 
 /// ACIR can skip witness indices (e.g., w0, w1, w5 with no w2–w4). Only witnesses
@@ -74,11 +82,16 @@ fn compute_constrain_parameter_counts() {
 /// produce phantom members.
 #[test]
 fn skipped_witness_indices_no_phantom_members() {
-    let context = LlzkContext::new();
+    let mut context = LlzkContext::new();
+    context.set_field(FIELD_NAME);
+    let module = LlzkModuleBuilder::new(&context)
+        .with_language("Noir")
+        .with_main(StructType::from_str(&context, "Circuit0"))
+        .build();
     // Inputs: w0, w1. Opcode references w5 (large gap, w2–w4 unused).
     // current_witness_index = 5 to satisfy ACIR, but only w5 should be a member.
     let circuit = make_circuit_with_opcodes(5, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 5)]);
-    let struct_def = translate_single_circuit(&context, circuit).unwrap();
+    let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     let members = struct_def.member_defs();
     assert_eq!(
@@ -87,10 +100,7 @@ fn skipped_witness_indices_no_phantom_members() {
         "Should have 1 member (w5 only), not phantom members for w2–w4"
     );
 
-    let ir = format!(
-        "{}",
-        super::wrap_struct_in_module(&context, struct_def).as_operation()
-    );
+    let ir = format!("{}", module.as_operation());
     println!("skipped_witness_indices_no_phantom_members:\n{ir}");
     assert!(ir.contains("@w5"), "Should contain member @w5");
     assert!(!ir.contains("@w2"), "Should not contain phantom member @w2");

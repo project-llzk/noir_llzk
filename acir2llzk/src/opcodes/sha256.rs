@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     opcodes::{
         OpcodeEmitter, collect_io_witnesses_iter, constrain_digest_outputs, constrain_inputs_width,
-        emit_blackbox_input, validate_u32_input, write_digest_outputs,
+        validate_u32_input, write_digest_outputs,
     },
     writer::Writer,
 };
@@ -57,7 +57,7 @@ impl Sha256Compression<'_> {
             .inputs
             .iter()
             .chain(self.hash_values.iter())
-            .map(|input| emit_blackbox_input(writer, input))
+            .map(|input| writer.emit_blackbox_input(input))
             .collect::<Result<Vec<_>, _>>()?;
         writer.call_blackbox_function(BlackboxFunction::Sha256Compression, &args)
     }
