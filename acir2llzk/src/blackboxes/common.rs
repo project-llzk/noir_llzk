@@ -284,6 +284,7 @@ impl<'c: 'a, 'a, 'l> WordArithEmitter<'c, 'a, 'l> {
         &mut self,
         bytes: &[Value<'c, 'a>],
     ) -> Result<Vec<Value<'c, 'a>>, Error> {
+        debug_assert!(bytes.len().is_multiple_of(4));
         let mut words = Vec::with_capacity(bytes.len() / 4);
         for chunk in bytes.chunks_exact(4) {
             let b0 = chunk[0];
