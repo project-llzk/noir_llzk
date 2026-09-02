@@ -2,8 +2,8 @@ use acir::{AcirField, FieldElement};
 use llzk::{
     builder::OpBuilder,
     prelude::{
-        dialect::{bool, felt},
         LlzkContext, Location, Type, Value,
+        dialect::{bool, felt},
     },
 };
 
