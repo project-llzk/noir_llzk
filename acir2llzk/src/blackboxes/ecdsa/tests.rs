@@ -43,7 +43,7 @@ fn build_test_module<'c>(context: &'c LlzkContext) -> Module<'c> {
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let lhs = block_args::<LIMBS>(block, 0).expect("block args");
     let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -177,7 +177,7 @@ fn build_test_module_barrett<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let lhs = block_args::<LIMBS>(block, 0).expect("block args");
     let rhs = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -290,7 +290,7 @@ fn build_test_module_inverse<'c>(context: &'c LlzkContext, n_limbs: [u64; LIMBS]
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let a: [Value; LIMBS] = block_args::<LIMBS>(block, 0).expect("block args");
     let result =
@@ -416,7 +416,7 @@ fn build_test_module_jacobian_double<'c>(context: &'c LlzkContext) -> Module<'c>
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let x = block_args::<LIMBS>(block, 0).expect("block args");
     let y = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -512,7 +512,7 @@ fn build_test_module_jacobian_mixed_add<'c>(context: &'c LlzkContext) -> Module<
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let p1x = block_args::<LIMBS>(block, 0).expect("block args");
     let p1y = block_args::<LIMBS>(block, LIMBS).expect("block args");
@@ -623,7 +623,7 @@ fn build_test_module_joint_scalar_mul<'c>(context: &'c LlzkContext) -> Module<'c
     function.set_allow_witness_attr(true);
     function.set_allow_non_native_field_ops_attr(true);
 
-    let block = function.region(0).unwrap().first_block().unwrap();
+    let block = function.body().unwrap().first_block().unwrap();
     let builder = OpBuilder::at_block_end(context, block);
     let take = |offset: usize| -> [Value; LIMBS] {
         block_args::<LIMBS>(block, offset).expect("block args")
