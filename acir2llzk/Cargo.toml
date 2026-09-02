@@ -1,0 +1,34 @@
+[package]
+name = "acir2llzk"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "acir2llzk"
+path = "src/bin/acir2llzk.rs"
+
+[dependencies]
+acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", features = ["bn254"] }
+brillig_vm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19" }
+acvm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19", features = ["bn254"]}
+bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.19" }
+num-bigint = "0.4"
+keccak = "=0.2.0-rc.1"
+
+# LLZK Rust bindings and C API sys crate, with bigint support for felt.const from field elements
+llzk = { git = "https://github.com/Veridise/llzk-rs", features = ["bigint", "pcl-backend"] }
+llzk-sys = { git = "https://github.com/Veridise/llzk-rs", features = ["pcl-backend"] }
+base64 = "0.22"
+serde_json = "1"
+llzk_interpreter = { git = "https://github.com/project-llzk/llzk-interpreter.git",  optional = true }
+clap = { version = "4", features = ["derive"]}
+
+[features]
+default = []
+e2e = ["dep:llzk_interpreter"]
+
+[dev-dependencies]
+toml = "0.8"
+
+[lints.rust]
+missing_docs = "warn"

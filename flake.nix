@@ -7,15 +7,24 @@
       url = "github:noir-lang/noir/v1.0.0-beta.19";
       flake = false;
     };
-    llzk-rs-pkgs = {
-      url = "git+https://github.com/project-llzk/llzk-rs";
+    llzk-lib = {
+      url = "git+https://github.com/project-llzk/llzk-lib"; 
       inputs = {
         nixpkgs.follows = "llzk-pkgs/nixpkgs";
         flake-utils.follows = "llzk-pkgs/flake-utils";
         llzk-pkgs.follows = "llzk-pkgs";
       };
     };
-    llzk-lib.follows = "llzk-rs-pkgs/llzk-lib";
+
+    llzk-rs-pkgs = {
+      url = "git+https://github.com/project-llzk/llzk-rs";
+      inputs = {
+        nixpkgs.follows = "llzk-pkgs/nixpkgs";
+        flake-utils.follows = "llzk-pkgs/flake-utils";
+        llzk-pkgs.follows = "llzk-pkgs";
+        llzk-lib.follows = "llzk-lib";
+      };
+    };
     release-helpers.follows = "llzk-rs-pkgs/llzk-lib/release-helpers";
     rust-overlay.follows = "llzk-rs-pkgs/rust-overlay";
   };
@@ -71,6 +80,7 @@
           mkdir -p $PWD/build-tools
           ln -sf "${pkgs.llzk-llvmPackages.llvm}/bin/FileCheck" $PWD/build-tools/FileCheck
           ln -sf "${pkgs.llzk}/bin/llzk-opt" $PWD/build-tools/llzk-opt
+          ln -sf "${pkgs.llzk}/bin/llzk-translate" $PWD/build-tools/llzk-translate
           export PATH="$PWD/build-tools:$PATH"
         '';
 
@@ -154,7 +164,6 @@
                 ## Bail out of pipes where any command fails
                 set -uo pipefail
                 ${createFileCheckSymlink}
-                ${setupWritableNoirHome}
                 export PATH="${noirCli}/bin:$PATH"
                 echo "Welcome to the noir-to-llzk devshell!"
                 echo "Using $(command -v nargo)"

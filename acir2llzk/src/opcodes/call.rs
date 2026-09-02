@@ -1,0 +1,234 @@
+use ::llzk::{
+    builder::OpBuilder,
+    prelude::{
+        LlzkContext, Location, StructType, SymbolRefAttribute, Type, Value,
+        dialect::{r#struct, *},
+    },
+};
+use acir::{
+    AcirField as _, FieldElement,
+    circuit::Circuit,
+    native_types::{Expression, Witness},
+};
+
+use crate::{
+    block_writer::BlockWriter,
+    common::{
+        append_if_with_results, as_value, collect_witnesses, constrain_bool, emit_expression,
+        emit_gated_eq, is_trivial_predicate,
+    },
+    error::Error,
+    opcodes::OpcodeEmitter,
+    writer::Writer,
+};
+
+pub(crate) struct Call<'p> {
+    /// Callee circuit index in the program (from `AcirFunctionId.0`).
+    callee_id: u32,
+    /// Caller witness indices passed positionally as callee input parameters.
+    inputs: &'p [Witness],
+    /// Caller witness indices that receive callee return values (positionally aligned to
+    /// `callee.return_values` in sorted order).
+    outputs: &'p [Witness],
+    /// The callee circuit, needed to determine return-value witness indices.
+    callee: &'p Circuit<FieldElement>,
+
+    predicate: &'p Expression<FieldElement>,
+    callee_name: String,
+    member_name: String,
+}
+
+impl<'p> Call<'p> {
+    pub(crate) fn new(
+        index: usize,
+        callee_id: u32,
+        inputs: &'p [Witness],
+        outputs: &'p [Witness],
+        callee: &'p Circuit<FieldElement>,
+        predicate: &'p Expression<FieldElement>,
+    ) -> Self {
+        Self {
+            callee_id,
+            inputs,
+            outputs,
+            callee,
+            predicate,
+            callee_name: format!("Circuit{}", callee_id),
+            member_name: format!("subcircuit_{}", index),
+        }
+    }
+
+    fn callee_name(&self) -> &str {
+        &self.callee_name
+    }
+
+    fn member_name(&self) -> &str {
+        &self.member_name
+    }
+}
+
+impl<'p> OpcodeEmitter for Call<'p> {
+    fn get_witnesses(&self) -> std::collections::BTreeSet<u32> {
+        let mut witnesses: std::collections::BTreeSet<u32> = self
+            .inputs
+            .iter()
+            .chain(self.outputs.iter())
+            .map(|w| w.0)
+            .collect();
+        witnesses.extend(collect_witnesses(self.predicate));
+        witnesses
+    }
+
+    /// Emits `struct.member @subcircuit_{index} : !struct.type<@Circuit{callee_id}>`.
+    fn emit_member<'c>(
+        &self,
+        context: &'c LlzkContext,
+        builder: &OpBuilder<'c, '_>,
+    ) -> Result<(), Error> {
+        r#struct::member(
+            builder,
+            Location::unknown(context),
+            self.member_name(),
+            StructType::from_str(context, self.callee_name()),
+            false,
+            false,
+            false,
+        )?;
+        Ok(())
+    }
+
+    /// In `@compute`:
+    /// 1. Gathers caller input witnesses for the callee.
+    /// 2. Invokes `@Circuit{callee_id}::@compute` to produce the callee struct.
+    /// 3. Stores the callee struct as `@subcircuit_{index}`.
+    /// 4. Writes each caller output witness with `predicate * callee_ret`,
+    ///    so a false predicate zeroes the output.
+    ///    Trivially true predicates skip the multiplication.
+    fn emit_compute<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let callee_name = format!("Circuit{}", self.callee_id);
+
+        // Gather callee input values from the caller's witness cache.
+        let arg_vals = self
+            .inputs
+            .iter()
+            .map(|w| writer.read_witness(w.0))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Call @Circuit{callee_id}::@compute(%arg0, ...) → callee struct.
+        let callee_struct_type = writer.struct_type(self.callee_name());
+        let callee_val: Value<'c, 'b> = writer
+            .call_function(&callee_name, "compute", &arg_vals, &[callee_struct_type])?
+            .result(0)?
+            .into();
+
+        // Store callee struct as subcircuit member.
+        writer.write_member(self.member_name(), callee_val)?;
+
+        let pred_val = if is_trivial_predicate(self.predicate) {
+            None
+        } else {
+            Some(emit_expression(writer, self.predicate)?)
+        };
+
+        for (callee_ret_witness, caller_out_witness) in
+            self.callee.return_values.0.iter().zip(self.outputs)
+        {
+            let ret_val =
+                writer.read_field_member(callee_val, &format!("w{}", callee_ret_witness.0))?;
+            let val = match pred_val {
+                None => ret_val,
+                Some(p) => writer.insert_mul(p, ret_val)?,
+            };
+            writer.write_member(&format!("w{}", caller_out_witness.0), val)?;
+            writer.mark_known(caller_out_witness.0, val);
+        }
+
+        Ok(())
+    }
+
+    /// In `@constrain`:
+    /// 1. Reads `@subcircuit_{index}` from `%self`.
+    /// 2. Gathers caller input witnesses for the callee.
+    /// 3. Invokes `@Circuit{callee_id}::@constrain(%callee, %arg0, ...)`,
+    ///    gated by the predicate when non-trivial.
+    /// 4. Constrains output witnesses against callee return values, gated by the predicate.
+    fn emit_constrain<'c, 'b>(&self, writer: &mut BlockWriter<'c, 'b>) -> Result<(), Error> {
+        let trivial = is_trivial_predicate(self.predicate);
+        let callee_struct_type = writer.struct_type(self.callee_name());
+        let context = writer.context();
+        let location = writer.location();
+
+        // Evaluate the predicate once (only when non-trivial).
+        let pred_val = if trivial {
+            None
+        } else {
+            let p = emit_expression(writer, self.predicate)?;
+            constrain_bool(writer, p)?;
+            Some(p)
+        };
+
+        // Read the stored subcomponent from %self.
+        let callee_val: Value<'c, 'b> =
+            writer.read_self_member(callee_struct_type, self.member_name())?;
+
+        // Build args: callee struct first, then caller input witnesses.
+        let mut arg_vals = vec![callee_val];
+        for w in self.inputs {
+            arg_vals.push(writer.read_witness(w.0)?);
+        }
+
+        // Define constrain function for inner circuit.
+        // Call it conditionally based on predicate value.
+        // The creation is wrapped in a closure since the insertion point could vary.
+        let call_op_fn = |builder: &OpBuilder| -> Result<(), Error> {
+            function::call(
+                builder,
+                location,
+                SymbolRefAttribute::new_from_str(context, self.callee_name(), &["constrain"]),
+                &arg_vals,
+                &[] as &[Type<'c>],
+            )?;
+            Ok(())
+        };
+
+        let builder = OpBuilder::new(context, writer.insertion_point());
+        match pred_val {
+            None => {
+                call_op_fn(&builder)?;
+            }
+            Some(p) => {
+                let one = writer.emit_constant(&FieldElement::one())?;
+                let pred_is_one = as_value(bool::eq(&builder, location, p, one)?)?;
+
+                append_if_with_results(
+                    &builder,
+                    location,
+                    pred_is_one,
+                    &[],
+                    |builder| {
+                        call_op_fn(builder)?;
+                        Ok([])
+                    },
+                    |_| Ok([]),
+                )?;
+            }
+        }
+
+        // Constrain that each output witness stored by @compute matches the
+        // corresponding return value from the callee struct.
+        for (callee_ret_witness, caller_out_witness) in
+            self.callee.return_values.0.iter().zip(self.outputs)
+        {
+            let stored_val = writer.read_witness(caller_out_witness.0)?;
+            let callee_ret_val: Value<'c, 'b> =
+                writer.read_field_member(callee_val, &format!("w{}", callee_ret_witness.0))?;
+
+            match pred_val {
+                None => writer.insert_constrain_eq(stored_val, callee_ret_val),
+                Some(p) => emit_gated_eq(writer, p, stored_val, callee_ret_val)?,
+            }
+        }
+
+        Ok(())
+    }
+}
