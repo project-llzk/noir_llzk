@@ -49,7 +49,7 @@ export LIBCLANG_PATH="${LIBCLANG_PATH:-${LLVM_PREFIX}/lib}"
 export LLZK_PCL_ROOT
 export LLZK_PCL_PREFIX
 if [[ -n "${LLZK_LIB_ROOT:-}" ]]; then
-  export LLZK_SYS_10_PREFIX="${LLZK_SYS_10_PREFIX:-${LLZK_LIB_ROOT}/build/install}"
+  export LLZK_SYS_30_PREFIX="${LLZK_SYS_30_PREFIX:-${LLZK_LIB_ROOT}/build/install}"
 fi
 export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
 

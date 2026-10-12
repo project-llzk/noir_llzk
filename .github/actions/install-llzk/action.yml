@@ -60,6 +60,6 @@ runs:
         _ROOT: ${{ inputs.root }}
     - name: "Export LLZK environment"
       shell: bash
-      run: echo LLZK_SYS_10_PREFIX=$(realpath $_ROOT/build/install) >> $GITHUB_ENV
+      run: echo LLZK_SYS_30_PREFIX=$(realpath $_ROOT/build/install) >> $GITHUB_ENV
       env:
         _ROOT: ${{ inputs.root }}

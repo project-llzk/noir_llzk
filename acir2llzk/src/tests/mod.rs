@@ -249,7 +249,7 @@ pub(crate) fn print_and_verify_module(module: &Module, label: &str) {
 /// Asserts the module lowers to the PCL backend.
 fn assert_module_lowers_to_pcl(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
-    let opt = find_llzk_opt().expect("llzk-opt not found — set $LLZK_OPT or $LLZK_SYS_10_PREFIX");
+    let opt = find_llzk_opt().expect("llzk-opt not found — set $LLZK_OPT or $LLZK_SYS_30_PREFIX");
     assert_ir_lowers_with_passes(
         &opt,
         &ir,
@@ -260,7 +260,7 @@ fn assert_module_lowers_to_pcl(module: &Module, label: &str) {
 
 /// Locates the `llzk-opt` binary
 fn find_llzk_opt() -> Option<std::path::PathBuf> {
-    if let Some(prefix) = std::env::var_os("LLZK_SYS_10_PREFIX") {
+    if let Some(prefix) = std::env::var_os("LLZK_SYS_30_PREFIX") {
         let path = std::path::PathBuf::from(prefix).join("bin/llzk-opt");
         if path.is_file() {
             return Some(path);

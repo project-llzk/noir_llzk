@@ -104,7 +104,7 @@ Note the path to `pcl-mlir` — you'll need it for the environment variables bel
 #### Building LLZK
 
 The [LLZK library](https://github.com/project-llzk/llzk-lib) must be built and installed separately.
-The Rust bindings ([llzk-rs](https://github.com/Veridise/llzk-rs)) expect the `LLZK_SYS_10_PREFIX`
+The Rust bindings ([llzk-rs](https://github.com/Veridise/llzk-rs)) expect the `LLZK_SYS_30_PREFIX`
 environment variable to point to the LLZK installation prefix.
 
 Clone at the commit used by the `llzk-rs` v1 release:
@@ -126,10 +126,10 @@ cmake --install build
 cd ..
 ```
 
-Then set the `LLZK_SYS_10_PREFIX` environment variable to point to the install location:
+Then set the `LLZK_SYS_30_PREFIX` environment variable to point to the install location:
 
 ```sh
-export LLZK_SYS_10_PREFIX=$(pwd)/llzk-lib/build/install
+export LLZK_SYS_30_PREFIX=$(pwd)/llzk-lib/build/install
 ```
 #### Environment variables
 
@@ -140,7 +140,7 @@ The following environment variables must be set before building:
 | `MLIR_SYS_230_PREFIX` | LLVM 23 installation prefix |
 | `TABLEGEN_230_PREFIX` | LLVM 23 installation prefix (same as above) |
 | `LIBCLANG_PATH` | Path to `libclang` shared library |
-| `LLZK_SYS_10_PREFIX` | Path to the LLZK installation prefix (see above) |
+| `LLZK_SYS_30_PREFIX` | Path to the LLZK installation prefix (see above) |
 | `LLZK_PCL_ROOT` | Path to `pcl-mlir` source directory |
 | `LLZK_PCL_PREFIX` | Path to `pcl-mlir/build` output directory |
 
