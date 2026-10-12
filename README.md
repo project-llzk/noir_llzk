@@ -64,20 +64,20 @@ below.
 #### Prerequisites
 
 - **Rust** (edition 2024)
-- **LLVM 20** with MLIR support
-- **zstd** (LLVM 20's MLIR libraries depend on libzstd for bitcode compression)
+- **LLVM 23** with MLIR support
+- **zstd** (LLVM 23's MLIR libraries depend on libzstd for bitcode compression)
 - **[plc-mlir](https://github.com/Veridise/pcl-mlir)** built locally (for PCL/MLIR libraries)
 
 #### macOS (Homebrew)
 
 ```sh
-brew install llvm@20 zstd
+brew install llvm@23 zstd
 ```
 
 Set the MLIR prefix path (used by the cmake commands below and by Cargo during build):
 
 ```sh
-export MLIR_SYS_200_PREFIX=$(brew --prefix llvm@20)
+export MLIR_SYS_230_PREFIX=$(brew --prefix llvm@23)
 ```
 
 #### Building PCL
@@ -95,7 +95,7 @@ Build with CMake:
 cmake -S pcl-mlir -B pcl-mlir/build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DBUILD_TESTING=OFF \
-  -DCMAKE_PREFIX_PATH=$MLIR_SYS_200_PREFIX
+  -DCMAKE_PREFIX_PATH=$MLIR_SYS_230_PREFIX
 cmake --build pcl-mlir/build
 ```
 
@@ -120,7 +120,7 @@ Build and install with CMake:
 cd llzk-lib
 cmake -B build -S . \
   -DCMAKE_INSTALL_PREFIX=$(pwd)/build/install \
-  -DCMAKE_PREFIX_PATH=$MLIR_SYS_200_PREFIX
+  -DCMAKE_PREFIX_PATH=$MLIR_SYS_230_PREFIX
 cmake --build build
 cmake --install build
 cd ..
@@ -137,8 +137,8 @@ The following environment variables must be set before building:
 
 | Variable | Description |
 |---|---|
-| `MLIR_SYS_200_PREFIX` | LLVM 20 installation prefix |
-| `TABLEGEN_200_PREFIX` | LLVM 20 installation prefix (same as above) |
+| `MLIR_SYS_230_PREFIX` | LLVM 23 installation prefix |
+| `TABLEGEN_230_PREFIX` | LLVM 23 installation prefix (same as above) |
 | `LIBCLANG_PATH` | Path to `libclang` shared library |
 | `LLZK_SYS_10_PREFIX` | Path to the LLZK installation prefix (see above) |
 | `LLZK_PCL_ROOT` | Path to `pcl-mlir` source directory |
@@ -149,7 +149,7 @@ The following environment variables must be set before building:
  For example, for a homebrew version of LLVM on macOS use this path.
 `export RUSTFLAGS='-L /opt/homebrew/lib/'`
  This variable may need to be configured on macOS as well. If building fails try setting it.
-`export LIBCLANG_PATH=$MLIR_SYS_200_PREFIX/lib`
+`export LIBCLANG_PATH=$MLIR_SYS_230_PREFIX/lib`
 
 #### Compile
 
