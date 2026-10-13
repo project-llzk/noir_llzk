@@ -18,6 +18,7 @@ use llzk::prelude::{
 
 use crate::tests::{
     first_struct_def, iter_block_ops, make_circuit_with_opcodes, make_program_with_brillig,
+    with_public_constant_output,
 };
 use crate::{Driver, Error};
 
@@ -235,8 +236,10 @@ pub(super) fn count_brillig_fns(module: &Module) -> usize {
 
 /// Translates a zero-input / zero-output `BrilligCall` with the given body,
 /// returning the emitted module on success.
-/// Adds a copyCallData premable as program translation expects compile time
-/// calldata copying for every brillig program.
+/// Adds a `CalldataCopy` preamble, as translation expects compile-time calldata
+/// copying for every Brillig program.
+/// The surrounding ACIR circuit returns a constrained constant for PCL lowering;
+/// the Brillig call itself still has zero inputs and zero outputs.
 pub(super) fn translate_body<'d>(
     driver: &'d Driver,
     ops: Vec<BrilligOpcode<FieldElement>>,
@@ -248,7 +251,10 @@ pub(super) fn translate_body<'d>(
         &[],
         vec![brillig_call_opcode(0, vec![], vec![])],
     );
-    let program = make_program_with_brillig(vec![circuit], vec![bytecode_no_calldata(ops)]);
+    let program = make_program_with_brillig(
+        vec![with_public_constant_output(circuit)],
+        vec![bytecode_no_calldata(ops)],
+    );
     driver.translate(&program)
 }
 

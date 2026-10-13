@@ -22,7 +22,7 @@ fn count_writem_ops(struct_def: &StructDefOpRef) -> usize {
         .count()
 }
 
-/// `x * y - z = 0` where x, y are inputs and z is intermediate → compute solves z = x * y
+/// `x * y - z = 0` where x, y are inputs and z is a public output → compute solves z = x * y
 #[test]
 fn solve_mul_term() {
     let mut context = LlzkContext::new();
@@ -31,9 +31,9 @@ fn solve_mul_term() {
         .with_language("Noir")
         .with_main(StructType::from_str(&context, "Circuit0"))
         .build();
-    // w0=x (private), w1=y (private), w2=z (intermediate)
+    // w0=x (private), w1=y (private), w2=z (public output)
     // expr: 1*w0*w1 + (-1)*w2 + 0 = 0  →  z = x * y
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![mul_constraint(0, 1, 2)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![mul_constraint(0, 1, 2)]);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
@@ -51,7 +51,7 @@ fn solve_linear() {
         .with_language("Noir")
         .with_main(StructType::from_str(&context, "Circuit0"))
         .build();
-    // w0=x (private), w1=y (private), w2=z (intermediate)
+    // w0=x (private), w1=y (private), w2=z (public output)
     // expr: 1*w0 + 1*w1 + (-1)*w2 = 0
     let expr = Expression {
         mul_terms: vec![],
@@ -62,7 +62,7 @@ fn solve_linear() {
         ],
         q_c: FieldElement::zero(),
     };
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![Opcode::AssertZero(expr)]);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)
@@ -80,7 +80,7 @@ fn chain_of_solves() {
         .with_language("Noir")
         .with_main(StructType::from_str(&context, "Circuit0"))
         .build();
-    // w0=x, w1=y (inputs), w2=z (intermediate), w3=w (intermediate)
+    // w0=x, w1=y (inputs), w2=z (intermediate), w3=w (public output)
     // opcode 1: x * y - z = 0  →  z = x * y
     let expr1 = mul_constraint(0, 1, 2);
     // opcode 2: z + x - w = 0  →  w = z + x
@@ -93,8 +93,13 @@ fn chain_of_solves() {
         ],
         q_c: FieldElement::zero(),
     };
-    let circuit =
-        make_circuit_with_opcodes(3, &[0, 1], &[], &[], vec![expr1, Opcode::AssertZero(expr2)]);
+    let circuit = make_circuit_with_opcodes(
+        3,
+        &[0, 1],
+        &[],
+        &[3],
+        vec![expr1, Opcode::AssertZero(expr2)],
+    );
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     // 2 solved witness writes (inputs no longer written to struct)
@@ -165,14 +170,14 @@ fn solve_with_coefficients() {
         .with_language("Noir")
         .with_main(StructType::from_str(&context, "Circuit0"))
         .build();
-    // w0=x, w1=y (inputs), w2=z (intermediate)
+    // w0=x, w1=y (inputs), w2=z (public output)
     // expr: 2*w0*w1 + 3*w2 = 0  →  z = -(2*x*y) / 3
     let expr = Expression {
         mul_terms: vec![(FieldElement::from(2u128), Witness(0), Witness(1))],
         linear_combinations: vec![(FieldElement::from(3u128), Witness(2))],
         q_c: FieldElement::zero(),
     };
-    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = make_circuit_with_opcodes(2, &[0, 1], &[], &[2], vec![Opcode::AssertZero(expr)]);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     // 1 solved witness write (inputs no longer written to struct)

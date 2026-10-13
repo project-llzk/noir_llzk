@@ -1,3 +1,8 @@
+use acir::{
+    FieldElement,
+    circuit::{Opcode, opcodes::AcirFunctionId},
+    native_types::{Expression, Witness},
+};
 use llzk::prelude::{
     BlockLike, LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike,
     StructType,
@@ -9,7 +14,7 @@ use super::{
 };
 use crate::{Driver, FIELD_NAME, tests::TestConfig};
 
-/// Circuit with 0 opcodes → valid LLZK that passes verify()
+/// An entirely empty entry circuit is valid LLZK even though it has no PCL output.
 #[test]
 fn zero_opcodes_verifies() {
     let driver = Driver::new(&TestConfig);
@@ -17,7 +22,37 @@ fn zero_opcodes_verifies() {
     let program = make_program(vec![circuit]);
     let module = driver.translate(&program).unwrap();
 
-    print_and_verify_module(&module, "zero_opcodes_verifies");
+    // Keep this edge case output-free. PCL requires a public member, so only
+    // LLZK verification applies to this exact fixture.
+    assert!(module.as_operation().verify(), "Module should verify");
+}
+
+/// A zero-opcode callee verifies and inlines into a PCL-compatible caller.
+#[test]
+fn zero_opcode_callee_lowers_to_pcl() {
+    let driver = Driver::new(&TestConfig);
+    let circuit = make_circuit(1, &[0, 1], &[], &[]);
+    assert!(circuit.opcodes.is_empty());
+    // Keep the callee empty. The caller supplies the public output PCL needs.
+    let caller = make_circuit_with_opcodes(
+        2,
+        &[0, 1],
+        &[],
+        &[2],
+        vec![
+            Opcode::Call {
+                id: AcirFunctionId(1),
+                inputs: vec![Witness(0), Witness(1)],
+                outputs: vec![],
+                predicate: Expression::<FieldElement>::one(),
+            },
+            mul_constraint(0, 1, 2),
+        ],
+    );
+    let program = make_program(vec![caller, circuit]);
+    let module = driver.translate(&program).unwrap();
+
+    print_and_verify_module(&module, "zero_opcode_callee_lowers_to_pcl");
 }
 
 /// translate_program with 3 circuits → module with 3 struct defs
@@ -52,7 +87,7 @@ fn compute_constrain_parameter_counts() {
         .with_main(StructType::from_str(&context, "Circuit0"))
         .build();
     // 2 private + 1 public = 3 input params
-    let circuit = make_circuit(3, &[0, 2], &[1], &[3]);
+    let circuit = make_circuit_with_opcodes(3, &[0, 2], &[1], &[3], vec![mul_constraint(0, 2, 3)]);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
     let compute = struct_def.compute_func().expect("Should have @compute");

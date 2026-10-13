@@ -5,12 +5,13 @@ use acir::{
 };
 use llzk::prelude::{
     LlzkContext, LlzkModuleBuilder, OperationLike, RegionLike, StructDefOpLike, StructDefOpRef,
-    StructType, dialect::constrain,
+    StructType,
+    dialect::{constrain, r#struct},
 };
 
 use crate::{FIELD_NAME, tests::print_and_verify_module};
 
-use super::{make_circuit_with_opcodes, translate_single_circuit};
+use super::{make_circuit_with_opcodes, translate_single_circuit, with_public_constant_output};
 
 /// Count the number of `constrain.eq` operations in the constrain function.
 fn count_constrain_eq_ops(struct_def: &StructDefOpRef) -> usize {
@@ -19,6 +20,25 @@ fn count_constrain_eq_ops(struct_def: &StructDefOpRef) -> usize {
     super::iter_block_ops(block)
         .filter(constrain::is_eq_op)
         .count()
+}
+
+/// The original constraints use only known inputs, so only the independent
+/// public constant should require a witness write in compute.
+fn assert_constraint_and_output_counts(struct_def: &StructDefOpRef, original_constraints: usize) {
+    assert_eq!(
+        count_constrain_eq_ops(struct_def),
+        original_constraints + 1,
+        "original constraints plus the independent public constant constraint",
+    );
+    let compute = struct_def.compute_func().unwrap();
+    let block = compute.region(0).unwrap().first_block().unwrap();
+    assert_eq!(
+        super::iter_block_ops(block)
+            .filter(r#struct::is_writem_op)
+            .count(),
+        1,
+        "only the independent public constant should be solved and written",
+    );
 }
 
 /// `x + y - 10 = 0` → no mul terms, two linear terms with coeff 1, constant -10
@@ -39,9 +59,10 @@ fn assert_zero_linear_only() {
         q_c: -FieldElement::from(10u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = with_public_constant_output(circuit);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
-    assert_eq!(count_constrain_eq_ops(&struct_def), 1);
+    assert_constraint_and_output_counts(&struct_def, 1);
 
     print_and_verify_module(&module, "assert_zero_linear_only");
 }
@@ -61,9 +82,10 @@ fn assert_zero_squaring() {
         q_c: -FieldElement::from(9u128),
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = with_public_constant_output(circuit);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
-    assert_eq!(count_constrain_eq_ops(&struct_def), 1);
+    assert_constraint_and_output_counts(&struct_def, 1);
 
     print_and_verify_module(&module, "assert_zero_squaring");
 }
@@ -83,9 +105,10 @@ fn assert_zero_mixed_coefficients() {
         q_c: -FieldElement::from(7u128),
     };
     let circuit = make_circuit_with_opcodes(1, &[0, 1], &[], &[], vec![Opcode::AssertZero(expr)]);
+    let circuit = with_public_constant_output(circuit);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
-    assert_eq!(count_constrain_eq_ops(&struct_def), 1);
+    assert_constraint_and_output_counts(&struct_def, 1);
 
     print_and_verify_module(&module, "assert_zero_mixed_coefficients");
 }
@@ -119,9 +142,10 @@ fn multiple_assert_zero_opcodes() {
         &[],
         vec![Opcode::AssertZero(expr1), Opcode::AssertZero(expr2)],
     );
+    let circuit = with_public_constant_output(circuit);
     let struct_def = translate_single_circuit(&context, circuit, module.body()).unwrap();
 
-    assert_eq!(count_constrain_eq_ops(&struct_def), 2);
+    assert_constraint_and_output_counts(&struct_def, 2);
 
     print_and_verify_module(&module, "multiple_assert_zero_opcodes");
 }

@@ -473,18 +473,38 @@ fn transitive_calls() {
     print_and_verify_module(&module, "transitive_calls");
 }
 
-/// A circuit with no opcodes other than a call still produces a valid module.
+/// A circuit containing only a call to an empty, zero-output callee verifies.
 #[test]
 fn call_only_circuit_verifies() {
     let driver = Driver::new(&TestConfig);
-
     let callee = make_circuit(0, &[0], &[], &[]);
     let caller =
         make_circuit_with_opcodes(0, &[0], &[], &[], vec![call_opcode(1, vec![0], vec![])]);
-
-    // 0 internal witnesses + 1 subcircuit = 1 member; writem: 1 (subcircuit); readm: 1 (subcircuit)
     let program = make_program(vec![caller, callee]);
-    translate_and_assert(&driver, &program, "Circuit0", 1, 1, 1, &["Circuit1"]);
+    let module = driver.translate(&program).unwrap();
+    let struct0 = first_struct_def(&module);
+    let info = collect_call_info(&struct0);
+
+    // Only the subcircuit is stored and read; there are no returned witnesses.
+    info.assert_counts(1, 1, 1, 1, "Circuit0");
+    info.calls[0].assert_shape(driver.context(), 0, "Circuit1", "Circuit0");
+    // This exact output-free program is valid LLZK but cannot lower to PCL.
+    assert!(module.as_operation().verify(), "Module should verify");
+}
+
+/// A caller containing only a call can expose its result as a public PCL output.
+#[test]
+fn call_only_with_public_output_lowers_to_pcl() {
+    let driver = Driver::new(&TestConfig);
+
+    let callee = make_circuit_with_opcodes(1, &[0], &[], &[1], vec![mul_constraint(0, 0, 1)]);
+    let caller =
+        make_circuit_with_opcodes(1, &[0], &[], &[1], vec![call_opcode(1, vec![0], vec![1])]);
+
+    // One public output + one subcircuit; each is written once. Constrain reads
+    // the subcircuit, the caller output, and the callee output.
+    let program = make_program(vec![caller, callee]);
+    translate_and_assert(&driver, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
 }
 
 /// A non-trivial predicate (here `w0`) gates call constraints:

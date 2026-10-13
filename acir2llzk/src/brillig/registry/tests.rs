@@ -18,6 +18,7 @@ use crate::brillig::test_helpers::{
 };
 use crate::tests::{
     TestConfig, make_circuit_with_opcodes, make_program_with_brillig, print_and_verify_module,
+    with_public_constant_output,
 };
 use crate::{Driver, Error};
 
@@ -36,7 +37,7 @@ fn empty_brillig_call_verifies() {
         vec![brillig_call_opcode(0, vec![], vec![])],
     );
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
@@ -76,7 +77,7 @@ fn brillig_with_nontrivial_predicate_no_outputs() {
     };
     let circuit = make_circuit_with_opcodes(0, &[0], &[], &[], vec![opcode]);
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
@@ -125,8 +126,8 @@ fn brillig_with_nontrivial_predicate_gates_outputs() {
         outputs: vec![BrilligOutputs::Simple(Witness(1))],
         predicate: witness_predicate(0),
     };
-    // w0 is the predicate witness (public input); w1 is the output.
-    let circuit = make_circuit_with_opcodes(1, &[0], &[], &[], vec![opcode]);
+    // w0 is the predicate witness (private input); w1 is the public output.
+    let circuit = make_circuit_with_opcodes(1, &[0], &[], &[1], vec![opcode]);
     let program = make_program_with_brillig(vec![circuit], vec![bytecode_no_calldata(body)]);
 
     let module = driver
@@ -185,7 +186,7 @@ fn brillig_reads_single_input_from_self() {
         vec![brillig_call_opcode(0, vec![single_witness(0)], vec![])],
     );
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
@@ -250,7 +251,7 @@ fn brillig_array_input_is_accepted() {
         vec![brillig_call_opcode(0, vec![array_in], vec![])],
     );
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
@@ -323,7 +324,7 @@ fn duplicate_brillig_calls_dedup_to_single_function() {
         ],
     );
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 
@@ -364,7 +365,7 @@ fn duplicate_brillig_calls_with_mismatched_shapes_emit_distinct_variants() {
         ],
     );
     let program = make_program_with_brillig(
-        vec![circuit],
+        vec![with_public_constant_output(circuit)],
         vec![bytecode_no_calldata(vec![brillig_stop()])],
     );
 

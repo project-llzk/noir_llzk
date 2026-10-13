@@ -109,6 +109,24 @@ pub(crate) fn make_circuit_with_opcodes(
     }
 }
 
+/// Adds a constrained constant public output to an otherwise output-free test
+/// circuit so it can lower to PCL without changing its existing expressions,
+/// memory accesses, or Brillig call shapes and bodies.
+pub(crate) fn with_public_constant_output(
+    mut circuit: Circuit<FieldElement>,
+) -> Circuit<FieldElement> {
+    assert!(circuit.return_values.0.is_empty());
+    circuit.current_witness_index += 1;
+    let output = Witness(circuit.current_witness_index);
+    circuit.return_values.0.insert(output);
+    circuit.opcodes.push(Opcode::AssertZero(Expression {
+        mul_terms: vec![],
+        linear_combinations: vec![(FieldElement::one(), output)],
+        q_c: -FieldElement::one(),
+    }));
+    circuit
+}
+
 /// Convenience wrapper used by tests that translate a single circuit in isolation.
 ///
 /// Creates a single-circuit [`Program`] internally so that [`CircuitTranslator`]
@@ -237,8 +255,9 @@ pub(super) fn iter_block_ops<'c, 'a>(
     std::iter::successors(block.first_operation(), |op| op.next_in_block())
 }
 
-/// Prints the module IR, asserts MLIR-structural verification,
-/// asserts modules lower successfuly to PCL.
+/// Prints the module IR, asserts MLIR-structural verification, and asserts the
+/// module lowers to PCL. Fixtures must expose at least one public member after
+/// struct inlining, as required by PCL.
 pub(crate) fn print_and_verify_module(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
     println!("{label}:\n{ir}");
