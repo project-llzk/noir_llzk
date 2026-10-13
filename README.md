@@ -99,7 +99,8 @@ Build and install with CMake:
 cd llzk-lib
 cmake -B build -S . \
   -DCMAKE_INSTALL_PREFIX=$(pwd)/build/install \
-  -DCMAKE_PREFIX_PATH=$MLIR_SYS_230_PREFIX
+  -DCMAKE_PREFIX_PATH="$MLIR_SYS_230_PREFIX" \
+  -DLLZK_WITH_PCL=ON
 cmake --build build
 cmake --install build
 cd ..
