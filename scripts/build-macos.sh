@@ -5,7 +5,12 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
 if [[ -z "${LLVM_PREFIX:-}" ]]; then
-  if [[ -d "/opt/homebrew/opt/llvm@23" ]]; then
+  # Homebrew may install llvm@23 under the canonical llvm formula prefix.
+  if command -v brew >/dev/null 2>&1 \
+    && brew_llvm_prefix="$(brew --prefix llvm@23 2>/dev/null)" \
+    && [[ -d "${brew_llvm_prefix}" ]]; then
+    LLVM_PREFIX="${brew_llvm_prefix}"
+  elif [[ -d "/opt/homebrew/opt/llvm@23" ]]; then
     LLVM_PREFIX="/opt/homebrew/opt/llvm@23"
   elif [[ -d "/usr/local/opt/llvm@23" ]]; then
     LLVM_PREFIX="/usr/local/opt/llvm@23"
