@@ -38,8 +38,8 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        3,
-        "expected 3 constrain.eq ops total"
+        4,
+        "opcode constraints plus the unit output constraint"
     );
     assert_eq!(
         count_occurrences(&ir, "cast.tofelt"),
@@ -53,8 +53,8 @@ fn xor_witness_inputs_emits_correct_ops_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        2,
-        "expected shared range bound and true constants"
+        4,
+        "opcode constants plus zero in compute and constrain"
     );
 
     assert!(module.as_operation().verify(), "module should verify");
@@ -91,8 +91,8 @@ fn xor_constant_inputs_emits_felt_constants_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "no bit-width constraints needed for constants that fit"
+        2,
+        "opcode constraints plus the unit output constraint"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
@@ -129,8 +129,8 @@ fn xor_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        2,
-        "expected 2 constrain.eq ops total"
+        3,
+        "opcode constraints plus the unit output constraint"
     );
     assert_eq!(
         count_occurrences(&ir, "cast.tofelt"),
@@ -144,8 +144,8 @@ fn xor_mixed_witness_and_constant_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        4,
-        "expected two data constants, range bound, and true constant"
+        6,
+        "opcode constants plus zero in compute and constrain"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }

@@ -30,8 +30,8 @@ fn rangecheck_witness_input_emits_constraint_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        1,
-        "expected 1 constrain.eq op total"
+        2,
+        "opcode constraints plus the unit output constraint"
     );
     assert_eq!(
         count_occurrences(&ir, "bool.assert"),
@@ -40,13 +40,13 @@ fn rangecheck_witness_input_emits_constraint_and_verifies() {
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        2,
-        "expected range bound and true constants"
+        4,
+        "opcode constants plus zero in compute and constrain"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }
 
-/// A constant that already fits in the target bit-width emits no IR in @constrain.
+/// A constant that fits needs no range constraints beyond the unit output constraint.
 #[test]
 fn rangecheck_constant_input_that_fits_emits_no_constraints() {
     let context = LlzkContext::new();
@@ -78,13 +78,13 @@ fn rangecheck_constant_input_that_fits_emits_no_constraints() {
     );
     assert_eq!(
         count_occurrences(&ir, "constrain.eq"),
-        0,
-        "expected no constrain.eq ops"
+        1,
+        "opcode constraints plus the unit output constraint"
     );
     assert_eq!(
         count_occurrences(&ir, "felt.const"),
-        0,
-        "expected no constants"
+        2,
+        "opcode constants plus zero in compute and constrain"
     );
     assert!(module.as_operation().verify(), "module should verify");
 }

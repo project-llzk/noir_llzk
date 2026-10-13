@@ -256,8 +256,8 @@ pub(super) fn iter_block_ops<'c, 'a>(
 }
 
 /// Prints the module IR, asserts MLIR-structural verification, and asserts the
-/// module lowers to PCL. Fixtures must expose at least one public member after
-/// struct inlining, as required by PCL.
+/// module lowers to PCL, including the generated unit output for entry circuits
+/// without ACIR returns.
 pub(crate) fn print_and_verify_module(module: &Module, label: &str) {
     let ir = format!("{}", module.as_operation());
     println!("{label}:\n{ir}");

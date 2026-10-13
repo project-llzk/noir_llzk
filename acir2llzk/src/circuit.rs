@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use acir::{
-    FieldElement,
+    AcirField, FieldElement,
     circuit::{
         Circuit, Opcode, Program,
         brillig::{BrilligFunctionId, BrilligInputs, BrilligOutputs},
@@ -118,10 +118,43 @@ impl<'c, 'p> CircuitTranslator<'c, 'p> {
                     // Phase 3: @constrain
                     op.emit_constrain(&mut constrain_writer)?;
                 }
+                if circuit_index == 0 && self.circuit.return_values.0.is_empty() {
+                    self.emit_unit_output(builder, &mut compute_writer, &mut constrain_writer)?;
+                }
                 Ok(())
             },
         )?;
         Ok(struct_def)
+    }
+
+    /// PCL requires a public output member, even for a relation with no ACIR
+    /// returns. Give the entry circuit a unit output fixed to zero in both
+    /// phases. This reveals no private witness and leaves ACIR call arities
+    /// and callee structs unchanged. The name cannot collide with generated
+    /// witness (`wN`) or opcode member names.
+    fn emit_unit_output(
+        &self,
+        builder: &OpBuilder<'c, '_>,
+        compute: &mut BlockWriter<'c, '_>,
+        constrain: &mut BlockWriter<'c, '_>,
+    ) -> Result<(), Error> {
+        let name = "__pcl_unit";
+        let felt_type = self.context.felt_type();
+        r#struct::member(
+            builder,
+            Location::unknown(self.context),
+            name,
+            felt_type,
+            true,
+            false,
+            true,
+        )?;
+        let zero = compute.emit_constant(&FieldElement::zero())?;
+        compute.write_member(name, zero)?;
+        let output = constrain.read_self_member(felt_type.into(), name)?;
+        let zero = constrain.emit_constant(&FieldElement::zero())?;
+        constrain.insert_constrain_eq(output, zero);
+        Ok(())
     }
 
     /// Converts each ACIR opcode into a [`TranslatedOpcode`], pre-computing

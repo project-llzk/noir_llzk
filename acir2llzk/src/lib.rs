@@ -75,7 +75,11 @@ impl<'c> Driver<'c> {
             .map_err(|e| Error::Loading(format!("ACIR deserialization error: {e}")))
     }
 
-    /// Translates the ACIR [`Program`] into a LLZK [`Module`]
+    /// Translates the ACIR [`Program`] into a LLZK [`Module`].
+    ///
+    /// An entry circuit without return witnesses receives a synthetic public
+    /// `__pcl_unit` member computed and constrained to zero, allowing PCL lowering
+    /// without exposing private inputs or changing ACIR call signatures.
     pub fn translate<'d>(&'d self, program: &Program<FieldElement>) -> DriverResult<Module<'d>> {
         let module = LlzkModuleBuilder::new(&self.ctx)
             .with_language(self.config.source_language())

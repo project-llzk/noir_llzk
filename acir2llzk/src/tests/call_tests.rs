@@ -367,12 +367,13 @@ fn call_output_used_in_subsequent_solve() {
         ],
     );
 
+    // The entry unit output adds one member, write, and read to these counts.
     // 2 internal witnesses (w2, w3) + 1 subcircuit = 3 members
     // writem: subcircuit + w2 (call output) + w3 (solve) = 3
     // constrain readm: subcircuit + w2 + w3 (from %self) + w2 (from callee, return constraint) = 4
     let program = make_program(vec![circuit0, circuit1]);
     println!("ACIR: {:?}", program);
-    translate_and_assert(&driver, &program, "Circuit0", 3, 3, 4, &["Circuit1"]);
+    translate_and_assert(&driver, &program, "Circuit0", 4, 4, 5, &["Circuit1"]);
 }
 
 /// Two Call opcodes to the same callee → two distinct subcircuit members.
@@ -394,6 +395,7 @@ fn two_calls_same_callee() {
         ],
     );
 
+    // The entry unit output adds one member, write, and read to these counts.
     // 3 internal witnesses (w2, w3, w4) + 2 subcircuits = 5 members
     // writem: 2 subcircuits + 3 outputs (w2, w3, w4) = 5
     // constrain readm: 2 subcircuits + 3 witnesses (w2, w3, w4) + 2 return values = 7
@@ -402,9 +404,9 @@ fn two_calls_same_callee() {
         &driver,
         &program,
         "Circuit0",
-        5,
-        5,
-        7,
+        6,
+        6,
+        8,
         &["Circuit1", "Circuit1"],
     );
 }
@@ -450,9 +452,10 @@ fn transitive_calls() {
     let c0_info = collect_call_info(&struct0);
     let c1_info = collect_call_info(&struct1);
 
+    // The entry unit output adds one member, write, and read to these counts.
     // Circuit0: 2 internal witnesses (w2, w3) + 2 subcircuits = 4 members; 2 calls
     // readm: 2 subcircuits + 2 witnesses (from %self) + 2 return values (from callees) = 6
-    c0_info.assert_counts(4, 2, 4, 6, "Circuit0");
+    c0_info.assert_counts(5, 2, 5, 7, "Circuit0");
     // Circuit1: 1 internal witness (w2) + 1 subcircuit = 2 members; 1 call
     // readm: subcircuit + w2 (from %self) + w2 (from callee, return constraint) = 3
     c1_info.assert_counts(2, 1, 2, 3, "Circuit1");
@@ -473,7 +476,7 @@ fn transitive_calls() {
     print_and_verify_module(&module, "transitive_calls");
 }
 
-/// A circuit containing only a call to an empty, zero-output callee verifies.
+/// An output-free circuit containing only a call to an empty callee lowers to PCL.
 #[test]
 fn call_only_circuit_verifies() {
     let driver = Driver::new(&TestConfig);
@@ -485,11 +488,18 @@ fn call_only_circuit_verifies() {
     let struct0 = first_struct_def(&module);
     let info = collect_call_info(&struct0);
 
-    // Only the subcircuit is stored and read; there are no returned witnesses.
-    info.assert_counts(1, 1, 1, 1, "Circuit0");
+    // The subcircuit and synthetic unit output are stored and read; there are
+    // still no ACIR return witnesses or extra call arguments.
+    info.assert_counts(2, 1, 2, 2, "Circuit0");
     info.calls[0].assert_shape(driver.context(), 0, "Circuit1", "Circuit0");
-    // This exact output-free program is valid LLZK but cannot lower to PCL.
-    assert!(module.as_operation().verify(), "Module should verify");
+    assert_eq!(info.calls[0].compute_operands.len(), 1);
+    let callee = StructDefOpRef::try_from(super::iter_block_ops(module.body()).nth(1).unwrap())
+        .expect("second struct should be the callee");
+    assert!(
+        callee.member_defs().is_empty(),
+        "callee should remain empty"
+    );
+    print_and_verify_module(&module, "call_only_circuit_verifies");
 }
 
 /// A caller containing only a call can expose its result as a public PCL output.
@@ -544,7 +554,7 @@ fn call_with_nontrivial_predicate() {
 
     // Basic structural checks.
     let info = collect_call_info(&struct0);
-    info.assert_counts(2, 1, 2, 3, "Circuit0");
+    info.assert_counts(3, 1, 3, 4, "Circuit0");
     info.calls[0].assert_shape(driver.context(), 0, "Circuit1", "Circuit0");
 
     // The predicate witness (w0 = %arg1) must appear in @constrain as the first
@@ -728,10 +738,11 @@ fn call_with_multiple_outputs() {
         vec![call_opcode(1, vec![0, 1], vec![2, 3])],
     );
 
+    // The entry unit output adds one member, write, and read to these counts.
     // 2 internal witnesses (w2, w3) + 1 subcircuit = 3 members
     // writem: subcircuit + w2 + w3 = 3; readm: subcircuit + w2 + w3 (from %self) + w2 + w3 (from callee, return constraints) = 5
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&driver, &program, "Circuit0", 3, 3, 5, &["Circuit1"]);
+    translate_and_assert(&driver, &program, "Circuit0", 4, 4, 6, &["Circuit1"]);
 }
 
 /// Calls two different callees at the same level (no transitivity).
@@ -759,6 +770,7 @@ fn two_calls_different_callees() {
         ],
     );
 
+    // The entry unit output adds one member, write, and read to these counts.
     // 3 internal witnesses (w2, w3, w4) + 2 subcircuits = 5 members
     // writem: 2 subcircuits + 3 outputs (w2, w3, w4) = 5; readm: 2 subcircuits + 3 witnesses (from %self) + 2 return values (from callees) = 7
     let program = make_program(vec![circuit0, circuit1, circuit2]);
@@ -766,9 +778,9 @@ fn two_calls_different_callees() {
         &driver,
         &program,
         "Circuit0",
-        5,
-        5,
-        7,
+        6,
+        6,
+        8,
         &["Circuit1", "Circuit2"],
     );
 }
@@ -791,10 +803,11 @@ fn call_with_public_params() {
         vec![call_opcode(1, vec![0, 1], vec![2])],
     );
 
+    // The entry unit output adds one member, write, and read to these counts.
     // 1 internal witness (w2) + 1 subcircuit = 2 members
     // writem: subcircuit + w2 = 2; readm: subcircuit + w2 (from %self) + w2 (from callee, return constraint) = 3
     let program = make_program(vec![circuit0, circuit1]);
-    translate_and_assert(&driver, &program, "Circuit0", 2, 2, 3, &["Circuit1"]);
+    translate_and_assert(&driver, &program, "Circuit0", 3, 3, 4, &["Circuit1"]);
 }
 
 /// A caller that returns a value produced by a subcircuit call exercises

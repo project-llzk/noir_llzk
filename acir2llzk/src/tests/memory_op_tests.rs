@@ -91,8 +91,8 @@ impl ExpectedCounts {
         );
         assert_eq!(
             count_occurrences(ir, "constrain.eq"),
-            self.constrain_eq,
-            "constrain.eq count"
+            self.constrain_eq + 1,
+            "memory constraints plus the entry unit output constraint"
         );
         assert_eq!(
             count_occurrences(ir, "llzk.nondet"),
