@@ -64,9 +64,8 @@ below.
 #### Prerequisites
 
 - **Rust** (edition 2024)
-- **LLVM 23** with MLIR support
+- **LLVM 23.1.3** with MLIR and Clang support
 - **zstd** (LLVM 23's MLIR libraries depend on libzstd for bitcode compression)
-- **[plc-mlir](https://github.com/Veridise/pcl-mlir)** built locally (for PCL/MLIR libraries)
 
 #### macOS (Homebrew)
 
@@ -80,38 +79,18 @@ Set the MLIR prefix path (used by the cmake commands below and by Cargo during b
 export MLIR_SYS_230_PREFIX=$(brew --prefix llvm@23)
 ```
 
-#### Building PCL
-
-Clone and build the `pcl-mlir` component at a known-good commit:
-
-```sh
-git clone https://github.com/Veridise/pcl-mlir.git
-cd pcl-mlir && git checkout 55cf619b032314198aacafc305871fb66b12b70e && cd ..
-```
-
-Build with CMake:
-
-```sh
-cmake -S pcl-mlir -B pcl-mlir/build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DBUILD_TESTING=OFF \
-  -DCMAKE_PREFIX_PATH=$MLIR_SYS_230_PREFIX
-cmake --build pcl-mlir/build
-```
-
-Note the path to `pcl-mlir` — you'll need it for the environment variables below.
-
-#### Building LLZK
+#### Building LLZK and PCL
 
 The [LLZK library](https://github.com/project-llzk/llzk-lib) must be built and installed separately.
 The Rust bindings ([llzk-rs](https://github.com/Veridise/llzk-rs)) expect the `LLZK_SYS_30_PREFIX`
 environment variable to point to the LLZK installation prefix.
 
-Clone at the commit used by the `llzk-rs` v1 release:
+Clone at the LLZK commit pinned in `flake.lock`, paired with the `llzk-rs` / `llzk-sys`
+revision in `Cargo.lock`.
 
 ```sh
 git clone https://github.com/project-llzk/llzk-lib.git
-cd llzk-lib && git checkout 030c16eeba535c5592d5cefc564a9101a3e2dc20 && cd ..
+cd llzk-lib && git checkout 1d2b49b221db0fca4e0bbea9840badde88f8e7b2 && cd ..
 ```
 
 Build and install with CMake:
@@ -141,8 +120,6 @@ The following environment variables must be set before building:
 | `TABLEGEN_230_PREFIX` | LLVM 23 installation prefix (same as above) |
 | `LIBCLANG_PATH` | Path to `libclang` shared library |
 | `LLZK_SYS_30_PREFIX` | Path to the LLZK installation prefix (see above) |
-| `LLZK_PCL_ROOT` | Path to `pcl-mlir` source directory |
-| `LLZK_PCL_PREFIX` | Path to `pcl-mlir/build` output directory |
 
 
  If MLIR's and LLVM's installation is not on standard paths set them here.
