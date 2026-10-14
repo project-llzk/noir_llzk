@@ -19,6 +19,7 @@ use crate::tests::TestConfig;
 mod blackboxes;
 mod brillig;
 mod circuit_tests;
+mod opcodes;
 
 // ── Felt construction helpers ───────────────────────────────────────────
 
@@ -117,6 +118,79 @@ fn run_e2e_program_with_phase_nondets(
         .run_constrain("Circuit0", computed.clone(), inputs)
         .expect("constrain should succeed");
     computed
+}
+
+/// Like [`assert_constrain_rejects_corrupted_witness`] but supplies nondet
+/// values for the compute and constrain phases, and allows the corrupted value
+/// and expected error substring to be chosen. Needed for opcodes whose
+/// `@constrain` consumes nondet hints (e.g. memory reads, whose selector is a
+/// one-hot over the block).
+pub(super) fn assert_constrain_rejects_with_nondet(
+    circuit: Circuit<FieldElement>,
+    inputs: &[Value],
+    corrupted_key: &str,
+    corrupt_to: Value,
+    expect_err_substr: &str,
+    compute_nondet: &[Felt],
+    constrain_nondet: &[Felt],
+) {
+    let program = make_program(vec![circuit]);
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
+    let mut interpreter = Interpreter::new(&module);
+    interpreter.set_nondet_values(compute_nondet.iter().cloned());
+    let mut computed = interpreter
+        .run_compute("Circuit0", inputs)
+        .expect("compute should succeed");
+    computed
+        .members
+        .insert(corrupted_key.to_string(), corrupt_to);
+    interpreter.set_nondet_values(constrain_nondet.iter().cloned());
+    let err = interpreter
+        .run_constrain("Circuit0", computed, inputs)
+        .expect_err("constrain should reject corrupted witness");
+    assert!(
+        err.to_string().contains(expect_err_substr),
+        "expected error containing {expect_err_substr:?}, got: {err}"
+    );
+}
+
+/// Asserts the honest witness is accepted by `@constrain`, without the ACVM
+/// differential. Use for circuits with no internal witnesses (e.g. a bare
+/// RANGE), where `run_e2e`'s differential comparison has nothing to compare.
+pub(super) fn assert_constrain_accepts(circuit: Circuit<FieldElement>, inputs: &[Value]) {
+    let program = make_program(vec![circuit]);
+    run_e2e_program(&program, inputs, &[]);
+}
+
+/// Runs `@compute` then `@constrain` on `inputs` directly (no corruption) and
+/// asserts `@constrain` rejects them with an error containing `expect_err_substr`.
+/// Use to test constraints that operate on inputs (e.g. RANGE), which
+/// `@constrain` reads from `inputs` rather than from the computed struct, so
+/// corrupting a computed member cannot exercise them.
+pub(super) fn assert_constrain_rejects_input(
+    circuit: Circuit<FieldElement>,
+    inputs: &[Value],
+    expect_err_substr: &str,
+) {
+    let program = make_program(vec![circuit]);
+    let driver = Driver::new(&TestConfig);
+    let module = driver
+        .translate(&program)
+        .expect("translation should succeed");
+    let mut interpreter = Interpreter::new(&module);
+    let computed = interpreter
+        .run_compute("Circuit0", inputs)
+        .expect("compute should succeed");
+    let err = interpreter
+        .run_constrain("Circuit0", computed, inputs)
+        .expect_err("constrain should reject out-of-range input");
+    assert!(
+        err.to_string().contains(expect_err_substr),
+        "expected error containing {expect_err_substr:?}, got: {err}"
+    );
 }
 
 /// Runs `@compute`, replaces witness `corrupted_key` with `0xdead`, and asserts
